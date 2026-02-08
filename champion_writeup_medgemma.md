@@ -28,7 +28,7 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
 
 1. **Intake Structuring Agent**: normalizes free-text into a compact schema and flags missing critical fields.
 2. **(Multi)modal Reasoning Agent**: generates a short differential + rationale (this is where MedGemma is intended to power clinical reasoning).
-3. **Evidence & Policy Agent**: translates reasoning into concrete next actions and ties them to local policy placeholders.
+3. **Evidence & Policy Agent**: translates reasoning into concrete next actions and attaches lightweight protocol-style citations (demo policy pack; replace with site protocols).
 4. **Safety & Escalation Agent**: applies deterministic red-flag rules + uncertainty thresholds to prevent under-triage.
 5. **Communication Agent**: produces a clinician handoff summary and patient-facing return precautions in plain language.
 
@@ -87,4 +87,3 @@ python -m clinicaflow.benchmarks.synthetic --seed 17 --n 220 --print-markdown
 2. MedGemma overview: https://developers.google.com/health-ai-developer-foundations/medgemma
 3. MedGemma 1.5 model card: https://developers.google.com/health-ai-developer-foundations/medgemma/model-card
 4. HAI-DEF terms: https://developers.google.com/health-ai-developer-foundations/terms
-

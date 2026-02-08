@@ -23,7 +23,7 @@ It implements a deterministic, auditable 5-agent triage pipeline aligned with th
 - `clinicaflow/` — core pipeline code
 - `tests/` — unit tests
 - `examples/` — sample payloads
-- `docs/` — architecture + benchmark notes
+- `docs/` — architecture + benchmark + safety + video script
 - `champion_writeup_medgemma.md` — competition write-up draft
 
 ## Quick Start
@@ -69,6 +69,10 @@ Start server:
 ```bash
 python -m clinicaflow.demo_server
 ```
+
+Open the local demo UI:
+
+- http://127.0.0.1:8000/
 
 Health check:
 

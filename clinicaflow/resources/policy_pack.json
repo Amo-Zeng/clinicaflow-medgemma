@@ -1,0 +1,40 @@
+{
+  "version": "0.1",
+  "notes": "This is a lightweight demo policy pack. Replace with site-specific protocols and IDs.",
+  "policies": [
+    {
+      "policy_id": "TRIAGE-CHESTPAIN-001",
+      "title": "Chest pain rapid assessment (demo)",
+      "triggers": ["chest pain", "chest tightness"],
+      "recommended_actions": [
+        "12-lead ECG within 10 minutes",
+        "Assess hemodynamic stability and oxygen saturation",
+        "Urgent clinician review if red flags present"
+      ],
+      "citation": "Demo policy pack (replace with site protocol)."
+    },
+    {
+      "policy_id": "TRIAGE-DYSPNEA-001",
+      "title": "Dyspnea / shortness of breath pathway (demo)",
+      "triggers": ["shortness of breath", "can’t catch breath"],
+      "recommended_actions": [
+        "Pulse oximetry trend monitoring",
+        "Consider chest imaging per local protocol",
+        "Escalate if SpO2 < 92% or increased work of breathing"
+      ],
+      "citation": "Demo policy pack (replace with site protocol)."
+    },
+    {
+      "policy_id": "TRIAGE-NEURO-001",
+      "title": "Possible stroke symptoms (demo)",
+      "triggers": ["slurred speech", "weakness one side", "word-finding difficulty", "confusion"],
+      "recommended_actions": [
+        "Urgent clinician review",
+        "Perform focused neuro exam per local protocol",
+        "Activate stroke pathway if within window"
+      ],
+      "citation": "Demo policy pack (replace with site protocol)."
+    }
+  ]
+}
+

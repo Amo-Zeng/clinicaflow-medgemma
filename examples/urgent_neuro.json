@@ -1,0 +1,21 @@
+{
+  "chief_complaint": "Word-finding difficulty and slurred speech since this morning",
+  "history": "History of hypertension. No trauma reported.",
+  "demographics": {
+    "age": 66,
+    "sex": "male"
+  },
+  "vitals": {
+    "heart_rate": 92,
+    "systolic_bp": 168,
+    "diastolic_bp": 98,
+    "temperature_c": 36.8,
+    "spo2": 97,
+    "respiratory_rate": 18
+  },
+  "image_descriptions": [],
+  "prior_notes": [
+    "Family reports sudden onset and new right-sided weakness"
+  ]
+}
+

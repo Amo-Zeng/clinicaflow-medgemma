@@ -17,3 +17,6 @@ clinicaflow = "clinicaflow.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["clinicaflow*"]
+
+[tool.setuptools.package-data]
+clinicaflow = ["resources/*.json"]

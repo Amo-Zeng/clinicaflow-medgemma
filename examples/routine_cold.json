@@ -1,0 +1,19 @@
+{
+  "chief_complaint": "Mild cough, sore throat, and runny nose for 2 days",
+  "history": "No chronic disease reported. No chest pain or shortness of breath.",
+  "demographics": {
+    "age": 29,
+    "sex": "male"
+  },
+  "vitals": {
+    "heart_rate": 84,
+    "systolic_bp": 118,
+    "diastolic_bp": 74,
+    "temperature_c": 37.2,
+    "spo2": 98,
+    "respiratory_rate": 16
+  },
+  "image_descriptions": [],
+  "prior_notes": []
+}
+

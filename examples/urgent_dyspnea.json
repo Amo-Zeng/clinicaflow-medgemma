@@ -1,0 +1,21 @@
+{
+  "chief_complaint": "Can’t catch breath and dizziness for 1 hour",
+  "history": "History of asthma. Using inhaler with little relief.",
+  "demographics": {
+    "age": 43,
+    "sex": "female"
+  },
+  "vitals": {
+    "heart_rate": 126,
+    "systolic_bp": 104,
+    "diastolic_bp": 66,
+    "temperature_c": 37.6,
+    "spo2": 90,
+    "respiratory_rate": 28
+  },
+  "image_descriptions": [
+    "Phone photo: patient visibly tachypneic with accessory muscle use"
+  ],
+  "prior_notes": []
+}
+

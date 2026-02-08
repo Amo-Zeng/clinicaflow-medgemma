@@ -33,7 +33,8 @@ Structured triage result + trace
 
 3. **Evidence & Policy Agent** (`clinicaflow/agents.py`)
    - Converts the reasoning output into concrete next actions.
-   - In production, this should be grounded in site protocols.
+   - Uses a lightweight **policy pack** (`clinicaflow/resources/policy_pack.json`) to attach protocol-like citations.
+   - In production, this should be replaced with site protocols and IDs.
 
 4. **Safety & Escalation Agent** (`clinicaflow/agents.py`, `clinicaflow/rules.py`)
    - Applies deterministic red-flag logic.
@@ -58,4 +59,3 @@ The stdlib demo server (`clinicaflow/demo_server.py`) exposes:
 
 - `GET /health`
 - `POST /triage` (body: `examples/sample_case.json`-compatible)
-
