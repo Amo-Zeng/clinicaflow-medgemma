@@ -1,0 +1,22 @@
+{
+  "chief_complaint": "Chest pain and shortness of breath for 20 minutes",
+  "history": "Patient has diabetes and hypertension.",
+  "demographics": {
+    "age": 61,
+    "sex": "female"
+  },
+  "vitals": {
+    "heart_rate": 128,
+    "systolic_bp": 92,
+    "diastolic_bp": 58,
+    "temperature_c": 37.9,
+    "spo2": 93,
+    "respiratory_rate": 24
+  },
+  "image_descriptions": [
+    "Portable chest image: mild bilateral interstitial opacities"
+  ],
+  "prior_notes": [
+    "Prior episode of exertional chest tightness last week"
+  ]
+}

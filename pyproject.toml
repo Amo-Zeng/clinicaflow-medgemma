@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clinicaflow"
+version = "0.1.0"
+description = "Agentic multimodal triage copilot scaffold aligned with MedGemma Impact Challenge"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "ClinicaFlow Team" }]
+dependencies = []
+
+[project.scripts]
+clinicaflow = "clinicaflow.cli:main"
+
+[tool.setuptools]
+packages = ["clinicaflow"]
