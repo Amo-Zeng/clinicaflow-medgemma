@@ -64,6 +64,18 @@ class MultimodalClinicalReasoningAgent:
     name = "multimodal_reasoning"
 
     def run(self, structured: StructuredIntake, vitals: Vitals) -> dict:
+        try:
+            from clinicaflow.inference.reasoning import run_reasoning_backend
+
+            backend_payload = run_reasoning_backend(structured=structured, vitals=vitals)
+            if backend_payload:
+                backend_payload["reasoning_backend"] = "external"
+                return backend_payload
+        except Exception as exc:  # noqa: BLE001
+            backend_error = str(exc)
+        else:
+            backend_error = ""
+
         differential: list[str] = []
         symptoms_text = " ".join(structured.symptoms)
 
@@ -85,6 +97,8 @@ class MultimodalClinicalReasoningAgent:
             "differential_considerations": _dedupe(differential)[:5],
             "reasoning_rationale": rationale,
             "uses_multimodal_context": bool(structured.normalized_summary),
+            "reasoning_backend": "deterministic",
+            "reasoning_backend_error": backend_error,
         }
 
 

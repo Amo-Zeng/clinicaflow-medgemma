@@ -93,10 +93,14 @@ curl -s -X POST http://127.0.0.1:8000/triage \
 Current code uses deterministic logic to keep the project runnable everywhere.
 To integrate a real model endpoint:
 
-1. Replace the logic in `MultimodalClinicalReasoningAgent.run`.
-2. Add your model client (local or hosted) and prompt templates.
-3. Keep safety escalation rules deterministic for clinical governance.
-4. Re-run tests and add benchmark scripts for your final submission metrics.
+1. Start an OpenAI-compatible endpoint for MedGemma (e.g. vLLM server mode).
+2. Set:
+   - `CLINICAFLOW_REASONING_BACKEND=openai_compatible`
+   - `CLINICAFLOW_REASONING_BASE_URL=http://127.0.0.1:8001`
+   - `CLINICAFLOW_REASONING_MODEL=<YOUR_MODEL_NAME>`
+3. Run the pipeline normally; the reasoning agent will call the endpoint and fall back safely if it fails.
+
+See `docs/MEDGEMMA_INTEGRATION.md` for details.
 
 ## Submission Checklist Mapping
 

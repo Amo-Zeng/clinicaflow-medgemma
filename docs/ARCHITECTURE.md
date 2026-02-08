@@ -29,6 +29,7 @@ Structured triage result + trace
 
 2. **(Multi)modal Reasoning Agent** (`clinicaflow/agents.py`)
    - Produces a short differential and a reasoning rationale.
+   - Optional OpenAI-compatible inference backend (`CLINICAFLOW_REASONING_BACKEND=openai_compatible`).
    - Intended integration point for MedGemma inference.
 
 3. **Evidence & Policy Agent** (`clinicaflow/agents.py`)
