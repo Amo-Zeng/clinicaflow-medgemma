@@ -15,5 +15,5 @@ dependencies = []
 [project.scripts]
 clinicaflow = "clinicaflow.cli:main"
 
-[tool.setuptools]
-packages = ["clinicaflow"]
+[tool.setuptools.packages.find]
+include = ["clinicaflow*"]

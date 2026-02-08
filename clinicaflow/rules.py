@@ -4,12 +4,16 @@ from clinicaflow.models import StructuredIntake, Vitals
 
 RED_FLAG_KEYWORDS = {
     "chest pain": "Potential acute coronary syndrome",
+    "chest tightness": "Potential acute coronary syndrome",
     "shortness of breath": "Respiratory compromise risk",
+    "can’t catch breath": "Respiratory compromise risk",
     "confusion": "Possible neurological or metabolic emergency",
     "fainting": "Syncope requiring urgent evaluation",
+    "near-syncope": "Syncope requiring urgent evaluation",
     "severe headache": "Possible intracranial pathology",
     "weakness one side": "Possible stroke",
     "slurred speech": "Possible stroke",
+    "word-finding difficulty": "Possible stroke",
     "bloody stool": "Possible gastrointestinal bleed",
     "vomiting blood": "Possible upper GI bleed",
     "pregnancy bleeding": "Possible obstetric emergency",

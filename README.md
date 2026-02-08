@@ -12,11 +12,18 @@ It implements a deterministic, auditable 5-agent triage pipeline aligned with th
 > This repository is a reference implementation for clinical decision support prototyping.
 > It is **not** a diagnostic device and must not be used for real-world autonomous medical decisions.
 
+## Links
+
+- Kaggle Writeup: https://www.kaggle.com/competitions/med-gemma-impact-challenge/writeups/new-writeup-1768960611416
+- Demo Video: https://www.youtube.com/watch?v=vZgvNssSSGk
+- Public Repo: https://github.com/Amo-Zeng/clinicaflow-medgemma
+
 ## Repository Layout
 
 - `clinicaflow/` — core pipeline code
 - `tests/` — unit tests
 - `examples/` — sample payloads
+- `docs/` — architecture + benchmark notes
 - `champion_writeup_medgemma.md` — competition write-up draft
 
 ## Quick Start
@@ -37,6 +44,22 @@ Run tests:
 
 ```bash
 python -m unittest discover -s tests
+```
+
+## Reproduce Writeup Benchmark
+
+This repo includes a small **synthetic proxy benchmark** used in the write-up to keep results reproducible.
+
+Print the markdown table:
+
+```bash
+python -m clinicaflow.benchmarks.synthetic --seed 17 --n 220 --print-markdown
+```
+
+Write JSON summary:
+
+```bash
+python -m clinicaflow.benchmarks.synthetic --seed 17 --n 220 --out results/synthetic_benchmark.json
 ```
 
 ## Demo API Server (stdlib)
@@ -76,9 +99,9 @@ To integrate a real model endpoint:
 - ✅ Main + Special Track selection (set in Kaggle write-up)
 - ✅ Structured write-up (`champion_writeup_medgemma.md`)
 - ✅ Public repository with reproducible code (this repo)
-- ⏳ Video link (to be added)
-- ⏳ Live demo link (optional)
-- ⏳ Hugging Face model link tracing to HAI-DEF (optional)
+- ✅ Video link (Kaggle carousel)
+- ✅ Live demo instructions (`clinicaflow.demo_server`)
+- ⚠️ Hugging Face model link tracing to HAI-DEF (optional; not released in this round)
 
 ## License
 

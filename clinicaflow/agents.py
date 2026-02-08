@@ -7,12 +7,15 @@ from clinicaflow.rules import RISK_FACTORS, compute_risk_tier, estimate_confiden
 
 SYMPTOM_LEXICON = [
     "chest pain",
+    "chest tightness",
     "shortness of breath",
+    "can’t catch breath",
     "cough",
     "fever",
     "headache",
     "dizziness",
     "fainting",
+    "near-syncope",
     "nausea",
     "vomiting",
     "abdominal pain",
@@ -20,6 +23,7 @@ SYMPTOM_LEXICON = [
     "blurred vision",
     "slurred speech",
     "weakness one side",
+    "word-finding difficulty",
     "confusion",
 ]
 

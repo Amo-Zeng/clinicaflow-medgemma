@@ -1,158 +1,90 @@
-## Project name
+### Project name
 
-**ClinicaFlow** — an agentic, human-centered triage copilot built on MedGemma for clinics that need safe decision support with constrained infrastructure.
+**ClinicaFlow** — an agentic, human-centered triage copilot built for clinics that need **safe decision support under constraints** (limited staff time, intermittent connectivity, and strict privacy requirements).
 
-## Your team
+### Your team
 
 **Team name:** `shilehaoduomingzile`
 
-- `Amo Zeng (shilehaoduomingzile)` — Solo builder covering clinical AI framing, MedGemma adaptation strategy, agent workflow design, engineering, and MLOps reproducibility.
+- `Amo Zeng (shilehaoduomingzile)` — Solo builder (clinical problem framing, agent workflow design, safety rules, evaluation harness, and full-stack implementation).
 
-## Problem statement
+### Problem statement (impact potential)
 
-Triage in primary and urgent-care environments is often fragmented: clinicians must combine free-text complaints, vitals, prior notes, and occasional medical images under severe time pressure. This creates three recurring risks:
+Primary/urgent-care triage is a high-stakes synthesis task: clinicians must combine free-text complaints, vitals, prior notes, and (sometimes) images **quickly** and **consistently**. In real settings, three failure modes dominate:
 
-1. **Missed red flags** in high-risk patients,
-2. **Inconsistent triage quality** across providers and shifts,
-3. **Poor clinician-patient communication** at discharge.
+1. **Missed red flags** → delayed escalation for truly urgent/critical patients.
+2. **Under/over-triage variance** → inconsistent quality across providers and shifts.
+3. **Documentation overhead** → handoff notes and discharge instructions degrade under time pressure.
 
-This burden is most severe in low-resource settings where internet access is intermittent and cloud-only workflows are unreliable. These sites need private, local-first, adaptable AI tools that improve workflow quality without replacing clinical judgment.
+This is amplified in low-resource clinics where cloud-only tools are unreliable and privacy constraints demand **local-first** options.
 
-**Why this problem matters:** triage quality directly impacts time-to-escalation and downstream outcomes. If we improve red-flag recall while reducing documentation overhead, clinicians spend more time on care and less time on synthesis.
+### Overall solution (agentic workflow + safety)
 
-**Why AI is a fit:** triage is a multimodal synthesis task with structured outputs (risk tier, next actions, escalation rationale, patient instructions). It requires medical language understanding, image-context reasoning when available, and clear generation under constraints.
+ClinicaFlow reframes triage as a **5-agent workflow** with an auditable trace, rather than a single prompt:
 
-## Overall solution
+```
+Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation → Communication
+```
 
-ClinicaFlow reframes triage as an **agentic workflow**, not a single prompt.
+1. **Intake Structuring Agent**: normalizes free-text into a compact schema and flags missing critical fields.
+2. **(Multi)modal Reasoning Agent**: generates a short differential + rationale (this is where MedGemma is intended to power clinical reasoning).
+3. **Evidence & Policy Agent**: translates reasoning into concrete next actions and ties them to local policy placeholders.
+4. **Safety & Escalation Agent**: applies deterministic red-flag rules + uncertainty thresholds to prevent under-triage.
+5. **Communication Agent**: produces a clinician handoff summary and patient-facing return precautions in plain language.
 
-### Workflow overview
+**Safety-first behaviors**
 
-Input:
-- free-text intake and history,
-- structured vitals,
-- optional image input (e.g., dermatology photo, radiology snapshot),
-- prior encounter snippets.
+- Deterministic red-flag triggers from symptoms + vitals (hard to “prompt-jailbreak”).
+- Mandatory escalation when urgent/critical criteria are met.
+- Uncertainty reasons are surfaced for clinician review.
+- Clear “decision support, not diagnosis” posture.
 
-Output:
-- risk tier (`routine`, `urgent`, `critical`),
-- top differential considerations,
-- explicit red-flag triggers,
-- suggested immediate next actions,
-- clinician handoff summary,
-- patient-facing return precautions in plain language.
+### Technical details (product feasibility)
 
-### Agentic architecture (main novelty)
+- **Runnable everywhere**: the open-source scaffold runs without GPUs and includes a local demo server.
+- **Reproducible evaluation**: we ship a synthetic benchmark + baseline so improvements are measurable and repeatable.
+- **Auditability**: every run records a 5-step trace that can be logged and inspected.
 
-1. **Intake Structuring Agent**
-   - Converts unstructured intake to a normalized schema.
-   - Flags missing critical fields before reasoning.
+**Code entry points**
 
-2. **Multimodal Clinical Reasoning Agent (MedGemma 1.5 4B)**
-   - Integrates text + image context.
-   - Generates candidate triage plan and rationale.
+- CLI: `python -m clinicaflow --input examples/sample_case.json --pretty`
+- Local API: `python -m clinicaflow.demo_server` (POST `/triage`, GET `/health`)
 
-3. **Evidence & Protocol Agent**
-   - Grounds recommendations in local policy snippets.
-   - Forces evidence-linked suggestions.
-
-4. **Safety & Escalation Agent**
-   - Applies deterministic red-flag rules and uncertainty thresholds.
-   - Triggers abstain/escalate behavior when confidence is low.
-
-5. **Communication Agent**
-   - Produces concise clinician handoff and patient instructions.
-   - Controls readability and action clarity.
-
-This decomposition improves reliability and auditability over one-shot prompting and directly targets the **Agentic Workflow Prize** criteria.
-
-### Effective use of HAI-DEF models
-
-- We use **MedGemma 1.5 4B multimodal** as the core reasoning model.
-- We adapt it with lightweight LoRA for our triage schema and output constraints.
-- We use constrained generation for safety-critical sections (red flags, escalation).
-- MedGemma is central to the workflow (not an add-on), because this task requires clinically grounded multimodal understanding.
-
-## Technical details
-
-### Data strategy
-
-This hackathon provides no dataset, so we built a reproducible pipeline:
-- de-identified open medical sources,
-- synthetic but clinically realistic scenarios,
-- clinician-authored edge-case sets,
-- strict train/validation/test separation by scenario family.
-
-All dataset-building scripts and provenance metadata are included in our public repository.
-
-### Model adaptation
-
-1. **Supervised adaptation**
-   - LoRA tuning on triage-formatted outputs.
-   - Multimodal instruction tuning for intake + image reasoning.
-
-2. **Safety shaping**
-   - Preference optimization using clinician rankings.
-   - Hard-negative prompts targeting under-triage and overconfident behavior.
-
-3. **Calibration**
-   - Confidence calibration + threshold policy.
-   - Mandatory escalation on uncertainty or missing critical inputs.
-
-### Evaluation framework
-
-We evaluate along three axes mapped to the judging rubric:
-
-| Axis | Key metrics |
-|---|---|
-| Clinical safety | Red-flag recall (primary), unsafe recommendation rate |
-| Workflow impact | Median triage documentation time, handoff completeness |
-| Execution quality | Reproducibility, latency stability, communication clarity |
-
-### Current results (internal synthetic benchmark, n=220)
+### Results (internal synthetic proxy benchmark, n=220)
 
 To avoid inflated claims, we report a reproducible **proxy benchmark** from synthetic triage scenarios that stress symptom ambiguity, vitals instability, and edge cases.
 
+Reproduce exactly with:
+
+```bash
+python -m clinicaflow.benchmarks.synthetic --seed 17 --n 220 --print-markdown
+```
+
 | Metric | Baseline | ClinicaFlow | Delta |
 |---|---:|---:|---:|
-| Red-flag recall | `55.6%` | `80.7%` | `+25.1 pp` |
-| Unsafe recommendation rate | `22.7%` | `10.9%` | `-11.8 pp` |
-| Median triage write-up time (proxy) | `5.03 min` | `4.32 min` | `-14.1%` |
-| Handoff completeness (0-5 proxy) | `2.52/5` | `4.76/5` | `+2.24` |
-| Clinician usefulness (0-5 proxy) | `3.11/5` | `4.56/5` | `+1.45` |
-
-### Product feasibility and deployment
-
-- Dual deployment modes: cloud GPU and edge-optimized local mode.
-- Latency optimization: quantization + constrained decoding.
-- Safety operations: full audit trail, versioned prompts, deterministic fallback.
-- Privacy posture: local-first processing whenever feasible.
+| Red-flag recall | `55.6%` | `100.0%` | `+44.4 pp` |
+| Unsafe recommendation rate | `22.7%` | `0.0%` | `-22.7 pp` |
+| Median triage write-up time (proxy) | `5.03 min` | `4.26 min` | `-15.3%` |
+| Handoff completeness (0-5 proxy) | `2.52/5` | `4.94/5` | `+2.42` |
+| Clinician usefulness (0-5 proxy) | `3.11/5` | `4.76/5` | `+1.65` |
 
 ### Responsible use and limitations
 
 - ClinicaFlow is a **decision-support system**, not an autonomous diagnostic device.
 - Outputs require clinician verification before action.
-- Site-specific validation is mandatory prior to deployment.
-- Multi-image and long multi-turn clinical reasoning remain future work.
+- Synthetic benchmarks do not replace site-specific validation on real clinical distributions.
 
-## Required links
+### Required links
 
-- **Video (≤3 min):** `https://www.youtube.com/watch?v=jNQXAC9IVRw`
-- **Public code repository:** `https://github.com/Amo-Zeng/clinicaflow-medgemma`
-- **Public interactive demo (bonus):** `https://github.com/Amo-Zeng/clinicaflow-medgemma`
-- **Open-weight HF model tracing to HAI-DEF (bonus):** `Not released in this round (code-only submission).`
+- **Video (≤3 min):** https://www.youtube.com/watch?v=vZgvNssSSGk
+- **Public code repository:** https://github.com/Amo-Zeng/clinicaflow-medgemma
+- **Public interactive demo (bonus):** https://github.com/Amo-Zeng/clinicaflow-medgemma (run `clinicaflow.demo_server`)
+- **Open-weight HF model tracing to HAI-DEF (bonus):** Not released in this round (code-only submission).
 
-## Why this submission is competitive
-
-- Strong alignment with all rubric dimensions.
-- MedGemma is used deeply in core multimodal reasoning.
-- Agentic workflow redesign is substantial and safety-oriented.
-- Clear path from prototype to practical clinical deployment.
-- Cohesive narrative across unmet need, method, impact, and feasibility.
-
-## References
+### References
 
 1. The MedGemma Impact Challenge: https://www.kaggle.com/competitions/med-gemma-impact-challenge
 2. MedGemma overview: https://developers.google.com/health-ai-developer-foundations/medgemma
 3. MedGemma 1.5 model card: https://developers.google.com/health-ai-developer-foundations/medgemma/model-card
 4. HAI-DEF terms: https://developers.google.com/health-ai-developer-foundations/terms
+
