@@ -31,9 +31,14 @@ It is **not** a diagnostic device and must not be used for autonomous medical de
 - Perform site-specific evaluation on local distributions.
 - Establish escalation pathways when model outputs conflict with clinical intuition.
 
+## Threats considered (non-exhaustive)
+
+- **Prompt injection** in patient-provided text: external reasoning prompt treats intake as untrusted data and instructs the model to ignore embedded instructions.
+- **Model outage / invalid outputs**: reasoning backend is optional; failures fall back to deterministic reasoning, and safety escalation remains deterministic.
+- **Protocol drift**: evidence agent emits `policy_pack_sha256` so protocol updates are traceable in logs/traces.
+
 ## Data and privacy posture
 
 - Prefer **local-first** processing in constrained settings.
 - Avoid logging identifiable patient information.
 - If integrating a hosted model endpoint, ensure compliance with local policy and patient consent requirements.
-

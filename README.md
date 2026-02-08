@@ -97,6 +97,11 @@ Health check:
 curl -s http://127.0.0.1:8000/health
 ```
 
+Kubernetes-style probes:
+
+- `GET /ready`
+- `GET /live`
+
 Triage request:
 
 ```bash
@@ -112,10 +117,12 @@ Request tracing:
 ## Production-ish knobs (env vars)
 
 - `CLINICAFLOW_LOG_LEVEL` (default: `INFO`)
+- `CLINICAFLOW_JSON_LOGS` (default: `false`) — emit JSON logs (better for prod log pipelines)
 - `CLINICAFLOW_DEBUG` (default: `false`) — include error messages in API responses
 - `CLINICAFLOW_MAX_REQUEST_BYTES` (default: `262144`)
 - `CLINICAFLOW_POLICY_PACK_PATH` — replace demo policy pack with site protocols
 - `CLINICAFLOW_POLICY_TOPK` (default: `2`)
+- `CLINICAFLOW_CORS_ALLOW_ORIGIN` (default: `*`)
 
 ## Integrating Real MedGemma Inference
 

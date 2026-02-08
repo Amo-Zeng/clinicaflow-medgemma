@@ -17,6 +17,7 @@ python -m clinicaflow.demo_server
 - Demo UI: `http://127.0.0.1:8000/`
 - OpenAPI: `http://127.0.0.1:8000/openapi.json`
 - Metrics: `http://127.0.0.1:8000/metrics`
+- Probes: `GET /health`, `GET /ready`, `GET /live`
 
 ## Docker
 
@@ -34,12 +35,13 @@ docker compose up --build
 ## Suggested environment variables
 
 - `CLINICAFLOW_LOG_LEVEL=INFO`
+- `CLINICAFLOW_JSON_LOGS=false`
 - `CLINICAFLOW_DEBUG=false`
 - `CLINICAFLOW_MAX_REQUEST_BYTES=262144`
 - `CLINICAFLOW_POLICY_PACK_PATH=/path/to/site_policy_pack.json`
 - `CLINICAFLOW_POLICY_TOPK=2`
+- `CLINICAFLOW_CORS_ALLOW_ORIGIN=*`
 
 ## Model serving
 
 See `docs/MEDGEMMA_INTEGRATION.md` for connecting a MedGemma endpoint via an OpenAI-compatible server.
-

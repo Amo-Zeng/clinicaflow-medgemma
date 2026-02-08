@@ -6,20 +6,13 @@ import time
 import uuid
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse
 
+from clinicaflow.logging_config import configure_logging
 from clinicaflow.models import PatientIntake
 from clinicaflow.pipeline import ClinicaFlowPipeline
-from clinicaflow.settings import load_settings_from_env
+from clinicaflow.settings import Settings, load_settings_from_env
 from clinicaflow.version import __version__
-
-PIPELINE = ClinicaFlowPipeline()
-SETTINGS = load_settings_from_env()
-START_TIME = time.time()
-STATS = {
-    "requests_total": 0,
-    "triage_requests_total": 0,
-    "triage_errors_total": 0,
-}
 
 logger = logging.getLogger("clinicaflow.server")
 
@@ -119,11 +112,41 @@ DEMO_HTML = """<!doctype html>
 """
 
 
+def _new_stats() -> dict:
+    return {
+        "requests_total": 0,
+        "triage_requests_total": 0,
+        "triage_success_total": 0,
+        "triage_errors_total": 0,
+        "triage_risk_tier_total": {"routine": 0, "urgent": 0, "critical": 0},
+        "triage_reasoning_backend_total": {"deterministic": 0, "external": 0},
+        "triage_latency_ms_sum": 0.0,
+        "triage_latency_ms_count": 0,
+    }
+
+
+class ClinicaFlowHTTPServer(ThreadingHTTPServer):
+    def __init__(
+        self,
+        server_address: tuple[str, int],
+        handler_cls: type[BaseHTTPRequestHandler],
+        *,
+        pipeline: ClinicaFlowPipeline,
+        settings: Settings,
+    ) -> None:
+        super().__init__(server_address, handler_cls)
+        self.pipeline = pipeline
+        self.settings = settings
+        self.start_time = time.time()
+        self.stats = _new_stats()
+
+
 class ClinicaFlowHandler(BaseHTTPRequestHandler):
     server_version = "ClinicaFlowHTTP/1.0"
 
     def log_message(self, fmt: str, *args: object) -> None:  # noqa: N802
-        logger.info("http_access %s", fmt % args)
+        # Suppress BaseHTTPRequestHandler's default access logs; we emit structured logs instead.
+        return
 
     def _get_request_id(self) -> str:
         existing = self.headers.get("X-Request-ID") or self.headers.get("X-Request-Id")
@@ -136,12 +159,15 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
         content_type: str = "application/json; charset=utf-8",
         request_id: str | None = None,
     ) -> None:
+        self._last_status_code = int(code)
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         if request_id:
             self.send_header("X-Request-ID", request_id)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        allow_origin = getattr(self.server, "settings", None)
+        origin = allow_origin.cors_allow_origin if allow_origin else "*"
+        self.send_header("Access-Control-Allow-Origin", origin)
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Request-ID")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.end_headers()
 
@@ -154,84 +180,197 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         request_id = self._get_request_id()
-        STATS["requests_total"] += 1
+        started = time.perf_counter()
+        status_code = HTTPStatus.INTERNAL_SERVER_ERROR
+        try:
+            self.server.stats["requests_total"] += 1
+            path = urlparse(self.path).path
 
-        if self.path in {"/", "/demo"}:
-            self._set_headers(content_type="text/html; charset=utf-8", request_id=request_id)
-            self.wfile.write(DEMO_HTML.encode("utf-8"))
-            return
+            if path in {"/", "/demo"}:
+                self._set_headers(content_type="text/html; charset=utf-8", request_id=request_id)
+                self.wfile.write(DEMO_HTML.encode("utf-8"))
+                status_code = HTTPStatus.OK
+                return
 
-        if self.path == "/health":
-            self._write_json({"status": "ok"}, request_id=request_id)
-            return
+            if path in {"/health", "/ready", "/live"}:
+                self._write_json({"status": "ok"}, request_id=request_id)
+                status_code = HTTPStatus.OK
+                return
 
-        if self.path == "/version":
-            self._write_json({"version": __version__}, request_id=request_id)
-            return
+            if path == "/version":
+                self._write_json({"version": __version__}, request_id=request_id)
+                status_code = HTTPStatus.OK
+                return
 
-        if self.path == "/metrics":
-            uptime_s = int(time.time() - START_TIME)
-            payload = {
-                "uptime_s": uptime_s,
-                "version": __version__,
-                **STATS,
-            }
-            self._write_json(payload, request_id=request_id)
-            return
+            if path == "/metrics":
+                uptime_s = int(time.time() - self.server.start_time)
+                count = int(self.server.stats.get("triage_latency_ms_count") or 0)
+                total = float(self.server.stats.get("triage_latency_ms_sum") or 0.0)
+                avg = round(total / count, 2) if count else 0.0
+                payload = {
+                    "uptime_s": uptime_s,
+                    "version": __version__,
+                    "triage_latency_ms_avg": avg,
+                    **self.server.stats,
+                }
+                self._write_json(payload, request_id=request_id)
+                status_code = HTTPStatus.OK
+                return
 
-        if self.path == "/openapi.json":
-            self._write_json(_openapi_spec(), request_id=request_id)
-            return
+            if path == "/openapi.json":
+                self._write_json(_openapi_spec(), request_id=request_id)
+                status_code = HTTPStatus.OK
+                return
 
-        if self.path == "/example":
-            self._write_json(SAMPLE_INTAKE, request_id=request_id)
-            return
+            if path == "/example":
+                self._write_json(SAMPLE_INTAKE, request_id=request_id)
+                status_code = HTTPStatus.OK
+                return
 
-        self._write_json({"error": {"code": "not_found"}}, code=HTTPStatus.NOT_FOUND, request_id=request_id)
+            self._write_json({"error": {"code": "not_found"}}, code=HTTPStatus.NOT_FOUND, request_id=request_id)
+            status_code = HTTPStatus.NOT_FOUND
+        except Exception:  # noqa: BLE001
+            logger.exception("http_unhandled_error", extra={"event": "http_unhandled_error", "request_id": request_id})
+            self._write_json(
+                {"error": {"code": "internal_error"}},
+                code=HTTPStatus.INTERNAL_SERVER_ERROR,
+                request_id=request_id,
+            )
+            status_code = HTTPStatus.INTERNAL_SERVER_ERROR
+        finally:
+            status_code_i = int(getattr(self, "_last_status_code", int(status_code)))
+            latency_ms = round((time.perf_counter() - started) * 1000, 2)
+            logger.info(
+                "http_request",
+                extra={
+                    "event": "http_request",
+                    "method": "GET",
+                    "path": urlparse(self.path).path,
+                    "status_code": status_code_i,
+                    "latency_ms": latency_ms,
+                    "request_id": request_id,
+                },
+            )
 
     def do_POST(self) -> None:  # noqa: N802
         request_id = self._get_request_id()
-        STATS["requests_total"] += 1
-
-        if self.path != "/triage":
-            self._write_json({"error": {"code": "not_found"}}, code=HTTPStatus.NOT_FOUND, request_id=request_id)
-            return
-
-        STATS["triage_requests_total"] += 1
-        content_type = (self.headers.get("Content-Type") or "").lower()
-        if "application/json" not in content_type:
-            self._write_json(
-                {"error": {"code": "unsupported_media_type", "message": "Expected application/json"}},
-                code=HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
-                request_id=request_id,
-            )
-            return
-
+        started = time.perf_counter()
+        status_code = HTTPStatus.INTERNAL_SERVER_ERROR
         try:
-            length = int(self.headers.get("Content-Length", "0"))
-            if length > SETTINGS.max_request_bytes:
+            self.server.stats["requests_total"] += 1
+            path = urlparse(self.path).path
+
+            if path != "/triage":
+                self._write_json({"error": {"code": "not_found"}}, code=HTTPStatus.NOT_FOUND, request_id=request_id)
+                status_code = HTTPStatus.NOT_FOUND
+                return
+
+            self.server.stats["triage_requests_total"] += 1
+            content_type = (self.headers.get("Content-Type") or "").lower()
+            if "application/json" not in content_type:
                 self._write_json(
-                    {"error": {"code": "payload_too_large", "max_bytes": SETTINGS.max_request_bytes}},
+                    {"error": {"code": "unsupported_media_type", "message": "Expected application/json"}},
+                    code=HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                    request_id=request_id,
+                )
+                status_code = HTTPStatus.UNSUPPORTED_MEDIA_TYPE
+                return
+
+            length = int(self.headers.get("Content-Length", "0"))
+            if length <= 0:
+                self._write_json(
+                    {"error": {"code": "bad_request", "message": "Missing Content-Length"}},
+                    code=HTTPStatus.BAD_REQUEST,
+                    request_id=request_id,
+                )
+                status_code = HTTPStatus.BAD_REQUEST
+                return
+            if length > self.server.settings.max_request_bytes:
+                self._write_json(
+                    {"error": {"code": "payload_too_large", "max_bytes": self.server.settings.max_request_bytes}},
                     code=HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
                     request_id=request_id,
                 )
+                status_code = HTTPStatus.REQUEST_ENTITY_TOO_LARGE
                 return
+
             raw = self.rfile.read(length)
-            payload = json.loads(raw.decode("utf-8"))
+            try:
+                payload = json.loads(raw.decode("utf-8"))
+            except json.JSONDecodeError as exc:
+                self.server.stats["triage_errors_total"] += 1
+                self._write_json(
+                    {"error": {"code": "bad_json", "message": str(exc)}},
+                    code=HTTPStatus.BAD_REQUEST,
+                    request_id=request_id,
+                )
+                status_code = HTTPStatus.BAD_REQUEST
+                return
+
+            if not isinstance(payload, dict):
+                self.server.stats["triage_errors_total"] += 1
+                self._write_json(
+                    {"error": {"code": "invalid_payload", "message": "Expected a JSON object"}},
+                    code=HTTPStatus.UNPROCESSABLE_ENTITY,
+                    request_id=request_id,
+                )
+                status_code = HTTPStatus.UNPROCESSABLE_ENTITY
+                return
+
             intake = PatientIntake.from_mapping(payload)
-            started = time.perf_counter()
-            result = PIPELINE.run(intake, request_id=request_id).to_dict()
-            result["server_latency_ms"] = round((time.perf_counter() - started) * 1000, 2)
+            triage_started = time.perf_counter()
+            result = self.server.pipeline.run(intake, request_id=request_id).to_dict()
+            result["server_latency_ms"] = round((time.perf_counter() - triage_started) * 1000, 2)
+
+            self.server.stats["triage_success_total"] += 1
+            risk_tier = str(result.get("risk_tier") or "")
+            if risk_tier in self.server.stats["triage_risk_tier_total"]:
+                self.server.stats["triage_risk_tier_total"][risk_tier] += 1
+
+            backend = _extract_reasoning_backend(result)
+            if backend in self.server.stats["triage_reasoning_backend_total"]:
+                self.server.stats["triage_reasoning_backend_total"][backend] += 1
+
+            latency = float(result.get("total_latency_ms") or 0.0)
+            self.server.stats["triage_latency_ms_sum"] += latency
+            self.server.stats["triage_latency_ms_count"] += 1
+
+            logger.info(
+                "triage_complete",
+                extra={
+                    "event": "triage_complete",
+                    "request_id": request_id,
+                    "risk_tier": result.get("risk_tier"),
+                    "escalation_required": result.get("escalation_required"),
+                    "latency_ms": result.get("total_latency_ms"),
+                    "reasoning_backend": backend,
+                },
+            )
+
+            self._write_json(result, request_id=request_id)
+            status_code = HTTPStatus.OK
         except Exception as exc:  # noqa: BLE001
-            STATS["triage_errors_total"] += 1
-            logger.exception("triage_error request_id=%s", request_id)
+            self.server.stats["triage_errors_total"] += 1
+            logger.exception("triage_error", extra={"event": "triage_error", "request_id": request_id})
             error_payload = {"error": {"code": "bad_request"}}
-            if SETTINGS.debug:
+            if self.server.settings.debug:
                 error_payload["error"]["message"] = str(exc)
             self._write_json(error_payload, code=HTTPStatus.BAD_REQUEST, request_id=request_id)
-            return
-
-        self._write_json(result, request_id=request_id)
+            status_code = HTTPStatus.BAD_REQUEST
+        finally:
+            status_code_i = int(getattr(self, "_last_status_code", int(status_code)))
+            latency_ms = round((time.perf_counter() - started) * 1000, 2)
+            logger.info(
+                "http_request",
+                extra={
+                    "event": "http_request",
+                    "method": "POST",
+                    "path": urlparse(self.path).path,
+                    "status_code": status_code_i,
+                    "latency_ms": latency_ms,
+                    "request_id": request_id,
+                },
+            )
 
 
 def _openapi_spec() -> dict:
@@ -240,6 +379,8 @@ def _openapi_spec() -> dict:
         "info": {"title": "ClinicaFlow Demo API", "version": __version__},
         "paths": {
             "/health": {"get": {"responses": {"200": {"description": "ok"}}}},
+            "/ready": {"get": {"responses": {"200": {"description": "ok"}}}},
+            "/live": {"get": {"responses": {"200": {"description": "ok"}}}},
             "/version": {"get": {"responses": {"200": {"description": "version"}}}},
             "/metrics": {"get": {"responses": {"200": {"description": "metrics"}}}},
             "/example": {"get": {"responses": {"200": {"description": "sample intake"}}}},
@@ -247,10 +388,35 @@ def _openapi_spec() -> dict:
         },
     }
 
+def _extract_reasoning_backend(result_payload: dict) -> str:
+    try:
+        for step in result_payload.get("trace", []):
+            if step.get("agent") == "multimodal_reasoning":
+                output = step.get("output") or {}
+                backend = output.get("reasoning_backend")
+                if backend in {"deterministic", "external"}:
+                    return backend
+    except Exception:  # noqa: BLE001
+        return "deterministic"
+    return "deterministic"
+
+
+def make_server(
+    host: str,
+    port: int,
+    *,
+    pipeline: ClinicaFlowPipeline | None = None,
+    settings: Settings | None = None,
+) -> ClinicaFlowHTTPServer:
+    settings = settings or load_settings_from_env()
+    pipeline = pipeline or ClinicaFlowPipeline()
+    return ClinicaFlowHTTPServer((host, port), ClinicaFlowHandler, pipeline=pipeline, settings=settings)
+
 
 def run(host: str = "0.0.0.0", port: int = 8000) -> None:
-    logging.basicConfig(level=getattr(logging, SETTINGS.log_level, logging.INFO))
-    server = ThreadingHTTPServer((host, port), ClinicaFlowHandler)
+    settings = load_settings_from_env()
+    configure_logging(level=settings.log_level, json_logs=settings.json_logs)
+    server = make_server(host, port, settings=settings)
     print(f"ClinicaFlow demo server running at http://{host}:{port}")
     print("Open / in your browser for the demo UI")
     print("POST /triage, GET /health, GET /metrics, and GET /openapi.json are available")

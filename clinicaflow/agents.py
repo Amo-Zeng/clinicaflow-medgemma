@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 
 from clinicaflow.models import PatientIntake, StructuredIntake, Vitals
-from clinicaflow.policy_pack import PolicySnippet, load_policy_pack, match_policies
+from clinicaflow.policy_pack import PolicySnippet, load_policy_pack, match_policies, policy_pack_sha256
 from clinicaflow.rules import RISK_FACTORS, compute_risk_tier, estimate_confidence, find_red_flags
 from clinicaflow.settings import load_settings_from_env
 from clinicaflow.text import normalize_text
@@ -82,14 +82,16 @@ class MultimodalClinicalReasoningAgent:
             backend_error = ""
 
         differential: list[str] = []
-        symptoms_text = " ".join(structured.symptoms)
+        symptoms_text = normalize_text(" ".join(structured.symptoms)).lower()
 
-        if "chest pain" in symptoms_text:
+        if "chest pain" in symptoms_text or "chest tightness" in symptoms_text:
             differential.extend(["Acute coronary syndrome", "Pulmonary embolism", "GERD"])
-        if "shortness of breath" in symptoms_text:
+        if "shortness of breath" in symptoms_text or "can't catch breath" in symptoms_text:
             differential.extend(["Pneumonia", "Asthma/COPD exacerbation", "Heart failure"])
         if "fever" in symptoms_text and "cough" in symptoms_text:
             differential.extend(["Community-acquired pneumonia", "Viral respiratory infection"])
+        if "slurred speech" in symptoms_text or "word-finding difficulty" in symptoms_text or "weakness one side" in symptoms_text:
+            differential.extend(["Acute ischemic stroke", "Intracranial hemorrhage", "Hypoglycemia"])
         if not differential:
             differential.extend(["Viral syndrome", "Medication side effect", "Dehydration"])
 
@@ -114,6 +116,7 @@ class EvidencePolicyAgent:
         settings = load_settings_from_env()
         policies = _default_policies()
         matched = match_policies(policies, text=structured.normalized_summary)
+        meta = _policy_pack_meta()
 
         action_pool = [
             "Repeat full set of vitals within 15 minutes",
@@ -124,6 +127,7 @@ class EvidencePolicyAgent:
             action_pool.extend(policy.recommended_actions)
 
         return {
+            **meta,
             "protocol_citations": [policy.to_dict() for policy in matched[: settings.policy_top_k]],
             "recommended_next_actions": _dedupe(action_pool)[:6],
             "evidence_note": "Recommendations are grounded in a demo policy pack; replace with site protocol IDs and citations.",
@@ -185,10 +189,14 @@ def _dedupe(items: list[str]) -> list[str]:
 
 
 _CACHED_POLICIES: list[PolicySnippet] | None = None
+_CACHED_POLICY_SHA256: str | None = None
+_CACHED_POLICY_SOURCE: str | None = None
 
 
 def _default_policies() -> list[PolicySnippet]:
     global _CACHED_POLICIES  # noqa: PLW0603
+    global _CACHED_POLICY_SHA256  # noqa: PLW0603
+    global _CACHED_POLICY_SOURCE  # noqa: PLW0603
     if _CACHED_POLICIES is not None:
         return _CACHED_POLICIES
     try:
@@ -196,10 +204,26 @@ def _default_policies() -> list[PolicySnippet]:
         from importlib.resources import files
 
         if settings.policy_pack_path:
-            _CACHED_POLICIES = load_policy_pack(settings.policy_pack_path)
+            source = settings.policy_pack_path
+            _CACHED_POLICIES = load_policy_pack(source)
+            _CACHED_POLICY_SHA256 = policy_pack_sha256(source)
+            _CACHED_POLICY_SOURCE = str(source)
         else:
             policy_path = files("clinicaflow.resources").joinpath("policy_pack.json")
             _CACHED_POLICIES = load_policy_pack(policy_path)
+            _CACHED_POLICY_SHA256 = policy_pack_sha256(policy_path)
+            _CACHED_POLICY_SOURCE = "package:clinicaflow.resources/policy_pack.json"
     except Exception:  # noqa: BLE001
         _CACHED_POLICIES = []
+        _CACHED_POLICY_SHA256 = None
+        _CACHED_POLICY_SOURCE = None
     return _CACHED_POLICIES
+
+
+def _policy_pack_meta() -> dict[str, str]:
+    # Ensure cache is populated.
+    _default_policies()
+    return {
+        "policy_pack_sha256": _CACHED_POLICY_SHA256 or "",
+        "policy_pack_source": _CACHED_POLICY_SOURCE or "",
+    }

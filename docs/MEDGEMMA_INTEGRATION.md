@@ -27,6 +27,10 @@ export CLINICAFLOW_REASONING_MODEL=<YOUR_MODEL_NAME>
 # optional:
 export CLINICAFLOW_REASONING_API_KEY=<TOKEN_IF_NEEDED>
 export CLINICAFLOW_REASONING_TIMEOUT_S=30
+export CLINICAFLOW_REASONING_MAX_RETRIES=1
+export CLINICAFLOW_REASONING_RETRY_BACKOFF_S=0.5
+export CLINICAFLOW_REASONING_TEMPERATURE=0.2
+export CLINICAFLOW_REASONING_MAX_TOKENS=600
 ```
 
 ## 3) Run a case
@@ -39,9 +43,9 @@ You should see:
 
 - `trace` includes `multimodal_reasoning` output with `reasoning_backend: "external"` when the call succeeds.
 - If the endpoint is unavailable or returns invalid JSON, ClinicaFlow falls back to deterministic reasoning and populates `reasoning_backend_error`.
+- The prompt wrapper quotes the intake summary as JSON and instructs the model to ignore embedded instructions (basic prompt-injection hardening).
 
 ## Notes on safety
 
 - The **Safety & Escalation Agent** remains deterministic by design.
 - You should keep site protocols in the policy pack (`clinicaflow/resources/policy_pack.json`) and replace demo entries with real protocol IDs.
-

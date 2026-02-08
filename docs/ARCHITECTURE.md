@@ -36,6 +36,7 @@ Structured triage result + trace
    - Converts the reasoning output into concrete next actions.
    - Uses a lightweight **policy pack** (`clinicaflow/resources/policy_pack.json`) to attach protocol-like citations.
    - In production, this should be replaced with site protocols and IDs.
+   - Emits `policy_pack_sha256` + `policy_pack_source` for governance (so changes to protocols are auditable).
 
 4. **Safety & Escalation Agent** (`clinicaflow/agents.py`, `clinicaflow/rules.py`)
    - Applies deterministic red-flag logic.

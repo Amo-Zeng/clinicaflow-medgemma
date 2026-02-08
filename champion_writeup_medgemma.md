@@ -44,7 +44,18 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
 - **Runnable everywhere**: the open-source scaffold runs without GPUs and includes a local demo server.
 - **Reproducible evaluation**: we ship a synthetic benchmark + baseline so improvements are measurable and repeatable.
 - **Auditability**: every run records a 5-step trace that can be logged and inspected.
-- **Production-ready scaffolding**: request IDs, OpenAPI spec + metrics endpoint, Docker image, and CI.
+- **Production-ready scaffolding**:
+  - request IDs end-to-end (`X-Request-ID`),
+  - probes (`GET /health`, `GET /ready`, `GET /live`),
+  - OpenAPI spec + metrics endpoint,
+  - optional JSON logs (`CLINICAFLOW_JSON_LOGS=true`) for log pipelines,
+  - Docker image + CI.
+- **Governance metadata**:
+  - Evidence agent emits `policy_pack_sha256` + `policy_pack_source`,
+  - external reasoning emits `reasoning_backend_model` + `reasoning_prompt_version`.
+- **Reliability & security** (when using an external model endpoint):
+  - retry/backoff knobs (`CLINICAFLOW_REASONING_MAX_RETRIES`, `...RETRY_BACKOFF_S`),
+  - basic prompt-injection hardening (quotes patient summary as JSON; ignores embedded instructions).
 
 **Code entry points**
 
