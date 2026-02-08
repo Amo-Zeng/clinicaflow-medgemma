@@ -42,3 +42,4 @@ It is **not** a diagnostic device and must not be used for autonomous medical de
 - Prefer **local-first** processing in constrained settings.
 - Avoid logging identifiable patient information.
 - If integrating a hosted model endpoint, ensure compliance with local policy and patient consent requirements.
+- If writing audit bundles (`clinicaflow audit`), store them securely and follow retention/access controls.

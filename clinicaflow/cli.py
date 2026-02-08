@@ -32,47 +32,35 @@ def main() -> None:
         return
 
     if len(sys.argv) > 1 and sys.argv[1] in {"doctor", "diag"}:
-        from clinicaflow.settings import load_settings_from_env
-        from clinicaflow.policy_pack import load_policy_pack, policy_pack_sha256
+        from clinicaflow.diagnostics import collect_diagnostics
 
-        settings = load_settings_from_env()
+        print(json.dumps(collect_diagnostics(), indent=2, ensure_ascii=False))
+        return
 
-        # Resolve the policy pack source the same way the agents do.
-        source_label = settings.policy_pack_path
-        policy_path: object
-        if settings.policy_pack_path:
-            policy_path = settings.policy_pack_path
-        else:
-            from importlib.resources import files
+    if len(sys.argv) > 1 and sys.argv[1] in {"audit", "bundle"}:
+        audit_parser = argparse.ArgumentParser(description="Write an audit bundle for a triage run.")
+        audit_parser.add_argument("--input", required=True, help="Path to intake JSON file")
+        audit_parser.add_argument("--out-dir", required=True, help="Output directory for the audit bundle")
+        audit_parser.add_argument("--request-id", help="Optional request ID for trace correlation")
+        audit_parser.add_argument("--redact", action="store_true", help="Redact demographics/notes/image descriptions")
+        args = audit_parser.parse_args(sys.argv[2:])
 
-            policy_path = files("clinicaflow.resources").joinpath("policy_pack.json")
-            source_label = "package:clinicaflow.resources/policy_pack.json"
+        input_path = Path(args.input)
+        payload = json.loads(input_path.read_text(encoding="utf-8"))
+        intake = PatientIntake.from_mapping(payload)
 
-        # Avoid printing secrets like API keys.
-        payload = {
-            "version": __version__,
-            "settings": {
-                "debug": settings.debug,
-                "log_level": settings.log_level,
-                "json_logs": settings.json_logs,
-                "max_request_bytes": settings.max_request_bytes,
-                "policy_top_k": settings.policy_top_k,
-                "cors_allow_origin": settings.cors_allow_origin,
-            },
-            "policy_pack": {
-                "source": source_label,
-                "sha256": policy_pack_sha256(policy_path),
-                "n_policies": len(load_policy_pack(policy_path)),
-            },
-            "reasoning_backend": {
-                "backend": os.environ.get("CLINICAFLOW_REASONING_BACKEND", "deterministic").strip(),
-                "base_url": os.environ.get("CLINICAFLOW_REASONING_BASE_URL", "").strip(),
-                "model": os.environ.get("CLINICAFLOW_REASONING_MODEL", "").strip(),
-                "timeout_s": os.environ.get("CLINICAFLOW_REASONING_TIMEOUT_S", "").strip(),
-                "max_retries": os.environ.get("CLINICAFLOW_REASONING_MAX_RETRIES", "").strip(),
-            },
-        }
-        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        result = ClinicaFlowPipeline().run(intake, request_id=args.request_id)
+
+        from clinicaflow.audit import write_audit_bundle
+
+        out_path = write_audit_bundle(out_dir=args.out_dir, intake=intake, result=result, redact=args.redact)
+        print(
+            json.dumps(
+                {"out_dir": str(out_path), "run_id": result.run_id, "request_id": result.request_id},
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
         return
 
     if len(sys.argv) > 1 and sys.argv[1] in {"benchmark", "bench"}:

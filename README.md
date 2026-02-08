@@ -52,6 +52,20 @@ Run tests:
 python -m unittest discover -s tests
 ```
 
+## Audit Bundle (QA / Compliance)
+
+Write an auditable run bundle (input + output + runtime diagnostics + manifest with hashes):
+
+```bash
+clinicaflow audit --input examples/sample_case.json --out-dir audits/run1
+```
+
+To reduce sensitive fields in the stored bundle:
+
+```bash
+clinicaflow audit --input examples/sample_case.json --out-dir audits/run1 --redact
+```
+
 ## Reproduce Writeup Benchmark
 
 This repo includes a small **synthetic proxy benchmark** used in the write-up to keep results reproducible.

@@ -63,6 +63,12 @@ Optional: show production-ish sanity check output:
 clinicaflow doctor
 ```
 
+Optional: show audit bundle generation (for QA/compliance):
+
+```bash
+clinicaflow audit --input examples/sample_case.json --out-dir audits/run1 --redact
+```
+
 Explain briefly:
 
 - baseline vs ClinicaFlow,

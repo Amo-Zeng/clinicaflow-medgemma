@@ -58,6 +58,12 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
   - retry/backoff knobs (`CLINICAFLOW_REASONING_MAX_RETRIES`, `...RETRY_BACKOFF_S`),
   - basic prompt-injection hardening (quotes patient summary as JSON; ignores embedded instructions).
 
+**Clinic deployment path (practical)**
+
+- **Local-first**: ClinicaFlow can run on a clinic workstation or small on-prem server; the reasoning model can be served as a separate on-prem service.
+- **Human-in-the-loop**: clinicians confirm escalation/disposition; ClinicaFlow drafts the note + checklist and highlights safety triggers.
+- **QA/compliance workflow**: `clinicaflow audit --input ... --out-dir ...` writes an audit bundle (input + output + doctor diagnostics + manifest with hashes). Use `--redact` to drop demographics/notes/images from the saved bundle.
+
 **Code entry points**
 
 - CLI: `python -m clinicaflow --input examples/sample_case.json --pretty`

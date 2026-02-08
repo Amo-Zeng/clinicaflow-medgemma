@@ -47,3 +47,13 @@ docker compose up --build
 ## Model serving
 
 See `docs/MEDGEMMA_INTEGRATION.md` for connecting a MedGemma endpoint via an OpenAI-compatible server.
+
+## Audit bundles
+
+For QA/compliance workflows, you can persist an auditable bundle per run:
+
+```bash
+clinicaflow audit --input examples/sample_case.json --out-dir audits/run1
+```
+
+Use `--redact` to omit demographics/notes/image descriptions from the saved bundle.

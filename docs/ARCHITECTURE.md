@@ -55,6 +55,8 @@ This is meant to support:
 - deployment governance (prompt/policy versioning),
 - and human debugging when a case looks wrong.
 
+For production-ish workflows, `clinicaflow audit` can persist an audit bundle (input + output + diagnostics + manifest with hashes).
+
 ## Local demo
 
 The stdlib demo server (`clinicaflow/demo_server.py`) exposes:
