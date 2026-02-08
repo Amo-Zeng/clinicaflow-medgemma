@@ -34,6 +34,8 @@ docker compose up --build
 
 ## Suggested environment variables
 
+- See `.env.example` for a complete list (including external reasoning backend knobs).
+
 - `CLINICAFLOW_LOG_LEVEL=INFO`
 - `CLINICAFLOW_JSON_LOGS=false`
 - `CLINICAFLOW_DEBUG=false`

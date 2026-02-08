@@ -124,6 +124,12 @@ Request tracing:
 - `CLINICAFLOW_POLICY_TOPK` (default: `2`)
 - `CLINICAFLOW_CORS_ALLOW_ORIGIN` (default: `*`)
 
+Quick config sanity check:
+
+```bash
+clinicaflow doctor
+```
+
 ## Integrating Real MedGemma Inference
 
 Current code uses deterministic logic to keep the project runnable everywhere.

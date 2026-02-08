@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
 from clinicaflow.models import PatientIntake
 from clinicaflow.pipeline import ClinicaFlowPipeline
+from clinicaflow.version import __version__
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -27,6 +29,50 @@ def main() -> None:
         from clinicaflow.demo_server import run
 
         run(host=args.host, port=args.port)
+        return
+
+    if len(sys.argv) > 1 and sys.argv[1] in {"doctor", "diag"}:
+        from clinicaflow.settings import load_settings_from_env
+        from clinicaflow.policy_pack import load_policy_pack, policy_pack_sha256
+
+        settings = load_settings_from_env()
+
+        # Resolve the policy pack source the same way the agents do.
+        source_label = settings.policy_pack_path
+        policy_path: object
+        if settings.policy_pack_path:
+            policy_path = settings.policy_pack_path
+        else:
+            from importlib.resources import files
+
+            policy_path = files("clinicaflow.resources").joinpath("policy_pack.json")
+            source_label = "package:clinicaflow.resources/policy_pack.json"
+
+        # Avoid printing secrets like API keys.
+        payload = {
+            "version": __version__,
+            "settings": {
+                "debug": settings.debug,
+                "log_level": settings.log_level,
+                "json_logs": settings.json_logs,
+                "max_request_bytes": settings.max_request_bytes,
+                "policy_top_k": settings.policy_top_k,
+                "cors_allow_origin": settings.cors_allow_origin,
+            },
+            "policy_pack": {
+                "source": source_label,
+                "sha256": policy_pack_sha256(policy_path),
+                "n_policies": len(load_policy_pack(policy_path)),
+            },
+            "reasoning_backend": {
+                "backend": os.environ.get("CLINICAFLOW_REASONING_BACKEND", "deterministic").strip(),
+                "base_url": os.environ.get("CLINICAFLOW_REASONING_BASE_URL", "").strip(),
+                "model": os.environ.get("CLINICAFLOW_REASONING_MODEL", "").strip(),
+                "timeout_s": os.environ.get("CLINICAFLOW_REASONING_TIMEOUT_S", "").strip(),
+                "max_retries": os.environ.get("CLINICAFLOW_REASONING_MAX_RETRIES", "").strip(),
+            },
+        }
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
         return
 
     if len(sys.argv) > 1 and sys.argv[1] in {"benchmark", "bench"}:
