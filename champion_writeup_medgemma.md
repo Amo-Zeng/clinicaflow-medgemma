@@ -51,7 +51,7 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
   - optional JSON logs (`CLINICAFLOW_JSON_LOGS=true`) for log pipelines,
   - optional API-key protection for `POST /triage` (`CLINICAFLOW_API_KEY`),
   - `clinicaflow doctor` for quick runtime/policy-pack sanity checks,
-  - Docker image + CI.
+  - Docker image (non-root runtime + healthcheck) + CI.
 - **Governance metadata**:
   - Evidence agent emits `policy_pack_sha256` + `policy_pack_source`,
   - external reasoning emits `reasoning_backend_model` + `reasoning_prompt_version`.

@@ -34,6 +34,11 @@ Or:
 docker compose up --build
 ```
 
+Notes:
+
+- The container runs the server as a non-root user.
+- A Docker `HEALTHCHECK` probes `GET /health`.
+
 ## Suggested environment variables
 
 - See `.env.example` for a complete list (including external reasoning backend knobs).
