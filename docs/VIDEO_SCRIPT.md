@@ -15,6 +15,7 @@ Show the demo UI (local):
 
 - Start `python -m clinicaflow.demo_server`
 - Open `http://127.0.0.1:8000/`
+- Optional: mention `GET /openapi.json`, `GET /metrics`, and `X-Request-ID` for audit/ops readiness.
 - Load a sample case and highlight:
   - risk tier,
   - red flags,
@@ -56,6 +57,12 @@ Show that results are reproducible:
 python -m clinicaflow.benchmarks.synthetic --seed 17 --n 220 --print-markdown
 ```
 
+Optional: show production-ish sanity check output:
+
+```bash
+clinicaflow doctor
+```
+
 Explain briefly:
 
 - baseline vs ClinicaFlow,
@@ -66,4 +73,3 @@ Explain briefly:
 - Impact: “faster, more consistent triage notes; fewer missed red flags.”
 - Links: Kaggle writeup + GitHub repo.
 - Roadmap: swap in real MedGemma inference + site protocol pack + clinical validation.
-
