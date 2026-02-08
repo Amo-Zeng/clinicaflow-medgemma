@@ -44,11 +44,12 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
 - **Runnable everywhere**: the open-source scaffold runs without GPUs and includes a local demo server.
 - **Reproducible evaluation**: we ship a synthetic benchmark + baseline so improvements are measurable and repeatable.
 - **Auditability**: every run records a 5-step trace that can be logged and inspected.
+- **Production-ready scaffolding**: request IDs, OpenAPI spec + metrics endpoint, Docker image, and CI.
 
 **Code entry points**
 
 - CLI: `python -m clinicaflow --input examples/sample_case.json --pretty`
-- Local API: `python -m clinicaflow.demo_server` (POST `/triage`, GET `/health`)
+- Local API: `python -m clinicaflow.demo_server` (UI `/`, POST `/triage`, GET `/openapi.json`, GET `/metrics`)
 
 ### Results (internal synthetic proxy benchmark, n=220)
 

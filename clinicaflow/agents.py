@@ -5,6 +5,8 @@ from dataclasses import asdict
 from clinicaflow.models import PatientIntake, StructuredIntake, Vitals
 from clinicaflow.policy_pack import PolicySnippet, load_policy_pack, match_policies
 from clinicaflow.rules import RISK_FACTORS, compute_risk_tier, estimate_confidence, find_red_flags
+from clinicaflow.settings import load_settings_from_env
+from clinicaflow.text import normalize_text
 
 SYMPTOM_LEXICON = [
     "chest pain",
@@ -33,8 +35,11 @@ class IntakeStructuringAgent:
     name = "intake_structuring"
 
     def run(self, intake: PatientIntake) -> dict:
-        text = intake.combined_text().lower()
-        symptoms = [symptom for symptom in SYMPTOM_LEXICON if symptom in text]
+        text = normalize_text(intake.combined_text()).lower()
+        symptoms = []
+        for symptom in SYMPTOM_LEXICON:
+            if normalize_text(symptom).lower() in text:
+                symptoms.append(symptom)
 
         risk_factors: list[str] = []
         for factor in RISK_FACTORS:
@@ -106,6 +111,7 @@ class EvidencePolicyAgent:
     name = "evidence_policy"
 
     def run(self, reasoning: dict, structured: StructuredIntake) -> dict:
+        settings = load_settings_from_env()
         policies = _default_policies()
         matched = match_policies(policies, text=structured.normalized_summary)
 
@@ -114,11 +120,11 @@ class EvidencePolicyAgent:
             "Obtain focused history for symptom onset, severity, and progression",
             "Document explicit red-flag checks in triage note",
         ]
-        for policy in matched[:2]:
+        for policy in matched[: settings.policy_top_k]:
             action_pool.extend(policy.recommended_actions)
 
         return {
-            "protocol_citations": [policy.to_dict() for policy in matched[:2]],
+            "protocol_citations": [policy.to_dict() for policy in matched[: settings.policy_top_k]],
             "recommended_next_actions": _dedupe(action_pool)[:6],
             "evidence_note": "Recommendations are grounded in a demo policy pack; replace with site protocol IDs and citations.",
         }
@@ -186,10 +192,14 @@ def _default_policies() -> list[PolicySnippet]:
     if _CACHED_POLICIES is not None:
         return _CACHED_POLICIES
     try:
+        settings = load_settings_from_env()
         from importlib.resources import files
 
-        policy_path = files("clinicaflow.resources").joinpath("policy_pack.json")
-        _CACHED_POLICIES = load_policy_pack(policy_path)
+        if settings.policy_pack_path:
+            _CACHED_POLICIES = load_policy_pack(settings.policy_pack_path)
+        else:
+            policy_path = files("clinicaflow.resources").joinpath("policy_pack.json")
+            _CACHED_POLICIES = load_policy_pack(policy_path)
     except Exception:  # noqa: BLE001
         _CACHED_POLICIES = []
     return _CACHED_POLICIES

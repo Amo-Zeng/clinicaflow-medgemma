@@ -1,0 +1,8 @@
+services:
+  clinicaflow:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      CLINICAFLOW_LOG_LEVEL: INFO
+

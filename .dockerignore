@@ -1,0 +1,12 @@
+__pycache__/
+.git/
+.github/
+.venv/
+venv/
+tmp/
+*.pyc
+*.pyo
+*.pyd
+*.zip
+*.png
+

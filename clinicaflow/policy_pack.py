@@ -5,6 +5,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from clinicaflow.text import normalize_text
+
 
 @dataclass(frozen=True, slots=True)
 class PolicySnippet:
@@ -35,12 +37,11 @@ def load_policy_pack(path: str | Path) -> list[PolicySnippet]:
 
 
 def match_policies(policies: list[PolicySnippet], *, text: str) -> list[PolicySnippet]:
-    text_l = text.lower()
+    text_l = normalize_text(text).lower()
     hits: list[tuple[int, PolicySnippet]] = []
     for policy in policies:
-        score = sum(1 for trigger in policy.triggers if trigger.lower() in text_l)
+        score = sum(1 for trigger in policy.triggers if normalize_text(trigger).lower() in text_l)
         if score:
             hits.append((score, policy))
     hits.sort(key=lambda x: (-x[0], x[1].policy_id))
     return [p for _, p in hits]
-

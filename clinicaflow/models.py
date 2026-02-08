@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from typing import Any
+from uuid import uuid4
 
 
 @dataclass(slots=True)
@@ -63,10 +65,17 @@ class StructuredIntake:
 class AgentTrace:
     agent: str
     output: dict[str, Any]
+    latency_ms: float | None = None
+    error: str | None = None
 
 
 @dataclass(slots=True)
 class TriageResult:
+    run_id: str
+    request_id: str
+    created_at: str
+    pipeline_version: str
+    total_latency_ms: float
     risk_tier: str
     escalation_required: bool
     differential_considerations: list[str]
@@ -82,6 +91,14 @@ class TriageResult:
         payload = asdict(self)
         payload["trace"] = [asdict(step) for step in self.trace]
         return payload
+
+
+def new_run_id() -> str:
+    return uuid4().hex
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
 def _to_float(value: Any) -> float | None:

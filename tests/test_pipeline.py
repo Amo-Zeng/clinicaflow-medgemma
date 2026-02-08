@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from uuid import UUID
 
 from clinicaflow.models import PatientIntake
 from clinicaflow.pipeline import ClinicaFlowPipeline
@@ -26,6 +27,9 @@ class PipelineTests(unittest.TestCase):
 
         result = self.pipeline.run(intake)
 
+        UUID(result.run_id)
+        self.assertTrue(result.created_at)
+        self.assertGreaterEqual(result.total_latency_ms, 0.0)
         self.assertEqual(result.risk_tier, "critical")
         self.assertTrue(result.escalation_required)
         self.assertGreaterEqual(len(result.red_flags), 2)
@@ -47,6 +51,7 @@ class PipelineTests(unittest.TestCase):
 
         result = self.pipeline.run(intake)
 
+        self.assertEqual(result.request_id, result.run_id)
         self.assertIn(result.risk_tier, {"routine", "urgent"})
         self.assertIsInstance(result.patient_summary, str)
         self.assertTrue(result.recommended_next_actions)
