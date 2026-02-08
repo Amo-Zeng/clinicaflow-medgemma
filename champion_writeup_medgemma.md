@@ -49,6 +49,7 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
   - probes (`GET /health`, `GET /ready`, `GET /live`),
   - OpenAPI spec + metrics endpoint,
   - optional JSON logs (`CLINICAFLOW_JSON_LOGS=true`) for log pipelines,
+  - optional API-key protection for `POST /triage` (`CLINICAFLOW_API_KEY`),
   - `clinicaflow doctor` for quick runtime/policy-pack sanity checks,
   - Docker image + CI.
 - **Governance metadata**:

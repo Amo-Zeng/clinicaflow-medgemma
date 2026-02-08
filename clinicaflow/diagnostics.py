@@ -41,6 +41,7 @@ def collect_diagnostics() -> dict[str, Any]:
             "max_request_bytes": settings.max_request_bytes,
             "policy_top_k": settings.policy_top_k,
             "cors_allow_origin": settings.cors_allow_origin,
+            "api_key_configured": bool(settings.api_key),
         },
         "policy_pack": {
             "source": policy_source,
@@ -57,4 +58,3 @@ def collect_diagnostics() -> dict[str, Any]:
     }
 
     return payload
-

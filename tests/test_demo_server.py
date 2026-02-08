@@ -58,6 +58,7 @@ class DemoServerTests(unittest.TestCase):
             policy_top_k=2,
             policy_pack_path="",
             cors_allow_origin="*",
+            api_key="",
         )
         server, thread, base_url = _start_server(settings=settings)
         try:
@@ -78,6 +79,7 @@ class DemoServerTests(unittest.TestCase):
             policy_top_k=2,
             policy_pack_path="",
             cors_allow_origin="*",
+            api_key="",
         )
         server, thread, base_url = _start_server(settings=settings)
         try:
@@ -112,6 +114,7 @@ class DemoServerTests(unittest.TestCase):
             policy_top_k=2,
             policy_pack_path="",
             cors_allow_origin="*",
+            api_key="",
         )
         server, thread, base_url = _start_server(settings=settings)
         try:
@@ -136,6 +139,7 @@ class DemoServerTests(unittest.TestCase):
             policy_top_k=2,
             policy_pack_path="",
             cors_allow_origin="*",
+            api_key="",
         )
         server, thread, base_url = _start_server(settings=settings)
         try:
@@ -160,6 +164,7 @@ class DemoServerTests(unittest.TestCase):
             policy_top_k=2,
             policy_pack_path="",
             cors_allow_origin="*",
+            api_key="",
         )
         server, thread, base_url = _start_server(settings=settings)
         try:

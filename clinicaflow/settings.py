@@ -13,6 +13,7 @@ class Settings:
     policy_top_k: int
     policy_pack_path: str
     cors_allow_origin: str
+    api_key: str
 
 
 def _get_env_bool(name: str, default: bool) -> bool:
@@ -30,6 +31,7 @@ def load_settings_from_env() -> Settings:
     policy_top_k = int(os.environ.get("CLINICAFLOW_POLICY_TOPK", "2").strip())
     policy_pack_path = os.environ.get("CLINICAFLOW_POLICY_PACK_PATH", "").strip()
     cors_allow_origin = os.environ.get("CLINICAFLOW_CORS_ALLOW_ORIGIN", "*").strip() or "*"
+    api_key = os.environ.get("CLINICAFLOW_API_KEY", "").strip()
 
     return Settings(
         debug=debug,
@@ -39,4 +41,5 @@ def load_settings_from_env() -> Settings:
         policy_top_k=policy_top_k,
         policy_pack_path=policy_pack_path,
         cors_allow_origin=cors_allow_origin,
+        api_key=api_key,
     )

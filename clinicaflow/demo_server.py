@@ -8,6 +8,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
+from clinicaflow.auth import is_authorized
 from clinicaflow.logging_config import configure_logging
 from clinicaflow.models import PatientIntake
 from clinicaflow.pipeline import ClinicaFlowPipeline
@@ -158,6 +159,7 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
         *,
         content_type: str = "application/json; charset=utf-8",
         request_id: str | None = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> None:
         self._last_status_code = int(code)
         self.send_response(code)
@@ -167,12 +169,22 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
         allow_origin = getattr(self.server, "settings", None)
         origin = allow_origin.cors_allow_origin if allow_origin else "*"
         self.send_header("Access-Control-Allow-Origin", origin)
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Request-ID")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Request-ID, Authorization, X-API-Key")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        if extra_headers:
+            for k, v in extra_headers.items():
+                self.send_header(k, v)
         self.end_headers()
 
-    def _write_json(self, payload: dict, *, code: int = HTTPStatus.OK, request_id: str | None = None) -> None:
-        self._set_headers(code, request_id=request_id)
+    def _write_json(
+        self,
+        payload: dict,
+        *,
+        code: int = HTTPStatus.OK,
+        request_id: str | None = None,
+        extra_headers: dict[str, str] | None = None,
+    ) -> None:
+        self._set_headers(code, request_id=request_id, extra_headers=extra_headers)
         self.wfile.write(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
 
     def do_OPTIONS(self) -> None:  # noqa: N802
@@ -263,6 +275,16 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
             if path != "/triage":
                 self._write_json({"error": {"code": "not_found"}}, code=HTTPStatus.NOT_FOUND, request_id=request_id)
                 status_code = HTTPStatus.NOT_FOUND
+                return
+
+            if not is_authorized(headers=self.headers, expected_api_key=self.server.settings.api_key):
+                self._write_json(
+                    {"error": {"code": "unauthorized"}},
+                    code=HTTPStatus.UNAUTHORIZED,
+                    request_id=request_id,
+                    extra_headers={"WWW-Authenticate": "Bearer"},
+                )
+                status_code = HTTPStatus.UNAUTHORIZED
                 return
 
             self.server.stats["triage_requests_total"] += 1

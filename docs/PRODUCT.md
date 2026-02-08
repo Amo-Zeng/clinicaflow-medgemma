@@ -53,6 +53,7 @@ Out of the box (stdlib server):
 - Health probes: `GET /health`, `GET /ready`, `GET /live`
 - Minimal metrics: `GET /metrics`
 - Optional structured JSON logs: `CLINICAFLOW_JSON_LOGS=true`
+- Optional API auth for `POST /triage`: set `CLINICAFLOW_API_KEY` and send `Authorization: Bearer ...` or `X-API-Key`
 - Config sanity check: `clinicaflow doctor`
 
 ## Privacy posture
@@ -68,4 +69,3 @@ Out of the box (stdlib server):
 - Integrate with EHR (e.g., via FHIR/HL7) for intake prefill + note export (future work).
 - Add role-based access control and authenticated API (future work).
 - Establish change management: model/prompt/protocol versioning, rollbacks, and QA gates.
-

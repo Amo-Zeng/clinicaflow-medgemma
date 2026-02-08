@@ -137,6 +137,7 @@ Request tracing:
 - `CLINICAFLOW_POLICY_PACK_PATH` — replace demo policy pack with site protocols
 - `CLINICAFLOW_POLICY_TOPK` (default: `2`)
 - `CLINICAFLOW_CORS_ALLOW_ORIGIN` (default: `*`)
+- `CLINICAFLOW_API_KEY` (default: empty) — if set, `POST /triage` requires auth (`Authorization: Bearer ...` or `X-API-Key`)
 
 Quick config sanity check:
 
