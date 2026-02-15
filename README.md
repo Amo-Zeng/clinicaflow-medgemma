@@ -34,6 +34,12 @@ source .venv/bin/activate
 pip install -e .
 ```
 
+One-click demo (starts the demo server; optionally starts a local MedGemma vLLM server if configured):
+
+```bash
+bash scripts/demo_one_click.sh
+```
+
 Run pipeline on sample case:
 
 ```bash
@@ -80,6 +86,22 @@ Write JSON summary:
 
 ```bash
 python -m clinicaflow.benchmarks.synthetic --seed 17 --n 220 --out results/synthetic_benchmark.json
+```
+
+## Clinical Vignette Regression Set (n=30)
+
+A small **synthetic vignette** regression set is included to catch under-triage regressions and verify red-flag recall.
+
+```bash
+python -m clinicaflow.benchmarks.vignettes --print-markdown
+```
+
+Labeling rubric + definitions: `docs/VIGNETTE_REGRESSION.md`
+
+Optional clinician review packet generator (no PHI):
+
+```bash
+python -m clinicaflow.benchmarks.review_packet --out reviews/clinician_review_packet.md --include-gold
 ```
 
 ## Demo API Server (stdlib)
@@ -158,6 +180,12 @@ To integrate a real model endpoint:
 3. Run the pipeline normally; the reasoning agent will call the endpoint and fall back safely if it fails.
 
 See `docs/MEDGEMMA_INTEGRATION.md` for details.
+
+One-click demo script options:
+
+- Deterministic (no model server): `bash scripts/demo_one_click.sh`
+- Start vLLM automatically (GPU machine): `MEDGEMMA_MODEL='<HF_ID_OR_LOCAL_PATH>' bash scripts/demo_one_click.sh`
+- Run vignette benchmark before starting server: `RUN_BENCHMARKS=1 bash scripts/demo_one_click.sh`
 
 ## Docker (quick deploy)
 

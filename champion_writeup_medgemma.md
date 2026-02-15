@@ -88,6 +88,31 @@ python -m clinicaflow.benchmarks.synthetic --seed 17 --n 220 --print-markdown
 | Handoff completeness (0-5 proxy) | `2.52/5` | `4.94/5` | `+2.42` |
 | Clinician usefulness (0-5 proxy) | `3.11/5` | `4.76/5` | `+1.65` |
 
+### Results (clinical vignette regression set, n=30)
+
+To complement the generator-based benchmark, we ship a small **synthetic vignette regression set** with a transparent labeling rubric to catch under-triage regressions.
+
+Reproduce exactly with:
+
+```bash
+python -m clinicaflow.benchmarks.vignettes --print-markdown
+```
+
+| Metric | Baseline | ClinicaFlow |
+|---|---:|---:|
+| Red-flag recall (category-level) | `87.5%` | `100.0%` |
+| Under-triage rate (gold urgent/critical → predicted routine) | `11.5%` | `0.0%` |
+| Over-triage rate (gold routine → predicted urgent/critical) | `50.0%` | `0.0%` |
+
+Rubric details: `docs/VIGNETTE_REGRESSION.md`
+
+### Clinician review (qualitative)
+
+We include tooling to collect a lightweight clinician review (no PHI), but we **do not fabricate** reviewer feedback.
+
+- Generate a review packet: `python -m clinicaflow.benchmarks.review_packet --out reviews/clinician_review_packet.md --include-gold`
+- Template for citing feedback responsibly: `docs/CLINICIAN_REVIEW_TEMPLATE.md`
+
 ### Responsible use and limitations
 
 - ClinicaFlow is a **decision-support system**, not an autonomous diagnostic device.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import re
 
 from clinicaflow.models import PatientIntake, StructuredIntake, Vitals
 from clinicaflow.policy_pack import PolicySnippet, load_policy_pack, match_policies, policy_pack_sha256
@@ -16,12 +17,16 @@ SYMPTOM_LEXICON = [
     "cough",
     "fever",
     "headache",
+    "severe headache",
     "dizziness",
     "fainting",
     "near-syncope",
     "nausea",
     "vomiting",
+    "vomiting blood",
     "abdominal pain",
+    "bloody stool",
+    "pregnancy bleeding",
     "rash",
     "blurred vision",
     "slurred speech",
@@ -38,7 +43,8 @@ class IntakeStructuringAgent:
         text = normalize_text(intake.combined_text()).lower()
         symptoms = []
         for symptom in SYMPTOM_LEXICON:
-            if normalize_text(symptom).lower() in text:
+            needle = normalize_text(symptom).lower()
+            if _contains_non_negated(text, needle):
                 symptoms.append(symptom)
 
         risk_factors: list[str] = []
@@ -186,6 +192,57 @@ def _dedupe(items: list[str]) -> list[str]:
             seen.add(item)
             out.append(item)
     return out
+
+
+_NEGATION_CUES = ("no", "denies", "deny", "without", "not")
+_NEGATION_BREAKS = ("but", "however", "except")
+_BOUNDARY_CHARS = ".;\n"
+
+
+def _contains_non_negated(text: str, needle: str) -> bool:
+    """Return True if `needle` appears without an obvious nearby negation cue.
+
+    This is a lightweight heuristic intended to reduce false positives like
+    "no shortness of breath" or "no fainting" triggering symptoms.
+    """
+
+    if not needle:
+        return False
+
+    start = 0
+    while True:
+        idx = text.find(needle, start)
+        if idx == -1:
+            return False
+        if not _is_negated(text, idx):
+            return True
+        start = idx + len(needle)
+
+
+def _is_negated(text: str, idx: int, *, window: int = 40) -> bool:
+    left = text[max(0, idx - window) : idx]
+    if not left:
+        return False
+
+    # Only consider the fragment after the last sentence-ish boundary.
+    boundary = max(left.rfind(ch) for ch in _BOUNDARY_CHARS)
+    frag = left[boundary + 1 :] if boundary != -1 else left
+    frag = frag.strip()
+    if not frag:
+        return False
+
+    # Find last negation cue in the fragment.
+    cue_spans = [m.span() for cue in _NEGATION_CUES for m in re.finditer(rf"\b{re.escape(cue)}\b", frag)]
+    if not cue_spans:
+        return False
+    last_cue_start, last_cue_end = max(cue_spans, key=lambda s: s[0])
+
+    # If there is a clear contrast word after the cue, treat as not negated.
+    after = frag[last_cue_end :]
+    if any(re.search(rf"\b{re.escape(b)}\b", after) for b in _NEGATION_BREAKS):
+        return False
+
+    return True
 
 
 _CACHED_POLICIES: list[PolicySnippet] | None = None

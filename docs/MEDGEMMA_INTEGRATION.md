@@ -5,6 +5,23 @@ To connect a real MedGemma deployment, ClinicaFlow supports an **OpenAI-compatib
 
 This works well with common self-hosting stacks (e.g. vLLM’s OpenAI server mode).
 
+## One-click demo (recommended)
+
+If you have a GPU machine with vLLM installed, you can let this repo start the model server and the ClinicaFlow demo API in one command:
+
+```bash
+MEDGEMMA_MODEL='<HF_ID_OR_LOCAL_PATH>' bash scripts/demo_one_click.sh
+```
+
+This will:
+
+- start `vllm.entrypoints.openai.api_server` on `http://127.0.0.1:8001` (customize with `MEDGEMMA_HOST` / `MEDGEMMA_PORT`),
+- export the required `CLINICAFLOW_REASONING_*` env vars,
+- run `clinicaflow doctor`,
+- start the ClinicaFlow demo server on `http://127.0.0.1:8000`.
+
+If you are running an already-hosted endpoint, set `CLINICAFLOW_REASONING_BACKEND=openai_compatible` and related env vars directly; the script will not override them.
+
 ## 1) Start a local model server (example: vLLM)
 
 This is a reference setup. Adjust for your hardware and model choice.

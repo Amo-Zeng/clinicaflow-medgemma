@@ -64,11 +64,35 @@ def main() -> None:
         return
 
     if len(sys.argv) > 1 and sys.argv[1] in {"benchmark", "bench"}:
-        from clinicaflow.benchmarks.synthetic import main as bench_main
+        explicit_sub = len(sys.argv) > 2 and not sys.argv[2].startswith("-")
+        sub = sys.argv[2] if explicit_sub else ""
+
+        if explicit_sub and sub in {"synthetic", "proxy"}:
+            from clinicaflow.benchmarks.synthetic import main as bench_main
+
+            argv = sys.argv[3:]
+            module = "clinicaflow.benchmarks.synthetic"
+        elif explicit_sub and sub in {"vignettes", "vignette"}:
+            from clinicaflow.benchmarks.vignettes import main as bench_main
+
+            argv = sys.argv[3:]
+            module = "clinicaflow.benchmarks.vignettes"
+        elif explicit_sub and sub in {"review_packet", "review-packet", "review"}:
+            from clinicaflow.benchmarks.review_packet import main as bench_main
+
+            argv = sys.argv[3:]
+            module = "clinicaflow.benchmarks.review_packet"
+        elif explicit_sub:
+            raise SystemExit(f"Unknown benchmark subcommand: {sub} (expected: synthetic|vignettes|review_packet)")
+        else:
+            from clinicaflow.benchmarks.synthetic import main as bench_main
+
+            argv = sys.argv[2:]
+            module = "clinicaflow.benchmarks.synthetic"
 
         original_argv = sys.argv
         try:
-            sys.argv = ["clinicaflow.benchmarks.synthetic", *sys.argv[2:]]
+            sys.argv = [module, *argv]
             bench_main()
         finally:
             sys.argv = original_argv

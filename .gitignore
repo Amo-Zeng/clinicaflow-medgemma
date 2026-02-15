@@ -11,3 +11,4 @@ venv/
 tmp/
 *.zip
 *.png
+kaggle.json

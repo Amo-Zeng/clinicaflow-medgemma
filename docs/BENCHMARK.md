@@ -7,6 +7,11 @@ To keep results **reproducible** and avoid inflated claims, this repo includes a
 - under-triage avoidance,
 - handoff completeness / documentation burden.
 
+In addition, we include a small **clinical vignette regression set** (n=30) with a transparent labeling rubric to catch under-triage regressions:
+
+- `docs/VIGNETTE_REGRESSION.md`
+- `python -m clinicaflow.benchmarks.vignettes --print-markdown`
+
 ## Run it
 
 Print the writeup table:
@@ -34,4 +39,3 @@ python -m clinicaflow.benchmarks.synthetic --seed 17 --n 220 --out results/synth
 - Synthetic cases cannot substitute for real clinical validation.
 - Metrics are proxies and should be interpreted as *workflow reliability signals*, not medical performance claims.
 - Before any real deployment, evaluate on site-specific data distributions with clinical oversight.
-

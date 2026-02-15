@@ -13,7 +13,9 @@ Replace bracketed items with your actual footage/screens.
 
 Show the demo UI (local):
 
-- Start `python -m clinicaflow.demo_server`
+- Start:
+  - deterministic: `bash scripts/demo_one_click.sh`
+  - with real MedGemma via vLLM (GPU machine): `MEDGEMMA_MODEL='<HF_ID_OR_LOCAL_PATH>' bash scripts/demo_one_click.sh`
 - Open `http://127.0.0.1:8000/`
 - Optional: mention `GET /openapi.json`, `GET /metrics`, and `X-Request-ID` for audit/ops readiness.
 - Load a sample case and highlight:
@@ -55,6 +57,12 @@ Show that results are reproducible:
 
 ```bash
 python -m clinicaflow.benchmarks.synthetic --seed 17 --n 220 --print-markdown
+```
+
+Also show the small vignette regression set (n=30):
+
+```bash
+python -m clinicaflow.benchmarks.vignettes --print-markdown
 ```
 
 Optional: show production-ish sanity check output:
