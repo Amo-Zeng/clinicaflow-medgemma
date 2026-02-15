@@ -68,7 +68,8 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
 **Code entry points**
 
 - CLI: `python -m clinicaflow --input examples/sample_case.json --pretty`
-- Local API: `python -m clinicaflow.demo_server` (UI `/`, POST `/triage`, GET `/openapi.json`, GET `/metrics`)
+- Local API (one-click): `bash scripts/demo_one_click.sh` (UI `/`, POST `/triage`, GET `/openapi.json`, GET `/metrics`)
+  - With real MedGemma via vLLM (GPU machine): `MEDGEMMA_MODEL='<HF_ID_OR_LOCAL_PATH>' bash scripts/demo_one_click.sh`
 
 ### Results (internal synthetic proxy benchmark, n=220)
 
@@ -123,7 +124,7 @@ We include tooling to collect a lightweight clinician review (no PHI), but we **
 
 - **Video (≤3 min):** https://www.youtube.com/watch?v=vZgvNssSSGk
 - **Public code repository:** https://github.com/Amo-Zeng/clinicaflow-medgemma
-- **Public interactive demo (bonus):** https://github.com/Amo-Zeng/clinicaflow-medgemma (run `clinicaflow.demo_server`)
+- **Public interactive demo (bonus):** https://github.com/Amo-Zeng/clinicaflow-medgemma (run `bash scripts/demo_one_click.sh`)
 - **Open-weight HF model tracing to HAI-DEF (bonus):** Not released in this round (code-only submission).
 
 ### References
