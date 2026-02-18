@@ -122,10 +122,19 @@ Open the local demo UI:
 
 - http://127.0.0.1:8000/
 
+Console features:
+
+- Structured triage form + JSON mode
+- Built-in vignette presets (n=30)
+- Agent trace viewer (audit-friendly)
+- Downloadable audit bundle zip (redacted/full)
+- Vignette regression tab + JSON export
+
 API spec & metrics:
 
 - OpenAPI: http://127.0.0.1:8000/openapi.json
 - Metrics: http://127.0.0.1:8000/metrics
+- Doctor (no secrets): http://127.0.0.1:8000/doctor
 
 Health check:
 

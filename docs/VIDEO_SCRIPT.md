@@ -17,7 +17,7 @@ Show the demo UI (local):
   - deterministic: `bash scripts/demo_one_click.sh`
   - with real MedGemma via vLLM (GPU machine): `MEDGEMMA_MODEL='<HF_ID_OR_LOCAL_PATH>' bash scripts/demo_one_click.sh`
 - Open `http://127.0.0.1:8000/`
-- Optional: mention `GET /openapi.json`, `GET /metrics`, and `X-Request-ID` for audit/ops readiness.
+- Optional: mention `GET /openapi.json`, `GET /metrics`, `GET /doctor`, and `X-Request-ID` for audit/ops readiness.
 - Load a sample case and highlight:
   - risk tier,
   - red flags,
@@ -25,6 +25,7 @@ Show the demo UI (local):
   - clinician handoff,
   - patient return precautions,
   - full agent trace.
+- Click **Download audit bundle (redacted)** to show QA/compliance readiness.
 
 ## 0:45–1:30 — Why it’s agentic (core novelty)
 
@@ -64,6 +65,10 @@ Also show the small vignette regression set (n=30):
 ```bash
 python -m clinicaflow.benchmarks.vignettes --print-markdown
 ```
+
+Or run it in the UI:
+
+- Go to the **Regression** tab → **Run benchmark** → show summary + per-case table.
 
 Optional: show production-ish sanity check output:
 

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import io
 import logging
 import json
 import time
 import uuid
+import zipfile
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from clinicaflow.auth import is_authorized
 from clinicaflow.logging_config import configure_logging
@@ -113,12 +115,51 @@ DEMO_HTML = """<!doctype html>
 """
 
 
+def _load_web_assets() -> dict[str, tuple[bytes, str]]:
+    """Load bundled web assets (UI) from package resources."""
+
+    assets = {
+        "index.html": "text/html; charset=utf-8",
+        "app.css": "text/css; charset=utf-8",
+        "app.js": "application/javascript; charset=utf-8",
+    }
+    try:
+        from importlib.resources import files
+
+        root = files("clinicaflow.resources").joinpath("web")
+        return {name: (root.joinpath(name).read_bytes(), content_type) for name, content_type in assets.items()}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+WEB_ASSETS = _load_web_assets()
+
+VIGNETTE_CACHE: list[dict] | None = None
+
+
+def _load_vignettes() -> list[dict]:
+    global VIGNETTE_CACHE  # noqa: PLW0603
+    if VIGNETTE_CACHE is not None:
+        return VIGNETTE_CACHE
+
+    try:
+        from clinicaflow.benchmarks.vignettes import load_default_vignette_path, load_vignettes
+
+        VIGNETTE_CACHE = load_vignettes(load_default_vignette_path())
+    except Exception:  # noqa: BLE001
+        VIGNETTE_CACHE = []
+    return VIGNETTE_CACHE
+
+
 def _new_stats() -> dict:
     return {
         "requests_total": 0,
         "triage_requests_total": 0,
         "triage_success_total": 0,
         "triage_errors_total": 0,
+        "audit_bundle_requests_total": 0,
+        "audit_bundle_success_total": 0,
+        "audit_bundle_errors_total": 0,
         "triage_risk_tier_total": {"routine": 0, "urgent": 0, "critical": 0},
         "triage_reasoning_backend_total": {"deterministic": 0, "external": 0},
         "triage_latency_ms_sum": 0.0,
@@ -171,6 +212,7 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", origin)
         self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Request-ID, Authorization, X-API-Key")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Expose-Headers", "X-Request-ID, Content-Disposition")
         if extra_headers:
             for k, v in extra_headers.items():
                 self.send_header(k, v)
@@ -187,6 +229,18 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
         self._set_headers(code, request_id=request_id, extra_headers=extra_headers)
         self.wfile.write(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
 
+    def _write_bytes(
+        self,
+        data: bytes,
+        *,
+        code: int = HTTPStatus.OK,
+        content_type: str = "application/octet-stream",
+        request_id: str | None = None,
+        extra_headers: dict[str, str] | None = None,
+    ) -> None:
+        self._set_headers(code, content_type=content_type, request_id=request_id, extra_headers=extra_headers)
+        self.wfile.write(data)
+
     def do_OPTIONS(self) -> None:  # noqa: N802
         self._set_headers(HTTPStatus.NO_CONTENT)
 
@@ -196,11 +250,35 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
         status_code = HTTPStatus.INTERNAL_SERVER_ERROR
         try:
             self.server.stats["requests_total"] += 1
-            path = urlparse(self.path).path
+            parsed = urlparse(self.path)
+            path = parsed.path
+            query = parse_qs(parsed.query)
 
             if path in {"/", "/demo"}:
-                self._set_headers(content_type="text/html; charset=utf-8", request_id=request_id)
-                self.wfile.write(DEMO_HTML.encode("utf-8"))
+                data, content_type = WEB_ASSETS.get("index.html", (DEMO_HTML.encode("utf-8"), "text/html; charset=utf-8"))
+                self._write_bytes(
+                    data,
+                    content_type=content_type,
+                    request_id=request_id,
+                    extra_headers={"Cache-Control": "no-store"},
+                )
+                status_code = HTTPStatus.OK
+                return
+
+            if path.startswith("/static/"):
+                name = path.split("/static/", 1)[1]
+                asset = WEB_ASSETS.get(name)
+                if not asset:
+                    self._write_json({"error": {"code": "not_found"}}, code=HTTPStatus.NOT_FOUND, request_id=request_id)
+                    status_code = HTTPStatus.NOT_FOUND
+                    return
+                data, content_type = asset
+                self._write_bytes(
+                    data,
+                    content_type=content_type,
+                    request_id=request_id,
+                    extra_headers={"Cache-Control": "public, max-age=3600"},
+                )
                 status_code = HTTPStatus.OK
                 return
 
@@ -211,6 +289,13 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
 
             if path == "/version":
                 self._write_json({"version": __version__}, request_id=request_id)
+                status_code = HTTPStatus.OK
+                return
+
+            if path == "/doctor":
+                from clinicaflow.diagnostics import collect_diagnostics
+
+                self._write_json(collect_diagnostics(), request_id=request_id)
                 status_code = HTTPStatus.OK
                 return
 
@@ -236,6 +321,48 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
 
             if path == "/example":
                 self._write_json(SAMPLE_INTAKE, request_id=request_id)
+                status_code = HTTPStatus.OK
+                return
+
+            if path == "/vignettes":
+                rows = _load_vignettes()
+                payload = {
+                    "vignettes": [
+                        {"id": str(row.get("id", "")), "chief_complaint": str((row.get("input") or {}).get("chief_complaint", ""))}
+                        for row in rows
+                    ]
+                }
+                self._write_json(payload, request_id=request_id)
+                status_code = HTTPStatus.OK
+                return
+
+            if path.startswith("/vignettes/"):
+                vid = unquote(path.split("/vignettes/", 1)[1]).strip()
+                if not vid:
+                    self._write_json({"error": {"code": "not_found"}}, code=HTTPStatus.NOT_FOUND, request_id=request_id)
+                    status_code = HTTPStatus.NOT_FOUND
+                    return
+
+                rows = _load_vignettes()
+                row = next((r for r in rows if str(r.get("id", "")).strip() == vid), None)
+                if not row:
+                    self._write_json({"error": {"code": "not_found"}}, code=HTTPStatus.NOT_FOUND, request_id=request_id)
+                    status_code = HTTPStatus.NOT_FOUND
+                    return
+
+                include_labels = str(query.get("include_labels", ["0"])[0]).strip().lower() in {"1", "true", "yes"}
+                out = {"id": vid, "input": dict(row.get("input") or {})}
+                if include_labels:
+                    out["labels"] = dict(row.get("labels") or {})
+                self._write_json(out, request_id=request_id)
+                status_code = HTTPStatus.OK
+                return
+
+            if path == "/bench/vignettes":
+                from clinicaflow.benchmarks.vignettes import load_default_vignette_path, run_benchmark
+
+                summary, per_case = run_benchmark(load_default_vignette_path())
+                self._write_json({"summary": summary.to_dict(), "per_case": per_case}, request_id=request_id)
                 status_code = HTTPStatus.OK
                 return
 
@@ -270,9 +397,11 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
         status_code = HTTPStatus.INTERNAL_SERVER_ERROR
         try:
             self.server.stats["requests_total"] += 1
-            path = urlparse(self.path).path
+            parsed = urlparse(self.path)
+            path = parsed.path
+            query = parse_qs(parsed.query)
 
-            if path != "/triage":
+            if path not in {"/triage", "/audit_bundle"}:
                 self._write_json({"error": {"code": "not_found"}}, code=HTTPStatus.NOT_FOUND, request_id=request_id)
                 status_code = HTTPStatus.NOT_FOUND
                 return
@@ -287,7 +416,6 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                 status_code = HTTPStatus.UNAUTHORIZED
                 return
 
-            self.server.stats["triage_requests_total"] += 1
             content_type = (self.headers.get("Content-Type") or "").lower()
             if "application/json" not in content_type:
                 self._write_json(
@@ -320,7 +448,10 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
             try:
                 payload = json.loads(raw.decode("utf-8"))
             except json.JSONDecodeError as exc:
-                self.server.stats["triage_errors_total"] += 1
+                if path == "/triage":
+                    self.server.stats["triage_errors_total"] += 1
+                else:
+                    self.server.stats["audit_bundle_errors_total"] += 1
                 self._write_json(
                     {"error": {"code": "bad_json", "message": str(exc)}},
                     code=HTTPStatus.BAD_REQUEST,
@@ -330,7 +461,10 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                 return
 
             if not isinstance(payload, dict):
-                self.server.stats["triage_errors_total"] += 1
+                if path == "/triage":
+                    self.server.stats["triage_errors_total"] += 1
+                else:
+                    self.server.stats["audit_bundle_errors_total"] += 1
                 self._write_json(
                     {"error": {"code": "invalid_payload", "message": "Expected a JSON object"}},
                     code=HTTPStatus.UNPROCESSABLE_ENTITY,
@@ -340,40 +474,70 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                 return
 
             intake = PatientIntake.from_mapping(payload)
-            triage_started = time.perf_counter()
-            result = self.server.pipeline.run(intake, request_id=request_id).to_dict()
-            result["server_latency_ms"] = round((time.perf_counter() - triage_started) * 1000, 2)
 
-            self.server.stats["triage_success_total"] += 1
-            risk_tier = str(result.get("risk_tier") or "")
-            if risk_tier in self.server.stats["triage_risk_tier_total"]:
-                self.server.stats["triage_risk_tier_total"][risk_tier] += 1
+            if path == "/triage":
+                self.server.stats["triage_requests_total"] += 1
+                triage_started = time.perf_counter()
+                result = self.server.pipeline.run(intake, request_id=request_id).to_dict()
+                result["server_latency_ms"] = round((time.perf_counter() - triage_started) * 1000, 2)
 
-            backend = _extract_reasoning_backend(result)
-            if backend in self.server.stats["triage_reasoning_backend_total"]:
-                self.server.stats["triage_reasoning_backend_total"][backend] += 1
+                self.server.stats["triage_success_total"] += 1
+                risk_tier = str(result.get("risk_tier") or "")
+                if risk_tier in self.server.stats["triage_risk_tier_total"]:
+                    self.server.stats["triage_risk_tier_total"][risk_tier] += 1
 
-            latency = float(result.get("total_latency_ms") or 0.0)
-            self.server.stats["triage_latency_ms_sum"] += latency
-            self.server.stats["triage_latency_ms_count"] += 1
+                backend = _extract_reasoning_backend(result)
+                if backend in self.server.stats["triage_reasoning_backend_total"]:
+                    self.server.stats["triage_reasoning_backend_total"][backend] += 1
 
-            logger.info(
-                "triage_complete",
-                extra={
-                    "event": "triage_complete",
-                    "request_id": request_id,
-                    "risk_tier": result.get("risk_tier"),
-                    "escalation_required": result.get("escalation_required"),
-                    "latency_ms": result.get("total_latency_ms"),
-                    "reasoning_backend": backend,
-                },
+                latency = float(result.get("total_latency_ms") or 0.0)
+                self.server.stats["triage_latency_ms_sum"] += latency
+                self.server.stats["triage_latency_ms_count"] += 1
+
+                logger.info(
+                    "triage_complete",
+                    extra={
+                        "event": "triage_complete",
+                        "request_id": request_id,
+                        "risk_tier": result.get("risk_tier"),
+                        "escalation_required": result.get("escalation_required"),
+                        "latency_ms": result.get("total_latency_ms"),
+                        "reasoning_backend": backend,
+                    },
+                )
+
+                self._write_json(result, request_id=request_id)
+                status_code = HTTPStatus.OK
+                return
+
+            self.server.stats["audit_bundle_requests_total"] += 1
+            redact = str(query.get("redact", ["1"])[0]).strip().lower() in {"1", "true", "yes"}
+
+            from clinicaflow.audit import build_audit_bundle_files
+
+            result_obj = self.server.pipeline.run(intake, request_id=request_id)
+            files = build_audit_bundle_files(intake=intake, result=result_obj, redact=redact)
+
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                for name, data in files.items():
+                    zf.writestr(name, data)
+
+            self.server.stats["audit_bundle_success_total"] += 1
+            filename = f'clinicaflow_audit_{"redacted" if redact else "full"}_{request_id}.zip'
+            self._write_bytes(
+                buf.getvalue(),
+                content_type="application/zip",
+                request_id=request_id,
+                extra_headers={"Content-Disposition": f'attachment; filename="{filename}"'},
             )
-
-            self._write_json(result, request_id=request_id)
             status_code = HTTPStatus.OK
         except Exception as exc:  # noqa: BLE001
-            self.server.stats["triage_errors_total"] += 1
-            logger.exception("triage_error", extra={"event": "triage_error", "request_id": request_id})
+            if urlparse(self.path).path == "/triage":
+                self.server.stats["triage_errors_total"] += 1
+            else:
+                self.server.stats["audit_bundle_errors_total"] += 1
+            logger.exception("post_error", extra={"event": "post_error", "request_id": request_id})
             error_payload = {"error": {"code": "bad_request"}}
             if self.server.settings.debug:
                 error_payload["error"]["message"] = str(exc)
@@ -404,11 +568,17 @@ def _openapi_spec() -> dict:
             "/ready": {"get": {"responses": {"200": {"description": "ok"}}}},
             "/live": {"get": {"responses": {"200": {"description": "ok"}}}},
             "/version": {"get": {"responses": {"200": {"description": "version"}}}},
+            "/doctor": {"get": {"responses": {"200": {"description": "diagnostics (no secrets)"}}}},
             "/metrics": {"get": {"responses": {"200": {"description": "metrics"}}}},
             "/example": {"get": {"responses": {"200": {"description": "sample intake"}}}},
+            "/vignettes": {"get": {"responses": {"200": {"description": "list vignettes"}}}},
+            "/vignettes/{id}": {"get": {"responses": {"200": {"description": "get vignette input"}}}},
+            "/bench/vignettes": {"get": {"responses": {"200": {"description": "run vignette benchmark"}}}},
             "/triage": {"post": {"responses": {"200": {"description": "triage result"}}}},
+            "/audit_bundle": {"post": {"responses": {"200": {"description": "audit bundle zip"}}}},
         },
     }
+
 
 def _extract_reasoning_backend(result_payload: dict) -> str:
     try:
@@ -441,7 +611,8 @@ def run(host: str = "0.0.0.0", port: int = 8000) -> None:
     server = make_server(host, port, settings=settings)
     print(f"ClinicaFlow demo server running at http://{host}:{port}")
     print("Open / in your browser for the demo UI")
-    print("POST /triage, GET /health, GET /metrics, and GET /openapi.json are available")
+    print("API: POST /triage, POST /audit_bundle, GET /doctor, GET /vignettes, GET /bench/vignettes")
+    print("Ops: GET /health, GET /metrics, GET /openapi.json")
     server.serve_forever()
 
 

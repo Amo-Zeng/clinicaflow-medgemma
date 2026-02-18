@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>ClinicaFlow Console</title>
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-title">ClinicaFlow Console</div>
+        <div class="brand-subtitle">Agentic triage copilot • demo UI</div>
+      </div>
+      <div class="top-actions">
+        <span id="backendBadge" class="pill">backend: loading…</span>
+        <span id="policyBadge" class="pill subtle">policy: loading…</span>
+        <a class="btn subtle" href="/openapi.json" target="_blank" rel="noreferrer">OpenAPI</a>
+        <a class="btn subtle" href="/metrics" target="_blank" rel="noreferrer">Metrics</a>
+      </div>
+    </header>
+
+    <main class="container">
+      <nav class="tabs" aria-label="Console tabs">
+        <button class="tab active" data-tab="triage" type="button">Triage</button>
+        <button class="tab" data-tab="regression" type="button">Regression</button>
+        <button class="tab" data-tab="about" type="button">About</button>
+      </nav>
+
+      <section id="tab-triage" class="tabpanel active">
+        <div class="grid">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Patient intake</h2>
+              <div class="segmented" role="tablist" aria-label="Input mode">
+                <button class="seg active" data-mode="form" type="button">Form</button>
+                <button class="seg" data-mode="json" type="button">JSON</button>
+              </div>
+            </div>
+
+            <div id="mode-form" class="mode-panel">
+              <div class="form-grid">
+                <div class="field span-2">
+                  <label for="chiefComplaint">Chief complaint</label>
+                  <textarea id="chiefComplaint" rows="3" placeholder="e.g., Chest pain radiating to left arm for 25 minutes"></textarea>
+                </div>
+
+                <div class="field span-2">
+                  <label for="history">History (brief)</label>
+                  <textarea id="history" rows="3" placeholder="PMH, onset, progression, key negatives (e.g., denies syncope)…"></textarea>
+                </div>
+
+                <div class="field">
+                  <label for="age">Age</label>
+                  <input id="age" type="number" min="0" step="1" placeholder="61" />
+                </div>
+
+                <div class="field">
+                  <label for="sex">Sex</label>
+                  <select id="sex">
+                    <option value="">—</option>
+                    <option value="female">female</option>
+                    <option value="male">male</option>
+                    <option value="other">other</option>
+                  </select>
+                </div>
+
+                <div class="field">
+                  <label for="hr">Heart rate</label>
+                  <input id="hr" type="number" min="0" step="1" placeholder="128" />
+                </div>
+
+                <div class="field">
+                  <label for="sbp">Systolic BP</label>
+                  <input id="sbp" type="number" min="0" step="1" placeholder="92" />
+                </div>
+
+                <div class="field">
+                  <label for="dbp">Diastolic BP</label>
+                  <input id="dbp" type="number" min="0" step="1" placeholder="58" />
+                </div>
+
+                <div class="field">
+                  <label for="temp">Temp (°C)</label>
+                  <input id="temp" type="number" step="0.1" placeholder="37.9" />
+                </div>
+
+                <div class="field">
+                  <label for="spo2">SpO₂ (%)</label>
+                  <input id="spo2" type="number" min="0" max="100" step="1" placeholder="93" />
+                </div>
+
+                <div class="field">
+                  <label for="rr">Resp. rate</label>
+                  <input id="rr" type="number" min="0" step="1" placeholder="24" />
+                </div>
+
+                <div class="field span-2">
+                  <label for="imageDesc">Image descriptions (1 per line)</label>
+                  <textarea id="imageDesc" rows="3" placeholder="Portable chest image: mild bilateral interstitial opacities"></textarea>
+                </div>
+
+                <div class="field span-2">
+                  <label for="priorNotes">Prior notes (1 per line)</label>
+                  <textarea id="priorNotes" rows="3" placeholder="Prior episode of exertional chest tightness last week"></textarea>
+                </div>
+              </div>
+            </div>
+
+            <div id="mode-json" class="mode-panel hidden">
+              <div class="field">
+                <label for="intakeJson">Intake JSON</label>
+                <textarea id="intakeJson" class="mono" rows="18"></textarea>
+              </div>
+              <div class="row">
+                <button id="applyJsonToForm" class="btn subtle" type="button">Apply to form</button>
+                <button id="updateJsonFromForm" class="btn subtle" type="button">Update JSON from form</button>
+              </div>
+            </div>
+
+            <div class="row">
+              <select id="presetSelect" class="select"></select>
+              <button id="loadPreset" class="btn subtle" type="button">Load</button>
+              <button id="runTriage" class="btn primary" type="button">Run triage</button>
+            </div>
+
+            <div id="intakeError" class="alert hidden"></div>
+            <div class="hint">
+              Tip: For a “judge-friendly” demo, load a vignette, run triage, then expand <b>Agent trace</b> and download
+              an <b>audit bundle</b>.
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Output</h2>
+              <div class="small" id="statusLine">Ready.</div>
+            </div>
+
+            <div class="summary">
+              <div class="card">
+                <div class="k">Risk tier</div>
+                <div id="riskTier" class="risk">—</div>
+                <div id="metaLine" class="small">request_id: — • latency: —</div>
+              </div>
+              <div class="card">
+                <div class="k">Red flags</div>
+                <ul id="redFlags" class="list"></ul>
+              </div>
+              <div class="card">
+                <div class="k">Next actions</div>
+                <ol id="actions" class="list"></ol>
+              </div>
+            </div>
+
+            <details class="details" open>
+              <summary>Clinician handoff</summary>
+              <div id="handoff" class="prewrap muted">—</div>
+            </details>
+
+            <details class="details">
+              <summary>Patient return precautions</summary>
+              <div id="patientSummary" class="prewrap muted">—</div>
+            </details>
+
+            <details class="details">
+              <summary>Agent trace (audit-friendly)</summary>
+              <div id="trace" class="trace"></div>
+            </details>
+
+            <div class="row">
+              <button id="copyResult" class="btn subtle" type="button">Copy JSON</button>
+              <button id="downloadRedacted" class="btn subtle" type="button">Download audit bundle (redacted)</button>
+              <button id="downloadFull" class="btn subtle" type="button">Download audit bundle (full)</button>
+            </div>
+
+            <div id="runError" class="alert hidden"></div>
+            <pre id="rawResult" class="pre mono">{}</pre>
+          </section>
+        </div>
+      </section>
+
+      <section id="tab-regression" class="tabpanel">
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Vignette regression</h2>
+            <div class="small">
+              Built-in synthetic vignette set (n=30) with a transparent labeling rubric. See <code>docs/VIGNETTE_REGRESSION.md</code>.
+            </div>
+          </div>
+
+          <div class="row">
+            <button id="runBench" class="btn primary" type="button">Run benchmark</button>
+            <button id="downloadBench" class="btn subtle" type="button">Download JSON</button>
+            <span id="benchStatus" class="small"></span>
+          </div>
+
+          <div id="benchSummary" class="bench-summary"></div>
+          <div class="tablewrap">
+            <table id="benchTable">
+              <thead>
+                <tr>
+                  <th>Case</th>
+                  <th>Gold tier</th>
+                  <th>Baseline</th>
+                  <th>ClinicaFlow</th>
+                  <th>Gold categories</th>
+                  <th>Pred categories</th>
+                </tr>
+              </thead>
+              <tbody id="benchBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section id="tab-about" class="tabpanel">
+        <section class="panel">
+          <h2>About</h2>
+          <p class="muted">
+            This demo UI is designed for showcasing an <b>agentic</b>, <b>auditable</b> triage workflow. It is not a diagnostic device.
+            Always involve licensed clinicians and validate on site-specific data before any deployment.
+          </p>
+
+          <div class="callout">
+            <div class="k">One-click demo</div>
+            <div class="mono">bash scripts/demo_one_click.sh</div>
+            <div class="small muted">Optionally auto-starts a local MedGemma vLLM server if <code>MEDGEMMA_MODEL</code> is set.</div>
+          </div>
+
+          <div class="callout">
+            <div class="k">Clinician review (qualitative; do not fabricate)</div>
+            <div class="mono">clinicaflow benchmark review_packet --out reviews/clinician_review_packet.md --include-gold</div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
+
