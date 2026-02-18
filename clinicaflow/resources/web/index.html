@@ -179,6 +179,7 @@
               <div class="card">
                 <div class="k">Next actions</div>
                 <ol id="actions" class="list"></ol>
+                <div id="actionsProgress" class="small muted">—</div>
               </div>
             </div>
 
@@ -219,6 +220,8 @@
               <button id="copyNote" class="btn subtle" type="button">Copy note.md</button>
               <button id="downloadNote" class="btn subtle" type="button">Download note.md</button>
               <button id="downloadFhir" class="btn subtle" type="button">Download FHIR bundle</button>
+              <button id="downloadReport" class="btn subtle" type="button">Download report.html</button>
+              <button id="printReport" class="btn subtle" type="button">Print report</button>
               <button id="downloadRedacted" class="btn subtle" type="button">Download audit bundle (redacted)</button>
               <button id="downloadFull" class="btn subtle" type="button">Download audit bundle (full)</button>
             </div>
@@ -253,6 +256,7 @@
                   <button id="demoCritical" class="btn primary" type="button">Load + run</button>
                   <button id="demoDownloadAudit" class="btn subtle" type="button">Download redacted audit</button>
                   <button id="demoDownloadFhir" class="btn subtle" type="button">Download FHIR</button>
+                  <button id="demoDownloadReport" class="btn subtle" type="button">Download report</button>
                   <button id="demoSaveWorkspace" class="btn subtle" type="button">Save run to workspace</button>
                 </div>
               </li>
@@ -378,6 +382,8 @@
           <div class="row">
             <button id="runBench" class="btn primary" type="button">Run benchmark</button>
             <button id="downloadBench" class="btn subtle" type="button">Download JSON</button>
+            <button id="copyBenchMd" class="btn subtle" type="button">Copy markdown</button>
+            <button id="downloadBenchMd" class="btn subtle" type="button">Download markdown</button>
             <span id="benchStatus" class="small"></span>
           </div>
 

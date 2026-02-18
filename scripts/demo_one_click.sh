@@ -139,6 +139,8 @@ maybe_start_medgemma_vllm() {
 ensure_venv
 maybe_start_medgemma_vllm
 
+REQUESTED_PORT="$CLINICAFLOW_PORT"
+
 if ! is_port_free "$CLINICAFLOW_PORT" >/dev/null 2>&1; then
   echo "[demo] Port ${CLINICAFLOW_PORT} is already in use."
   if free_port="$(find_free_port "$CLINICAFLOW_PORT" 30)"; then
@@ -149,6 +151,13 @@ if ! is_port_free "$CLINICAFLOW_PORT" >/dev/null 2>&1; then
     echo "       Stop the existing server, or set CLINICAFLOW_PORT=... and re-run."
     exit 1
   fi
+fi
+
+if [[ "$CLINICAFLOW_PORT" != "$REQUESTED_PORT" ]]; then
+  echo ""
+  echo "[demo] IMPORTANT: Requested port ${REQUESTED_PORT} was busy."
+  echo "       Open the UI on: http://127.0.0.1:${CLINICAFLOW_PORT}/"
+  echo ""
 fi
 
 echo ""
@@ -177,6 +186,19 @@ else
   echo "[demo] WARNING: Console UI assets not detected."
   echo "       You may be running an older server instance or a stale install."
   echo "       Try stopping existing processes and re-running this script."
+fi
+
+ui_header="$(
+  curl -fsSI "http://127.0.0.1:${CLINICAFLOW_PORT}/" 2>/dev/null \
+    | tr -d '\r' \
+    | awk -F': ' 'tolower($1)=="x-clinicaflow-ui"{print $2}' \
+    | tail -n 1
+)"
+if [[ "${ui_header:-}" == "legacy" ]]; then
+  echo "[demo] WARNING: Legacy 2-box fallback UI detected."
+  echo "       Make sure you opened: http://127.0.0.1:${CLINICAFLOW_PORT}/"
+  echo "       If it persists, delete the venv and re-run:"
+  echo "         rm -rf .venv && bash scripts/demo_one_click.sh"
 fi
 
 echo ""

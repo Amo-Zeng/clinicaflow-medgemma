@@ -71,6 +71,7 @@ const state = {
   lastIntake: null,
   lastResult: null,
   lastRequestId: null,
+  lastActionChecklist: null,
   lastBench: null,
   review: {
     lastCaseId: null,
@@ -230,6 +231,108 @@ function renderList(el, items, { ordered, emptyText } = {}) {
   }
 }
 
+const ACTION_CHECKLIST_KEY_PREFIX = "clinicaflow.action_checklist.v1.";
+
+function _actionChecklistKey(requestId) {
+  const rid = String(requestId || "").trim() || "unknown";
+  return `${ACTION_CHECKLIST_KEY_PREFIX}${rid}`;
+}
+
+function loadActionChecklist(requestId) {
+  try {
+    const raw = localStorage.getItem(_actionChecklistKey(requestId)) || "";
+    if (!raw.trim()) return null;
+    const payload = JSON.parse(raw);
+    return Array.isArray(payload) ? payload : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function saveActionChecklist(requestId, checklist) {
+  const rid = String(requestId || "").trim();
+  if (!rid) return;
+  try {
+    localStorage.setItem(_actionChecklistKey(rid), JSON.stringify(checklist || []));
+  } catch (e) {
+    // ignore
+  }
+}
+
+function normalizeChecklist(actions, saved) {
+  const byText = new Map();
+  (saved || []).forEach((x) => {
+    if (!x) return;
+    if (typeof x === "string") {
+      byText.set(x, false);
+      return;
+    }
+    const text = String(x.text || "").trim();
+    if (!text) return;
+    byText.set(text, Boolean(x.checked));
+  });
+
+  return (actions || [])
+    .map((t) => String(t || "").trim())
+    .filter((t) => t)
+    .map((t) => ({ text: t, checked: byText.get(t) || false }));
+}
+
+function updateActionsProgress(checklist) {
+  const el = $("actionsProgress");
+  if (!el) return;
+  const total = (checklist || []).length;
+  const done = (checklist || []).filter((x) => x && x.checked).length;
+  el.textContent = total ? `Checklist: ${done}/${total} completed (stored locally).` : "No actions.";
+}
+
+function renderActionChecklist(actions, requestId) {
+  const root = $("actions");
+  if (!root) return;
+  root.innerHTML = "";
+
+  const saved = loadActionChecklist(requestId);
+  const checklist = normalizeChecklist(actions, saved);
+  state.lastActionChecklist = checklist;
+
+  if (!checklist.length) {
+    const li = document.createElement("li");
+    li.textContent = "No actions suggested.";
+    root.appendChild(li);
+    updateActionsProgress([]);
+    return;
+  }
+
+  checklist.forEach((item, idx) => {
+    const li = document.createElement("li");
+    const label = document.createElement("label");
+    label.className = `action-check${item.checked ? " done" : ""}`;
+
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = Boolean(item.checked);
+    cb.setAttribute("aria-label", `Action ${idx + 1}`);
+    cb.addEventListener("change", () => {
+      item.checked = cb.checked;
+      label.classList.toggle("done", cb.checked);
+      saveActionChecklist(requestId, checklist);
+      updateActionsProgress(checklist);
+    });
+
+    const txt = document.createElement("span");
+    txt.textContent = item.text;
+
+    label.appendChild(cb);
+    label.appendChild(txt);
+    li.appendChild(label);
+    root.appendChild(li);
+  });
+
+  // Persist initial state so later exports are stable.
+  saveActionChecklist(requestId, checklist);
+  updateActionsProgress(checklist);
+}
+
 function traceOutput(result, agentName) {
   try {
     const steps = result.trace || [];
@@ -308,7 +411,7 @@ function renderResult(result, requestIdFromHeader) {
   });
   renderList($("uncertainty"), result.uncertainty_reasons, { ordered: false, emptyText: "No uncertainty flags." });
   renderList($("redFlags"), result.red_flags, { ordered: false, emptyText: "No explicit red flags detected." });
-  renderList($("actions"), result.recommended_next_actions, { ordered: true, emptyText: "No actions suggested." });
+  renderActionChecklist(result.recommended_next_actions || [], state.lastRequestId || result.request_id || "");
 
   const conf = typeof result.confidence === "number" ? result.confidence : null;
   setText("confidenceVal", conf == null ? "—" : `confidence: ${(conf * 100).toFixed(0)}%`);
@@ -571,7 +674,7 @@ function downloadText(filename, text, mime) {
   URL.revokeObjectURL(url);
 }
 
-function buildNoteMarkdown(intake, result) {
+function buildNoteMarkdown(intake, result, checklist) {
   const reasoning = traceOutput(result, "multimodal_reasoning");
   const evidence = traceOutput(result, "evidence_policy");
   const safety = traceOutput(result, "safety_escalation");
@@ -621,8 +724,19 @@ function buildNoteMarkdown(intake, result) {
     lines.push(reasoning.reasoning_rationale);
     lines.push("");
   }
-  lines.push("## Recommended next actions");
-  (result.recommended_next_actions || []).forEach((x) => lines.push(`- ${x}`));
+  lines.push("## Recommended next actions (checklist)");
+  const merged =
+    Array.isArray(checklist) && checklist.length
+      ? checklist
+      : (result.recommended_next_actions || []).map((x) => ({ text: String(x || ""), checked: false }));
+  const total = merged.length;
+  const done = merged.filter((x) => x && x.checked).length;
+  lines.push(`- progress: ${done}/${total}`);
+  merged.forEach((x) => {
+    const text = String(x?.text || "").trim();
+    if (!text) return;
+    lines.push(`- [${x.checked ? "x" : " "}] ${text}`);
+  });
   lines.push("");
   lines.push("## Uncertainty");
   lines.push(`- confidence: ${result.confidence}`);
@@ -648,10 +762,240 @@ function buildNoteMarkdown(intake, result) {
   return lines.join("\n").trim() + "\n";
 }
 
+function buildReportHtml(intake, result, checklist) {
+  const reasoning = traceOutput(result, "multimodal_reasoning");
+  const evidence = traceOutput(result, "evidence_policy");
+  const safety = traceOutput(result, "safety_escalation");
+  const structured = traceOutput(result, "intake_structuring");
+
+  const requestId = state.lastRequestId || result.request_id || "run";
+  const createdAt = result.created_at || new Date().toISOString();
+  const title = `ClinicaFlow — Triage Report (${requestId})`;
+
+  const vitals = (intake || {}).vitals || {};
+  const vitalsParts = [];
+  if (vitals.heart_rate != null) vitalsParts.push(`HR ${vitals.heart_rate}`);
+  if (vitals.systolic_bp != null) vitalsParts.push(`BP ${vitals.systolic_bp}/${vitals.diastolic_bp ?? "?"}`);
+  if (vitals.temperature_c != null) vitalsParts.push(`Temp ${vitals.temperature_c}°C`);
+  if (vitals.spo2 != null) vitalsParts.push(`SpO₂ ${vitals.spo2}%`);
+  if (vitals.respiratory_rate != null) vitalsParts.push(`RR ${vitals.respiratory_rate}`);
+
+  const actions =
+    Array.isArray(checklist) && checklist.length
+      ? checklist
+      : (result.recommended_next_actions || []).map((x) => ({ text: String(x || ""), checked: false }));
+  const actionLis = actions
+    .map((a) => {
+      const text = String(a?.text || "").trim();
+      if (!text) return "";
+      const done = Boolean(a.checked);
+      const mark = done ? "☑" : "☐";
+      return `<li class="${done ? "done" : ""}">${mark} ${escapeHtml(text)}</li>`;
+    })
+    .filter((x) => x)
+    .join("");
+
+  const redFlagLis = (result.red_flags || []).map((x) => `<li>${escapeHtml(String(x))}</li>`).join("") || "<li>(none)</li>";
+  const diffLis =
+    (result.differential_considerations || []).map((x) => `<li>${escapeHtml(String(x))}</li>`).join("") || "<li>(none)</li>";
+  const uncLis =
+    (result.uncertainty_reasons || []).map((x) => `<li>${escapeHtml(String(x))}</li>`).join("") || "<li>(none)</li>";
+
+  const citations = Array.isArray(evidence.protocol_citations) ? evidence.protocol_citations : [];
+  const citationRows = citations
+    .map((c) => {
+      const actions = Array.isArray(c.recommended_actions) ? c.recommended_actions.join("; ") : "";
+      return `<tr>
+        <td class="mono">${escapeHtml(String(c.policy_id || ""))}</td>
+        <td>${escapeHtml(String(c.title || ""))}</td>
+        <td class="mono">${escapeHtml(String(c.citation || ""))}</td>
+        <td>${escapeHtml(actions)}</td>
+      </tr>`;
+    })
+    .join("");
+
+  const missing = Array.isArray(structured?.missing_fields) ? structured.missing_fields : [];
+  const missingLis = missing.map((x) => `<li>${escapeHtml(String(x))}</li>`).join("") || "<li>(none)</li>";
+
+  const css = `
+    :root { color-scheme: light; }
+    body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial, sans-serif; margin: 24px; color: #111827; }
+    h1 { margin: 0 0 6px; font-size: 22px; }
+    .sub { color: #6b7280; margin: 0 0 18px; font-size: 13px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+    .card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 12px; background: #fff; }
+    .k { font-weight: 900; font-size: 12px; color: #374151; margin-bottom: 6px; }
+    ul, ol { margin: 0; padding-left: 18px; }
+    li { margin: 6px 0; }
+    .done { opacity: 0.75; text-decoration: line-through; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+    .pill { display: inline-block; padding: 3px 10px; border-radius: 999px; border: 1px solid #e5e7eb; font-weight: 900; font-size: 12px; }
+    .risk-critical { background: #fef2f2; border-color: #ef444433; color: #991b1b; }
+    .risk-urgent { background: #fffbeb; border-color: #f59e0b44; color: #92400e; }
+    .risk-routine { background: #ecfdf5; border-color: #10b98133; color: #065f46; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { border-bottom: 1px solid #e5e7eb; padding: 8px; text-align: left; vertical-align: top; }
+    th { background: #f9fafb; font-weight: 900; }
+    pre { white-space: pre-wrap; background: #0b1020; color: #e5e7eb; padding: 10px; border-radius: 12px; overflow: auto; }
+    @media print {
+      body { margin: 12mm; }
+      .no-print { display: none; }
+    }
+  `;
+
+  const riskClass =
+    result.risk_tier === "critical" ? "risk-critical" : result.risk_tier === "urgent" ? "risk-urgent" : "risk-routine";
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>${escapeHtml(title)}</title>
+    <style>${css}</style>
+  </head>
+  <body>
+    <h1>${escapeHtml(title)}</h1>
+    <p class="sub"><b>DISCLAIMER:</b> Decision support only. Not a diagnosis. Clinician confirmation required.</p>
+
+    <div class="grid">
+      <div class="card">
+        <div class="k">Metadata</div>
+        <ul>
+          <li><span class="mono">request_id</span>: <span class="mono">${escapeHtml(String(requestId))}</span></li>
+          <li>created_at: <span class="mono">${escapeHtml(String(createdAt))}</span></li>
+          <li>pipeline_version: <span class="mono">${escapeHtml(String(result.pipeline_version || ""))}</span></li>
+          <li>backend: <span class="mono">${escapeHtml(String(reasoning.reasoning_backend || ""))}</span></li>
+          <li>model: <span class="mono">${escapeHtml(String(reasoning.reasoning_backend_model || ""))}</span></li>
+          <li>prompt_version: <span class="mono">${escapeHtml(String(reasoning.reasoning_prompt_version || ""))}</span></li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="k">Triage</div>
+        <div class="pill ${riskClass}">risk_tier: ${escapeHtml(String(result.risk_tier || ""))}</div>
+        <div style="height:10px"></div>
+        <ul>
+          <li>escalation_required: <b>${escapeHtml(String(result.escalation_required))}</b></li>
+          <li>rationale: ${escapeHtml(String(safety.risk_tier_rationale || ""))}</li>
+          <li>confidence (proxy): <span class="mono">${escapeHtml(String(result.confidence))}</span></li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="k">Intake (synthetic/demo)</div>
+        <ul>
+          <li>chief_complaint: ${escapeHtml(String(intake?.chief_complaint || ""))}</li>
+          ${
+            String(intake?.history || "").trim()
+              ? `<li>history: ${escapeHtml(String(intake.history || ""))}</li>`
+              : ""
+          }
+          ${vitalsParts.length ? `<li>vitals: <span class="mono">${escapeHtml(vitalsParts.join(", "))}</span></li>` : ""}
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="k">Missing critical fields</div>
+        <ul>${missingLis}</ul>
+      </div>
+    </div>
+
+    <div style="height:14px"></div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="k">Red flags</div>
+        <ul>${redFlagLis}</ul>
+      </div>
+      <div class="card">
+        <div class="k">Differential (top)</div>
+        <ul>${diffLis}</ul>
+      </div>
+      <div class="card">
+        <div class="k">Uncertainty</div>
+        <ul>${uncLis}</ul>
+      </div>
+      <div class="card">
+        <div class="k">Next actions (checklist)</div>
+        <ul>${actionLis || "<li>(none)</li>"}</ul>
+      </div>
+    </div>
+
+    <div style="height:14px"></div>
+
+    <div class="card">
+      <div class="k">Clinician handoff</div>
+      <pre>${escapeHtml(String(result.clinician_handoff || ""))}</pre>
+    </div>
+
+    <div style="height:14px"></div>
+
+    <div class="card">
+      <div class="k">Patient return precautions</div>
+      <pre>${escapeHtml(String(result.patient_summary || ""))}</pre>
+    </div>
+
+    <div style="height:14px"></div>
+
+    <div class="card">
+      <div class="k">Protocol citations (demo policy pack)</div>
+      ${
+        citationRows
+          ? `<div class="sub">policy_pack_sha256: <span class="mono">${escapeHtml(String(evidence.policy_pack_sha256 || ""))}</span></div>
+             <table>
+               <thead><tr><th>Policy</th><th>Title</th><th>Citation</th><th>Recommended actions</th></tr></thead>
+               <tbody>${citationRows}</tbody>
+             </table>`
+          : "<div class=\"sub\">No matched citations.</div>"
+      }
+    </div>
+  </body>
+</html>`;
+}
+
+function downloadReportHtml() {
+  setError("runError", "");
+  if (!state.lastIntake || !state.lastResult) {
+    setError("runError", "Run a triage case first (so intake + result are available).");
+    return;
+  }
+  const requestId = state.lastRequestId || state.lastResult.request_id || "run";
+  const html = buildReportHtml(state.lastIntake, state.lastResult, state.lastActionChecklist);
+  downloadText(`clinicaflow_report_${requestId}.html`, html, "text/html; charset=utf-8");
+  setText("statusLine", "Downloaded report.html");
+}
+
+function printReportHtml() {
+  setError("runError", "");
+  if (!state.lastIntake || !state.lastResult) {
+    setError("runError", "Run a triage case first (so intake + result are available).");
+    return;
+  }
+  const html = buildReportHtml(state.lastIntake, state.lastResult, state.lastActionChecklist);
+  const w = window.open("", "_blank");
+  if (!w) {
+    setError("runError", "Popup blocked. Use Download report.html instead.");
+    return;
+  }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  // Some browsers require a delay before print.
+  setTimeout(() => {
+    try {
+      w.print();
+    } catch (e) {
+      // ignore
+    }
+  }, 250);
+}
+
 async function downloadAuditBundle(redact) {
   setError("runError", "");
-  if (!state.lastIntake) {
-    setError("runError", "Run a triage case first (so the intake is available).");
+  if (!state.lastIntake || !state.lastResult) {
+    setError("runError", "Run a triage case first (so intake + result are available).");
     return;
   }
 
@@ -659,13 +1003,19 @@ async function downloadAuditBundle(redact) {
   const requestId = state.lastRequestId || "";
   setText("statusLine", "Building audit bundle…");
 
+  const payload = {
+    intake: state.lastIntake,
+    result: state.lastResult,
+    checklist: state.lastActionChecklist || [],
+  };
+
   const resp = await fetch(`/audit_bundle${qs}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...(requestId ? { "X-Request-ID": requestId } : {}),
     },
-    body: JSON.stringify(state.lastIntake),
+    body: JSON.stringify(payload),
   });
 
   if (!resp.ok) {
@@ -693,8 +1043,8 @@ async function downloadAuditBundle(redact) {
 
 async function downloadFhirBundle() {
   setError("runError", "");
-  if (!state.lastIntake) {
-    setError("runError", "Run a triage case first (so the intake is available).");
+  if (!state.lastIntake || !state.lastResult) {
+    setError("runError", "Run a triage case first (so intake + result are available).");
     return;
   }
 
@@ -702,7 +1052,16 @@ async function downloadFhirBundle() {
   setText("statusLine", "Building FHIR bundle…");
 
   try {
-    const { data, headers } = await postJson(`/fhir_bundle?redact=1`, state.lastIntake, requestId ? { "X-Request-ID": requestId } : {});
+    const payload = {
+      intake: state.lastIntake,
+      result: state.lastResult,
+      checklist: state.lastActionChecklist || [],
+    };
+    const { data, headers } = await postJson(
+      `/fhir_bundle?redact=1`,
+      payload,
+      requestId ? { "X-Request-ID": requestId } : {},
+    );
     const req = headers.get("X-Request-ID") || requestId || (data?.identifier?.value ?? "run");
     downloadText(`clinicaflow_fhir_${req}.json`, fmtJson(data), "application/fhir+json");
     setText("statusLine", "Downloaded FHIR bundle.");
@@ -825,6 +1184,19 @@ async function downloadBench() {
   URL.revokeObjectURL(url);
 }
 
+function benchMarkdownTable(summary) {
+  if (!summary) return "";
+  const pct = (v) => `${Number(v).toFixed(1)}%`;
+  return [
+    "| Metric | Baseline | ClinicaFlow |",
+    "|---|---:|---:|",
+    `| Red-flag recall (category-level) | \`${pct(summary.red_flag_recall_baseline)}\` | \`${pct(summary.red_flag_recall_clinicaflow)}\` |`,
+    `| Under-triage rate (gold urgent/critical → predicted routine) | \`${pct(summary.under_triage_rate_baseline)}\` | \`${pct(summary.under_triage_rate_clinicaflow)}\` |`,
+    `| Over-triage rate (gold routine → predicted urgent/critical) | \`${pct(summary.over_triage_rate_baseline)}\` | \`${pct(summary.over_triage_rate_clinicaflow)}\` |`,
+    "",
+  ].join("\n");
+}
+
 // ---------------------------
 // Workspace (UI-local)
 // ---------------------------
@@ -942,7 +1314,7 @@ function getIntakeFromUiForWorkspace() {
   return buildIntakeFromForm();
 }
 
-function workspaceAdd({ intake, result }) {
+function workspaceAdd({ intake, result, checklist }) {
   const items = loadWorkspaceItems();
   const now = new Date().toISOString();
   const id = newLocalId();
@@ -951,6 +1323,7 @@ function workspaceAdd({ intake, result }) {
     created_at: now,
     intake: intake || {},
     result: result || null,
+    checklist: checklist || null,
   });
   saveWorkspaceItems(items);
   state.workspace.selectedId = id;
@@ -989,8 +1362,14 @@ async function workspaceImportFromFile(file) {
         created_at: String(x.created_at || new Date().toISOString()),
         intake: x.intake || {},
         result: x.result || null,
+        checklist: x.checklist || null,
       }));
     saveWorkspaceItems(sanitized);
+    // Best-effort: hydrate per-request checklists for later exports.
+    sanitized.forEach((item) => {
+      const req = item?.result?.request_id || "";
+      if (req && item.checklist) saveActionChecklist(req, item.checklist);
+    });
     state.workspace.selectedId = sanitized.length ? sanitized[0].id : null;
     renderWorkspaceTable();
     setText("wsStatus", `Imported ${sanitized.length} items.`);
@@ -1380,17 +1759,19 @@ function wireEvents() {
   $("copyPatient").addEventListener("click", () => copyText($("patientSummary").textContent || "", "Copied precautions."));
   $("copyNote")?.addEventListener("click", () => {
     if (!state.lastIntake || !state.lastResult) return;
-    const md = buildNoteMarkdown(state.lastIntake, state.lastResult);
+    const md = buildNoteMarkdown(state.lastIntake, state.lastResult, state.lastActionChecklist);
     copyText(md, "Copied note.md");
   });
   $("downloadNote").addEventListener("click", () => {
     if (!state.lastIntake || !state.lastResult) return;
-    const md = buildNoteMarkdown(state.lastIntake, state.lastResult);
+    const md = buildNoteMarkdown(state.lastIntake, state.lastResult, state.lastActionChecklist);
     const req = state.lastRequestId || state.lastResult.request_id || "run";
     downloadText(`clinicaflow_note_${req}.md`, md, "text/markdown");
     setText("statusLine", "Downloaded note.md");
   });
   $("downloadFhir")?.addEventListener("click", () => downloadFhirBundle());
+  $("downloadReport")?.addEventListener("click", () => downloadReportHtml());
+  $("printReport")?.addEventListener("click", () => printReportHtml());
   $("downloadRedacted").addEventListener("click", () => downloadAuditBundle(true));
   $("downloadFull").addEventListener("click", () => downloadAuditBundle(false));
 
@@ -1418,6 +1799,15 @@ function wireEvents() {
 
   $("runBench").addEventListener("click", () => runBench());
   $("downloadBench").addEventListener("click", () => downloadBench());
+  $("copyBenchMd")?.addEventListener("click", () => {
+    if (!state.lastBench) return;
+    copyText(benchMarkdownTable(state.lastBench.summary), "Copied markdown table.");
+  });
+  $("downloadBenchMd")?.addEventListener("click", () => {
+    if (!state.lastBench) return;
+    downloadText("vignette_benchmark.md", benchMarkdownTable(state.lastBench.summary), "text/markdown; charset=utf-8");
+    setText("statusLine", "Downloaded vignette_benchmark.md");
+  });
   ["filterMismatch", "filterUnder", "filterOver"].forEach((id) => {
     const el = $(id);
     if (!el) return;
@@ -1587,7 +1977,7 @@ function wireEvents() {
       setError("wsError", "Run triage first so the output can be saved.");
       return;
     }
-    workspaceAdd({ intake: state.lastIntake, result: state.lastResult });
+    workspaceAdd({ intake: state.lastIntake, result: state.lastResult, checklist: state.lastActionChecklist });
   });
 
   $("wsExport")?.addEventListener("click", () => workspaceExport());
@@ -1627,6 +2017,9 @@ function wireEvents() {
     setTab("triage");
     setMode("form");
     if (item.result) {
+      if (item.checklist && item.result.request_id) {
+        saveActionChecklist(item.result.request_id, item.checklist);
+      }
       renderResult(item.result, item.result.request_id || null);
       setText("statusLine", `Loaded saved run: ${item.id}`);
     } else {
@@ -1652,9 +2045,10 @@ function wireEvents() {
   $("demoGoWorkspace")?.addEventListener("click", () => setTab("workspace"));
   $("demoDownloadAudit")?.addEventListener("click", () => downloadAuditBundle(true));
   $("demoDownloadFhir")?.addEventListener("click", () => downloadFhirBundle());
+  $("demoDownloadReport")?.addEventListener("click", () => downloadReportHtml());
   $("demoSaveWorkspace")?.addEventListener("click", () => {
     if (!state.lastIntake || !state.lastResult) return;
-    workspaceAdd({ intake: state.lastIntake, result: state.lastResult });
+    workspaceAdd({ intake: state.lastIntake, result: state.lastResult, checklist: state.lastActionChecklist });
     setTab("workspace");
   });
 }

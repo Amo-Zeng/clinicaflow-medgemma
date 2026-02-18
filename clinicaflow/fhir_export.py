@@ -7,7 +7,13 @@ from typing import Any
 from clinicaflow.models import PatientIntake, TriageResult, Vitals
 
 
-def build_fhir_bundle(*, intake: PatientIntake, result: TriageResult, redact: bool = False) -> dict[str, Any]:
+def build_fhir_bundle(
+    *,
+    intake: PatientIntake,
+    result: TriageResult,
+    redact: bool = False,
+    checklist: list[dict[str, Any]] | list[str] | None = None,
+) -> dict[str, Any]:
     """Build a minimal FHIR R4 Bundle for demo interoperability.
 
     This is intentionally lightweight and conservative:
@@ -27,10 +33,18 @@ def build_fhir_bundle(*, intake: PatientIntake, result: TriageResult, redact: bo
 
     patient = _patient_resource(intake_payload.get("demographics") or {}, request_id=result.request_id, redact=redact)
     observations = _vitals_observations(intake.vitals, patient_ref="Patient/patient", request_id=result.request_id)
-    triage = _clinical_impression(result=result, patient_ref="Patient/patient")
+    actions = _normalize_checklist(checklist, fallback=result.recommended_next_actions)
+    triage = _clinical_impression(result=result, patient_ref="Patient/patient", actions=actions)
     comms = _patient_communication(result=result, patient_ref="Patient/patient")
+    tasks = _action_tasks(actions, patient_ref="Patient/patient", request_id=result.request_id)
 
-    entries = [{"resource": patient}, *[{"resource": o} for o in observations], {"resource": triage}, {"resource": comms}]
+    entries = [
+        {"resource": patient},
+        *[{"resource": o} for o in observations],
+        {"resource": triage},
+        {"resource": comms},
+        *[{"resource": t} for t in tasks],
+    ]
 
     return {
         "resourceType": "Bundle",
@@ -96,7 +110,21 @@ def _vitals_observations(vitals: Vitals, *, patient_ref: str, request_id: str) -
     return out
 
 
-def _clinical_impression(*, result: TriageResult, patient_ref: str) -> dict[str, Any]:
+def _clinical_impression(*, result: TriageResult, patient_ref: str, actions: list[dict[str, Any]]) -> dict[str, Any]:
+    done = sum(1 for x in actions if x.get("checked"))
+    total = len(actions)
+    action_lines = []
+    if total:
+        action_lines.append({"text": f"Recommended next actions (checklist progress: {done}/{total}):"})
+        for item in actions:
+            text = str(item.get("text") or "").strip()
+            if not text:
+                continue
+            mark = "x" if item.get("checked") else " "
+            action_lines.append({"text": f"- [{mark}] {text}"})
+    else:
+        action_lines.append({"text": "Recommended next actions: (none)"})
+
     return {
         "resourceType": "ClinicalImpression",
         "id": "triage",
@@ -107,8 +135,7 @@ def _clinical_impression(*, result: TriageResult, patient_ref: str) -> dict[str,
             {"text": "ClinicaFlow is decision support only; not a diagnosis."},
             {"text": f"Red flags: {', '.join(result.red_flags) if result.red_flags else '(none detected)'}"},
             {"text": f"Top differentials: {', '.join(result.differential_considerations)}"},
-            {"text": "Recommended next actions:"},
-            *[{"text": f"- {x}"} for x in (result.recommended_next_actions or [])],
+            *action_lines,
         ],
     }
 
@@ -121,3 +148,46 @@ def _patient_communication(*, result: TriageResult, patient_ref: str) -> dict[st
         "subject": {"reference": patient_ref},
         "payload": [{"contentString": result.patient_summary}],
     }
+
+
+def _normalize_checklist(checklist: Any, *, fallback: list[str]) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    if isinstance(checklist, list):
+        for raw in checklist:
+            if isinstance(raw, str):
+                text = raw.strip()
+                checked = False
+            elif isinstance(raw, dict):
+                text = str(raw.get("text") or raw.get("action") or "").strip()
+                checked = bool(raw.get("checked"))
+            else:
+                continue
+            if not text:
+                continue
+            items.append({"text": text, "checked": checked})
+
+    if items:
+        return items
+
+    return [{"text": str(x).strip(), "checked": False} for x in (fallback or []) if str(x).strip()]
+
+
+def _action_tasks(actions: list[dict[str, Any]], *, patient_ref: str, request_id: str) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for idx, item in enumerate(actions, start=1):
+        text = str(item.get("text") or "").strip()
+        if not text:
+            continue
+        checked = bool(item.get("checked"))
+        out.append(
+            {
+                "resourceType": "Task",
+                "id": f"task-{idx}",
+                "status": "completed" if checked else "requested",
+                "intent": "proposal",
+                "description": text,
+                "for": {"reference": patient_ref},
+                "identifier": [{"system": "urn:clinicaflow:request_id", "value": request_id}],
+            }
+        )
+    return out

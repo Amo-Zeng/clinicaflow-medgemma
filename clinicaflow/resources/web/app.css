@@ -317,6 +317,16 @@ textarea.mono { font-size: 12px; }
 }
 .list li { margin: 4px 0; }
 
+.action-check {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-weight: 800;
+  color: #111827;
+}
+.action-check input { margin-top: 2px; }
+.action-check.done { opacity: 0.75; text-decoration: line-through; }
+
 .details {
   border: 1px solid var(--border);
   border-radius: 12px;

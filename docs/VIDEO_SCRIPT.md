@@ -23,10 +23,12 @@ Show the demo UI (local):
   - risk tier,
   - red flags,
   - recommended next actions,
+  - action checklist (mark a couple as done),
   - clinician handoff,
   - patient return precautions,
   - full agent trace.
 - Click **Download audit bundle (redacted)** to show QA/compliance readiness.
+- Optional: click **Download report.html** to show a printable artifact.
 
 ## 0:45–1:30 — Why it’s agentic (core novelty)
 
@@ -70,6 +72,7 @@ python -m clinicaflow.benchmarks.vignettes --print-markdown
 Or run it in the UI:
 
 - Go to the **Regression** tab → **Run benchmark** → show summary + per-case table.
+- Optional: **Copy markdown** and paste into the writeup (reproducibility).
 
 Optional: show production-ish sanity check output:
 

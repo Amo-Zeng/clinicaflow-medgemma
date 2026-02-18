@@ -72,6 +72,12 @@ To reduce sensitive fields in the stored bundle:
 clinicaflow audit --input examples/sample_case.json --out-dir audits/run1 --redact
 ```
 
+Audit bundle contents include:
+
+- `intake.json`, `triage_result.json`, `doctor.json`, `manifest.json`
+- `actions_checklist.json`
+- `note.md` and `report.html` (human-readable)
+
 ## FHIR Export (Demo Interoperability)
 
 Export a minimal FHIR R4 `Bundle` (collection) containing:
@@ -80,6 +86,7 @@ Export a minimal FHIR R4 `Bundle` (collection) containing:
 - vital-sign `Observation`s,
 - triage `ClinicalImpression`,
 - patient-facing `Communication` (return precautions).
+- one `Task` per “next action” (checklist-friendly).
 
 CLI:
 
@@ -154,12 +161,15 @@ Open the local demo UI:
 Console features:
 
 - Structured triage form + JSON mode
+- Action checklist (progress stored locally)
 - Workspace tab (save runs locally + import/export JSON)
 - Built-in vignette presets (n=30)
 - Agent trace viewer (audit-friendly)
 - Downloadable audit bundle zip (redacted/full)
+- Downloadable printable triage report (`report.html`)
 - Downloadable minimal FHIR bundle JSON (redacted)
 - Vignette regression tab + JSON export
+- Vignette regression tab + markdown table export (copy/download)
 - Clinician review tab (local-only storage + JSON/Markdown export for writeup)
 
 API spec & metrics:

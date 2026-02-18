@@ -51,7 +51,8 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
   - optional JSON logs (`CLINICAFLOW_JSON_LOGS=true`) for log pipelines,
   - optional API-key protection for `POST /triage` (`CLINICAFLOW_API_KEY`),
   - `clinicaflow doctor` for quick runtime/policy-pack sanity checks,
-  - minimal FHIR bundle export (`POST /fhir_bundle`) for demo interoperability,
+  - minimal FHIR bundle export (`POST /fhir_bundle`) for demo interoperability (includes `Task`s for the next-action checklist),
+  - printable triage report export (`report.html`) + action checklist (local-only storage),
   - Docker image (non-root runtime + healthcheck) + CI.
 - **Governance metadata**:
   - Evidence agent emits `policy_pack_sha256` + `policy_pack_source`,
@@ -64,13 +65,13 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
 
 - **Local-first**: ClinicaFlow can run on a clinic workstation or small on-prem server; the reasoning model can be served as a separate on-prem service.
 - **Human-in-the-loop**: clinicians confirm escalation/disposition; ClinicaFlow drafts the note + checklist and highlights safety triggers.
-- **QA/compliance workflow**: `clinicaflow audit --input ... --out-dir ...` writes an audit bundle (input + output + doctor diagnostics + manifest with hashes). Use `--redact` to drop demographics/notes/images from the saved bundle.
+- **QA/compliance workflow**: `clinicaflow audit --input ... --out-dir ...` writes an audit bundle (input + output + doctor diagnostics + manifest with hashes + checklist + human-readable note/report). Use `--redact` to drop demographics/notes/images from the saved bundle.
 
 **Code entry points**
 
 - CLI: `python -m clinicaflow --input examples/sample_case.json --pretty`
 - Local demo (one-click): `bash scripts/demo_one_click.sh`
-  - UI: ClinicaFlow Console at `/` (triage + workspace + regression + clinician review + audit bundle download)
+  - UI: ClinicaFlow Console at `/` (triage + checklist + printable report + workspace + regression + clinician review + audit bundle download)
   - API: `POST /triage`, `POST /audit_bundle`, `GET /doctor`, `GET /bench/vignettes`
   - With real MedGemma via vLLM (GPU machine): `MEDGEMMA_MODEL='<HF_ID_OR_LOCAL_PATH>' bash scripts/demo_one_click.sh`
 

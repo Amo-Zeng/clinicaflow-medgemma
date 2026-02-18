@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from clinicaflow.auth import is_authorized
 from clinicaflow.logging_config import configure_logging
-from clinicaflow.models import PatientIntake
+from clinicaflow.models import PatientIntake, TriageResult
 from clinicaflow.pipeline import ClinicaFlowPipeline
 from clinicaflow.settings import Settings, load_settings_from_env
 from clinicaflow.version import __version__
@@ -266,11 +266,12 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
 
             if path in {"/", "/demo"}:
                 data, content_type = WEB_ASSETS.get("index.html", (DEMO_HTML.encode("utf-8"), "text/html; charset=utf-8"))
+                ui = "console" if "index.html" in WEB_ASSETS else "legacy"
                 self._write_bytes(
                     data,
                     content_type=content_type,
                     request_id=request_id,
-                    extra_headers={"Cache-Control": "no-store"},
+                    extra_headers={"Cache-Control": "no-store", "X-ClinicaFlow-UI": ui},
                 )
                 status_code = HTTPStatus.OK
                 return
@@ -498,7 +499,29 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                 status_code = HTTPStatus.UNPROCESSABLE_ENTITY
                 return
 
-            intake = PatientIntake.from_mapping(payload)
+            try:
+                intake_payload, result_payload, checklist = _unwrap_intake_payload(payload)
+            except ValueError as exc:
+                if path == "/triage":
+                    self.server.stats["triage_errors_total"] += 1
+                elif path == "/audit_bundle":
+                    self.server.stats["audit_bundle_errors_total"] += 1
+                else:
+                    self.server.stats["fhir_bundle_errors_total"] += 1
+                self._write_json(
+                    {"error": {"code": "invalid_payload", "message": str(exc)[:200]}},
+                    code=HTTPStatus.UNPROCESSABLE_ENTITY,
+                    request_id=request_id,
+                )
+                status_code = HTTPStatus.UNPROCESSABLE_ENTITY
+                return
+
+            intake = PatientIntake.from_mapping(intake_payload)
+            existing_result: TriageResult | None = None
+            if isinstance(result_payload, dict):
+                existing_result = TriageResult.from_mapping(result_payload)
+                if not existing_result.request_id:
+                    existing_result.request_id = request_id
 
             if path == "/triage":
                 self.server.stats["triage_requests_total"] += 1
@@ -541,8 +564,9 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
 
                 from clinicaflow.audit import build_audit_bundle_files
 
-                result_obj = self.server.pipeline.run(intake, request_id=request_id)
-                files = build_audit_bundle_files(intake=intake, result=result_obj, redact=redact)
+                result_obj = existing_result or self.server.pipeline.run(intake, request_id=request_id)
+                bundle_request_id = result_obj.request_id or request_id
+                files = build_audit_bundle_files(intake=intake, result=result_obj, redact=redact, checklist=checklist)
 
                 buf = io.BytesIO()
                 with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -550,11 +574,11 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                         zf.writestr(name, data)
 
                 self.server.stats["audit_bundle_success_total"] += 1
-                filename = f'clinicaflow_audit_{"redacted" if redact else "full"}_{request_id}.zip'
+                filename = f'clinicaflow_audit_{"redacted" if redact else "full"}_{bundle_request_id}.zip'
                 self._write_bytes(
                     buf.getvalue(),
                     content_type="application/zip",
-                    request_id=request_id,
+                    request_id=bundle_request_id,
                     extra_headers={"Content-Disposition": f'attachment; filename="{filename}"'},
                 )
                 status_code = HTTPStatus.OK
@@ -562,13 +586,14 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
 
             self.server.stats["fhir_bundle_requests_total"] += 1
             redact = str(query.get("redact", ["1"])[0]).strip().lower() in {"1", "true", "yes"}
-            result_obj = self.server.pipeline.run(intake, request_id=request_id)
+            result_obj = existing_result or self.server.pipeline.run(intake, request_id=request_id)
+            bundle_request_id = result_obj.request_id or request_id
 
             from clinicaflow.fhir_export import build_fhir_bundle
 
-            bundle = build_fhir_bundle(intake=intake, result=result_obj, redact=redact)
+            bundle = build_fhir_bundle(intake=intake, result=result_obj, redact=redact, checklist=checklist)
             self.server.stats["fhir_bundle_success_total"] += 1
-            self._write_json(bundle, request_id=request_id)
+            self._write_json(bundle, request_id=bundle_request_id)
             status_code = HTTPStatus.OK
         except Exception as exc:  # noqa: BLE001
             if urlparse(self.path).path == "/triage":
@@ -597,6 +622,25 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                     "request_id": request_id,
                 },
             )
+
+
+def _unwrap_intake_payload(payload: dict) -> tuple[dict, dict | None, Any]:
+    """Support both legacy and UI-export payload formats.
+
+    - Legacy: {chief_complaint: ..., vitals: ...}
+    - UI export: {intake: {...}, result: {...}, checklist: [...]}
+    """
+
+    if "intake" not in payload:
+        return payload, None, None
+
+    intake = payload.get("intake")
+    if not isinstance(intake, dict):
+        raise ValueError("Expected `intake` to be a JSON object.")
+
+    result = payload.get("result")
+    result_payload = result if isinstance(result, dict) else None
+    return dict(intake), result_payload, payload.get("checklist")
 
 
 def _openapi_spec() -> dict:

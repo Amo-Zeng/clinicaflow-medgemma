@@ -68,6 +68,17 @@ class AgentTrace:
     latency_ms: float | None = None
     error: str | None = None
 
+    @classmethod
+    def from_mapping(cls, payload: dict[str, Any] | None) -> "AgentTrace":
+        payload = payload or {}
+        err = str(payload.get("error") or "").strip()
+        return cls(
+            agent=str(payload.get("agent") or "").strip(),
+            output=dict(payload.get("output") or {}),
+            latency_ms=_to_float(payload.get("latency_ms")),
+            error=err or None,
+        )
+
 
 @dataclass(slots=True)
 class TriageResult:
@@ -86,6 +97,36 @@ class TriageResult:
     confidence: float
     uncertainty_reasons: list[str]
     trace: list[AgentTrace]
+
+    @classmethod
+    def from_mapping(cls, payload: dict[str, Any] | None) -> "TriageResult":
+        payload = payload or {}
+        trace_raw = payload.get("trace") or []
+        trace = [AgentTrace.from_mapping(x) for x in trace_raw if isinstance(x, dict)]
+
+        def clean_list(key: str) -> list[str]:
+            values = payload.get(key) or []
+            if not isinstance(values, list):
+                return []
+            return [str(x) for x in values if str(x).strip()]
+
+        return cls(
+            run_id=str(payload.get("run_id") or "").strip(),
+            request_id=str(payload.get("request_id") or "").strip(),
+            created_at=str(payload.get("created_at") or "").strip(),
+            pipeline_version=str(payload.get("pipeline_version") or "").strip(),
+            total_latency_ms=float(_to_float(payload.get("total_latency_ms")) or 0.0),
+            risk_tier=str(payload.get("risk_tier") or "").strip().lower(),
+            escalation_required=bool(payload.get("escalation_required")),
+            differential_considerations=clean_list("differential_considerations"),
+            red_flags=clean_list("red_flags"),
+            recommended_next_actions=clean_list("recommended_next_actions"),
+            clinician_handoff=str(payload.get("clinician_handoff") or "").strip(),
+            patient_summary=str(payload.get("patient_summary") or "").strip(),
+            confidence=float(_to_float(payload.get("confidence")) or 0.0),
+            uncertainty_reasons=clean_list("uncertainty_reasons"),
+            trace=trace,
+        )
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)

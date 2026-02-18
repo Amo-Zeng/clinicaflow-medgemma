@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import io
 import socket
 import threading
 import urllib.error
 import urllib.request
 import unittest
+import zipfile
 
 from clinicaflow.demo_server import make_server
 from clinicaflow.pipeline import ClinicaFlowPipeline
@@ -178,6 +180,119 @@ class DemoServerTests(unittest.TestCase):
             self.assertEqual(status, 413)
             payload = json.loads(raw.decode("utf-8"))
             self.assertEqual(payload["error"]["code"], "payload_too_large")
+        finally:
+            _stop_server(server, thread)
+
+    def test_fhir_bundle_accepts_wrapped_payload_without_rerun(self) -> None:
+        settings = Settings(
+            debug=False,
+            log_level="INFO",
+            json_logs=False,
+            max_request_bytes=262144,
+            policy_top_k=2,
+            policy_pack_path="",
+            cors_allow_origin="*",
+            api_key="",
+        )
+        server, thread, base_url = _start_server(settings=settings)
+        try:
+            case = {
+                "chief_complaint": "Chest tightness and can't catch breath for 30 minutes",
+                "history": "history of diabetes",
+                "vitals": {"heart_rate": 142, "systolic_bp": 82, "spo2": 90, "temperature_c": 37.2},
+            }
+
+            # Run once to get a real result payload.
+            triage_body = json.dumps(case).encode("utf-8")
+            status, _, raw = _http(
+                "POST",
+                base_url + "/triage",
+                body=triage_body,
+                headers={"Content-Type": "application/json", "X-Request-ID": "triage-wrap-1"},
+            )
+            self.assertEqual(status, 200)
+            triage_payload = json.loads(raw.decode("utf-8"))
+
+            # Tamper the risk tier; the bundle should reflect the provided result (no rerun).
+            triage_payload["risk_tier"] = "routine"
+
+            wrapped = {"intake": case, "result": triage_payload, "checklist": [{"text": "Urgent clinician review", "checked": True}]}
+            body = json.dumps(wrapped).encode("utf-8")
+            status, headers, raw = _http(
+                "POST",
+                base_url + "/fhir_bundle?redact=1",
+                body=body,
+                headers={"Content-Type": "application/json", "X-Request-ID": "triage-wrap-1"},
+            )
+            self.assertEqual(status, 200)
+            self.assertEqual(headers.get("X-Request-ID"), "triage-wrap-1")
+            bundle = json.loads(raw.decode("utf-8"))
+            self.assertEqual(bundle.get("resourceType"), "Bundle")
+            self.assertEqual(bundle.get("identifier", {}).get("value"), "triage-wrap-1")
+
+            entries = bundle.get("entry") or []
+            impressions = [e.get("resource") for e in entries if (e.get("resource") or {}).get("resourceType") == "ClinicalImpression"]
+            self.assertTrue(impressions)
+            summary = str(impressions[0].get("summary") or "")
+            self.assertIn("routine", summary)
+
+            tasks = [e.get("resource") for e in entries if (e.get("resource") or {}).get("resourceType") == "Task"]
+            self.assertTrue(tasks)
+        finally:
+            _stop_server(server, thread)
+
+    def test_audit_bundle_accepts_wrapped_payload_without_rerun(self) -> None:
+        settings = Settings(
+            debug=False,
+            log_level="INFO",
+            json_logs=False,
+            max_request_bytes=262144,
+            policy_top_k=2,
+            policy_pack_path="",
+            cors_allow_origin="*",
+            api_key="",
+        )
+        server, thread, base_url = _start_server(settings=settings)
+        try:
+            case = {
+                "chief_complaint": "Chest tightness and can't catch breath for 30 minutes",
+                "history": "history of diabetes",
+                "vitals": {"heart_rate": 142, "systolic_bp": 82, "spo2": 90, "temperature_c": 37.2},
+            }
+
+            triage_body = json.dumps(case).encode("utf-8")
+            status, _, raw = _http(
+                "POST",
+                base_url + "/triage",
+                body=triage_body,
+                headers={"Content-Type": "application/json", "X-Request-ID": "triage-audit-1"},
+            )
+            self.assertEqual(status, 200)
+            triage_payload = json.loads(raw.decode("utf-8"))
+            triage_payload["risk_tier"] = "routine"
+
+            wrapped = {"intake": case, "result": triage_payload, "checklist": [{"text": "Urgent clinician review", "checked": True}]}
+            body = json.dumps(wrapped).encode("utf-8")
+
+            status, headers, raw = _http(
+                "POST",
+                base_url + "/audit_bundle?redact=1",
+                body=body,
+                headers={"Content-Type": "application/json", "X-Request-ID": "triage-audit-1"},
+            )
+            self.assertEqual(status, 200)
+            self.assertEqual(headers.get("X-Request-ID"), "triage-audit-1")
+            self.assertEqual(headers.get("Content-Type"), "application/zip")
+
+            buf = io.BytesIO(raw)
+            with zipfile.ZipFile(buf, "r") as zf:
+                names = set(zf.namelist())
+                self.assertIn("triage_result.json", names)
+                self.assertIn("actions_checklist.json", names)
+                self.assertIn("note.md", names)
+                self.assertIn("report.html", names)
+                triage_result = json.loads(zf.read("triage_result.json").decode("utf-8"))
+                self.assertEqual(triage_result.get("risk_tier"), "routine")
         finally:
             _stop_server(server, thread)
 
