@@ -104,6 +104,12 @@ Optional clinician review packet generator (no PHI):
 python -m clinicaflow.benchmarks.review_packet --out reviews/clinician_review_packet.md --include-gold
 ```
 
+Summarize clinician reviews exported from the demo UI:
+
+```bash
+clinicaflow benchmark review_summary --in clinician_reviews.json --print-markdown
+```
+
 ## Demo API Server (stdlib)
 
 Start server:

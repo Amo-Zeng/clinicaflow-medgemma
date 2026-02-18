@@ -115,6 +115,7 @@ We include tooling to collect a lightweight clinician review (no PHI), but we **
 
 - Generate a review packet: `python -m clinicaflow.benchmarks.review_packet --out reviews/clinician_review_packet.md --include-gold`
 - Or use the demo UI → **Review** tab to save local reviews and export JSON/Markdown (plus a writeup-paragraph helper).
+- Summarize exported review JSON for the writeup: `clinicaflow benchmark review_summary --in clinician_reviews.json --print-markdown`
 - Template for citing feedback responsibly: `docs/CLINICIAN_REVIEW_TEMPLATE.md`
 
 ### Responsible use and limitations
