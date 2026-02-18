@@ -69,7 +69,7 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
 
 - CLI: `python -m clinicaflow --input examples/sample_case.json --pretty`
 - Local demo (one-click): `bash scripts/demo_one_click.sh`
-  - UI: ClinicaFlow Console at `/` (triage form + agent trace + audit bundle download + regression tab)
+  - UI: ClinicaFlow Console at `/` (triage + workspace + regression + clinician review + audit bundle download)
   - API: `POST /triage`, `POST /audit_bundle`, `GET /doctor`, `GET /bench/vignettes`
   - With real MedGemma via vLLM (GPU machine): `MEDGEMMA_MODEL='<HF_ID_OR_LOCAL_PATH>' bash scripts/demo_one_click.sh`
 

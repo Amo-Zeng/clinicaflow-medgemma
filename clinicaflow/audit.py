@@ -53,6 +53,7 @@ def build_audit_bundle_files(
         "redacted": redact,
         "file_hashes_sha256": file_hashes,
         "policy_pack_sha256": _extract_policy_pack_sha256(result.to_dict()),
+        "reasoning": _extract_reasoning_meta(result.to_dict()),
     }
     manifest_bytes = _json_bytes(manifest)
 
@@ -103,3 +104,19 @@ def _extract_policy_pack_sha256(result_payload: dict) -> str:
     except Exception:  # noqa: BLE001
         return ""
     return ""
+
+
+def _extract_reasoning_meta(result_payload: dict) -> dict[str, Any]:
+    try:
+        for step in result_payload.get("trace", []):
+            if step.get("agent") == "multimodal_reasoning":
+                output = step.get("output") or {}
+                return {
+                    "backend": str(output.get("reasoning_backend") or ""),
+                    "model": str(output.get("reasoning_backend_model") or ""),
+                    "prompt_version": str(output.get("reasoning_prompt_version") or ""),
+                    "error": str(output.get("reasoning_backend_error") or ""),
+                }
+    except Exception:  # noqa: BLE001
+        return {}
+    return {}

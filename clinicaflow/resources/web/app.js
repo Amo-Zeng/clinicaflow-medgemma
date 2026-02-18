@@ -78,6 +78,9 @@ const state = {
     lastLabels: null,
     lastResult: null,
   },
+  workspace: {
+    selectedId: null,
+  },
 };
 
 function buildIntakeFromForm() {
@@ -416,8 +419,11 @@ async function loadDoctor() {
     const d = await fetchJson("/doctor");
     const backend = (d.reasoning_backend || {}).backend || "deterministic";
     const model = (d.reasoning_backend || {}).model || "";
+    const ok = (d.reasoning_backend || {}).connectivity_ok;
+    const status = ok === true ? "ok" : ok === false ? "unreachable" : "";
     const label = model ? `${backend} • ${model}` : backend;
-    setText("backendBadge", `backend: ${label}`);
+    const fullLabel = status ? `${label} • ${status}` : label;
+    setText("backendBadge", `backend: ${fullLabel}`);
 
     const policy = (d.policy_pack || {}).sha256 || "";
     setText("policyBadge", policy ? `policy: ${policy.slice(0, 10)}…` : "policy: (none)");
@@ -796,6 +802,180 @@ async function downloadBench() {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+// ---------------------------
+// Workspace (UI-local)
+// ---------------------------
+
+const WORKSPACE_STORAGE_KEY = "clinicaflow.workspace.v1";
+
+function newLocalId() {
+  try {
+    if (crypto && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  } catch (e) {
+    // ignore
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function loadWorkspaceItems() {
+  try {
+    const raw = localStorage.getItem(WORKSPACE_STORAGE_KEY) || "";
+    if (!raw.trim()) return [];
+    const payload = JSON.parse(raw);
+    return Array.isArray(payload) ? payload : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveWorkspaceItems(items) {
+  try {
+    localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(items || []));
+  } catch (e) {
+    // ignore
+  }
+}
+
+function fmtShortTs(iso) {
+  const s = String(iso || "").trim();
+  if (!s) return "—";
+  // ISO: 2026-02-18T22:12:34Z → 2026-02-18 22:12
+  return s.replace("T", " ").replace("Z", "").slice(0, 16);
+}
+
+function workspaceSelectedItem() {
+  const items = loadWorkspaceItems();
+  return items.find((x) => x && x.id === state.workspace.selectedId) || null;
+}
+
+function renderWorkspaceSelected() {
+  const pre = $("wsSelected");
+  if (!pre) return;
+  const item = workspaceSelectedItem();
+  pre.textContent = fmtJson(item || {});
+}
+
+function renderWorkspaceTable() {
+  const body = $("wsTableBody");
+  if (!body) return;
+  body.innerHTML = "";
+
+  const items = loadWorkspaceItems();
+  if (!items.length) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td class="muted" colspan="5">No saved items yet.</td>`;
+    body.appendChild(tr);
+    renderWorkspaceSelected();
+    return;
+  }
+
+  items
+    .slice()
+    .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")))
+    .forEach((item) => {
+      const tr = document.createElement("tr");
+      const intake = item.intake || {};
+      const result = item.result || null;
+      const tier = result ? result.risk_tier || "" : "—";
+      const backend = result ? extractBackend(result) : "—";
+
+      tr.innerHTML = `
+        <td class="mono">${escapeHtml(fmtShortTs(item.created_at))}</td>
+        <td>${escapeHtml(String(intake.chief_complaint || "").slice(0, 120))}</td>
+        <td><b>${escapeHtml(String(tier))}</b></td>
+        <td class="mono">${escapeHtml(String(backend))}</td>
+        <td></td>
+      `;
+
+      tr.style.cursor = "pointer";
+      tr.addEventListener("click", () => {
+        state.workspace.selectedId = item.id;
+        renderWorkspaceSelected();
+        setText("wsStatus", `Selected: ${item.id}`);
+        setError("wsError", "");
+      });
+
+      const actionsTd = tr.querySelector("td:last-child");
+      const btnDel = document.createElement("button");
+      btnDel.className = "btn subtle";
+      btnDel.type = "button";
+      btnDel.textContent = "Delete";
+      btnDel.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        workspaceDelete(item.id);
+      });
+      actionsTd.appendChild(btnDel);
+
+      body.appendChild(tr);
+    });
+
+  renderWorkspaceSelected();
+}
+
+function getIntakeFromUiForWorkspace() {
+  if (state.mode === "json") {
+    return JSON.parse($("intakeJson").value || "{}");
+  }
+  return buildIntakeFromForm();
+}
+
+function workspaceAdd({ intake, result }) {
+  const items = loadWorkspaceItems();
+  const now = new Date().toISOString();
+  const id = newLocalId();
+  items.push({
+    id,
+    created_at: now,
+    intake: intake || {},
+    result: result || null,
+  });
+  saveWorkspaceItems(items);
+  state.workspace.selectedId = id;
+  renderWorkspaceTable();
+  renderWorkspaceSelected();
+  setText("wsStatus", `Saved: ${id}`);
+}
+
+function workspaceDelete(id) {
+  const ok = confirm("Delete this workspace item? This cannot be undone.");
+  if (!ok) return;
+  const items = loadWorkspaceItems().filter((x) => x && x.id !== id);
+  saveWorkspaceItems(items);
+  if (state.workspace.selectedId === id) state.workspace.selectedId = null;
+  renderWorkspaceTable();
+  setText("wsStatus", "Deleted.");
+}
+
+async function workspaceExport() {
+  const items = loadWorkspaceItems();
+  downloadText("clinicaflow_workspace.json", fmtJson(items), "application/json");
+  setText("wsStatus", "Exported clinicaflow_workspace.json");
+}
+
+async function workspaceImportFromFile(file) {
+  setError("wsError", "");
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const payload = JSON.parse(text);
+    if (!Array.isArray(payload)) throw new Error("Invalid file: expected a JSON array.");
+    const sanitized = payload
+      .filter((x) => x && typeof x === "object")
+      .map((x) => ({
+        id: String(x.id || newLocalId()),
+        created_at: String(x.created_at || new Date().toISOString()),
+        intake: x.intake || {},
+        result: x.result || null,
+      }));
+    saveWorkspaceItems(sanitized);
+    state.workspace.selectedId = sanitized.length ? sanitized[0].id : null;
+    renderWorkspaceTable();
+    setText("wsStatus", `Imported ${sanitized.length} items.`);
+  } catch (e) {
+    setError("wsError", e);
+  }
 }
 
 // ---------------------------
@@ -1361,6 +1541,77 @@ function wireEvents() {
     el.addEventListener("input", () => updateReviewParagraph());
     el.addEventListener("change", () => updateReviewParagraph());
   });
+
+  // Workspace tab (local-only)
+  $("wsSaveIntake")?.addEventListener("click", () => {
+    setError("wsError", "");
+    try {
+      const intake = getIntakeFromUiForWorkspace();
+      if (!String(intake.chief_complaint || "").trim()) throw new Error("Chief complaint is required.");
+      workspaceAdd({ intake, result: null });
+    } catch (e) {
+      setError("wsError", e);
+    }
+  });
+
+  $("wsSaveRun")?.addEventListener("click", () => {
+    setError("wsError", "");
+    if (!state.lastIntake || !state.lastResult) {
+      setError("wsError", "Run triage first so the output can be saved.");
+      return;
+    }
+    workspaceAdd({ intake: state.lastIntake, result: state.lastResult });
+  });
+
+  $("wsExport")?.addEventListener("click", () => workspaceExport());
+
+  $("wsImport")?.addEventListener("click", () => {
+    const input = $("wsImportFile");
+    if (!input) return;
+    input.value = "";
+    input.click();
+  });
+
+  $("wsImportFile")?.addEventListener("change", (ev) => {
+    const file = ev?.target?.files?.[0] || null;
+    workspaceImportFromFile(file);
+  });
+
+  $("wsReset")?.addEventListener("click", () => {
+    const ok = confirm("Reset workspace items? This cannot be undone.");
+    if (!ok) return;
+    saveWorkspaceItems([]);
+    state.workspace.selectedId = null;
+    renderWorkspaceTable();
+    setText("wsStatus", "Reset workspace.");
+  });
+
+  $("wsLoadIntoTriage")?.addEventListener("click", () => {
+    setError("wsError", "");
+    const item = workspaceSelectedItem();
+    if (!item) {
+      setError("wsError", "Select an item first.");
+      return;
+    }
+    const intake = item.intake || {};
+    state.lastIntake = intake;
+    fillFormFromIntake(intake);
+    $("intakeJson").value = fmtJson(intake);
+    setTab("triage");
+    setMode("form");
+    if (item.result) {
+      renderResult(item.result, item.result.request_id || null);
+      setText("statusLine", `Loaded saved run: ${item.id}`);
+    } else {
+      setText("statusLine", `Loaded saved intake: ${item.id}`);
+    }
+  });
+
+  $("wsDeleteSelected")?.addEventListener("click", () => {
+    const item = workspaceSelectedItem();
+    if (!item) return;
+    workspaceDelete(item.id);
+  });
 }
 
 async function init() {
@@ -1373,6 +1624,7 @@ async function init() {
   setReviewIdentityDefaults();
   renderReviewTable();
   updateReviewParagraph();
+  renderWorkspaceTable();
 }
 
 init().catch((e) => {

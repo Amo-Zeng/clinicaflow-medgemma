@@ -166,6 +166,7 @@ class SafetyEscalationAgent:
             "confidence": confidence,
             "uncertainty_reasons": uncertainty_reasons,
             "safety_rules_version": SAFETY_RULES_VERSION,
+            "missing_fields": structured.missing_fields,
             "recommended_next_actions": _dedupe(recommended_actions),
         }
 
@@ -174,22 +175,125 @@ class CommunicationAgent:
     name = "communication"
 
     def run(self, intake: PatientIntake, safety: dict, reasoning: dict) -> dict:
-        clinician_handoff = (
-            f"Risk tier: {safety['risk_tier']}. "
-            f"Key concerns: {', '.join(safety['red_flags']) or 'No explicit red flags detected'}. "
-            f"Top differentials: {', '.join(reasoning['differential_considerations'])}."
-        )
+        red_flags = [str(x) for x in (safety.get("red_flags") or []) if str(x).strip()]
+        actions = [str(x) for x in (safety.get("recommended_next_actions") or []) if str(x).strip()]
+        differential = [str(x) for x in (reasoning.get("differential_considerations") or []) if str(x).strip()]
+        risk_tier = str(safety.get("risk_tier") or "").strip() or "unknown"
+        rationale = str(safety.get("risk_tier_rationale") or "").strip()
+        confidence = safety.get("confidence")
+        uncertainty = [str(x) for x in (safety.get("uncertainty_reasons") or []) if str(x).strip()]
+        missing_fields = [str(x) for x in (safety.get("missing_fields") or []) if str(x).strip()]
 
-        patient_summary = (
-            "You were evaluated with an AI-assisted triage tool. "
-            "This output supports your care team and is not a final diagnosis. "
-            "If symptoms worsen, seek urgent medical care immediately."
-        )
+        clinician_lines: list[str] = []
+        clinician_lines.append("Clinician handoff (draft):")
+        clinician_lines.append(f"- Chief complaint: {intake.chief_complaint or '(missing)'}")
+        if intake.history:
+            clinician_lines.append(f"- History: {intake.history}")
+        vitals_line = _format_vitals(intake.vitals)
+        if vitals_line:
+            clinician_lines.append(f"- Vitals: {vitals_line}")
+        clinician_lines.append(f"- Risk tier: {risk_tier} (escalation_required={bool(safety.get('escalation_required'))})")
+        if rationale:
+            clinician_lines.append(f"  - Rationale: {rationale}")
+        if red_flags:
+            clinician_lines.append(f"- Red flags: {', '.join(red_flags)}")
+        else:
+            clinician_lines.append("- Red flags: (none detected)")
+        if differential:
+            clinician_lines.append(f"- Differential (top): {', '.join(differential)}")
+        if actions:
+            clinician_lines.append("- Recommended next actions:")
+            for item in actions[:8]:
+                clinician_lines.append(f"  - {item}")
+        if isinstance(confidence, (int, float)):
+            clinician_lines.append(f"- Confidence (proxy): {float(confidence):.2f}")
+        if missing_fields:
+            clinician_lines.append(f"- Missing critical fields: {', '.join(missing_fields)}")
+        if uncertainty:
+            clinician_lines.append(f"- Uncertainty notes: {', '.join(uncertainty)}")
+
+        patient_lines: list[str] = []
+        patient_lines.append("Decision support only — this is not a diagnosis.")
+        patient_lines.append(f"Triage level: {risk_tier.upper()}.")
+        patient_lines.append("")
+        patient_lines.append("What to do now:")
+        if risk_tier == "critical":
+            patient_lines.append("- Seek emergency evaluation now (ED / call local emergency services).")
+        elif risk_tier == "urgent":
+            patient_lines.append("- Seek same-day evaluation by a clinician or urgent care.")
+        else:
+            patient_lines.append("- Consider routine evaluation if symptoms persist.")
+        patient_lines.append("")
+        patient_lines.append("Return precautions (seek urgent care now if any):")
+        for item in _patient_return_precautions(red_flags):
+            patient_lines.append(f"- {item}")
 
         return {
-            "clinician_handoff": clinician_handoff,
-            "patient_summary": patient_summary,
+            "clinician_handoff": "\n".join(clinician_lines).strip(),
+            "patient_summary": "\n".join(patient_lines).strip(),
         }
+
+
+def _format_vitals(vitals: Vitals) -> str:
+    parts: list[str] = []
+    if vitals.heart_rate is not None:
+        parts.append(f"HR {int(vitals.heart_rate) if float(vitals.heart_rate).is_integer() else vitals.heart_rate}")
+    if vitals.systolic_bp is not None:
+        if vitals.diastolic_bp is not None:
+            parts.append(
+                f"BP {int(vitals.systolic_bp) if float(vitals.systolic_bp).is_integer() else vitals.systolic_bp}/"
+                f"{int(vitals.diastolic_bp) if float(vitals.diastolic_bp).is_integer() else vitals.diastolic_bp}"
+            )
+        else:
+            parts.append(
+                f"SBP {int(vitals.systolic_bp) if float(vitals.systolic_bp).is_integer() else vitals.systolic_bp}"
+            )
+    if vitals.temperature_c is not None:
+        parts.append(f"Temp {vitals.temperature_c}°C")
+    if vitals.spo2 is not None:
+        parts.append(f"SpO₂ {int(vitals.spo2) if float(vitals.spo2).is_integer() else vitals.spo2}%")
+    if vitals.respiratory_rate is not None:
+        parts.append(
+            f"RR {int(vitals.respiratory_rate) if float(vitals.respiratory_rate).is_integer() else vitals.respiratory_rate}"
+        )
+    return ", ".join(parts)
+
+
+def _patient_return_precautions(red_flags: list[str]) -> list[str]:
+    # Generic safety net.
+    precautions: list[str] = [
+        "Trouble breathing, blue lips, or worsening shortness of breath",
+        "New chest pain/pressure, fainting, or severe sweating",
+        "New confusion, one-sided weakness, facial droop, or trouble speaking",
+        "Vomiting blood or black/bloody stools",
+        "Severe headache unlike usual, seizure, or neck stiffness",
+        "Pregnancy with bleeding, severe abdominal pain, or dizziness",
+        "Symptoms rapidly worsening or you feel unsafe at home",
+    ]
+
+    # If we have explicit red flags, surface the most relevant ones first.
+    prioritized: list[str] = []
+    for flag in red_flags:
+        f = str(flag)
+        if "coronary" in f or "chest pain" in f:
+            prioritized.append("Chest pain/pressure, pain spreading to arm/jaw, or shortness of breath")
+        if "Respiratory compromise" in f or "oxygen" in f:
+            prioritized.append("Worsening shortness of breath, low oxygen readings, or trouble breathing")
+        if "stroke" in f or "intracranial" in f or "neurological" in f:
+            prioritized.append("New trouble speaking, facial droop, or weakness/numbness on one side")
+        if "Syncope" in f:
+            prioritized.append("Fainting, near-fainting, or severe dizziness")
+        if "gastrointestinal bleed" in f or "GI bleed" in f or "upper GI bleed" in f:
+            prioritized.append("Vomiting blood or black/bloody stools")
+        if "obstetric" in f:
+            prioritized.append("Pregnancy with bleeding, severe abdominal pain, or dizziness")
+        if "fever" in f:
+            prioritized.append("High fever with confusion, rapid breathing, or worsening weakness")
+        if "Hypotension" in f:
+            prioritized.append("Feeling faint or unable to stay awake")
+
+    out = _dedupe(prioritized) + [x for x in precautions if x not in set(prioritized)]
+    return out[:7]
 
 
 def _dedupe(items: list[str]) -> list[str]:

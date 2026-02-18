@@ -34,7 +34,61 @@
         "Activate stroke pathway if within window"
       ],
       "citation": "Demo policy pack (replace with site protocol)."
+    },
+    {
+      "policy_id": "TRIAGE-SEPSIS-001",
+      "title": "High fever / possible sepsis screen (demo)",
+      "triggers": ["high fever", "fever", "shaking", "chills"],
+      "recommended_actions": [
+        "Repeat vitals and assess perfusion / mental status",
+        "Escalate if hypotension, hypoxemia, or altered mental status",
+        "Follow local sepsis screening and escalation protocol"
+      ],
+      "citation": "Demo policy pack (replace with site protocol)."
+    },
+    {
+      "policy_id": "TRIAGE-GIB-001",
+      "title": "Possible gastrointestinal bleed (demo)",
+      "triggers": ["vomiting blood", "coffee ground", "bloody stool", "black stools", "melena"],
+      "recommended_actions": [
+        "Assess hemodynamic stability and orthostatic symptoms",
+        "Escalate if hypotension, tachycardia, or ongoing bleeding",
+        "Follow local GI bleed pathway (IV access/labs/imaging as appropriate)"
+      ],
+      "citation": "Demo policy pack (replace with site protocol)."
+    },
+    {
+      "policy_id": "TRIAGE-OB-001",
+      "title": "Pregnancy bleeding / possible obstetric emergency (demo)",
+      "triggers": ["pregnancy bleeding", "pregnant", "vaginal bleeding"],
+      "recommended_actions": [
+        "Urgent clinician review",
+        "Assess hemodynamic stability and gestational age if known",
+        "Follow local obstetric emergency escalation pathway"
+      ],
+      "citation": "Demo policy pack (replace with site protocol)."
+    },
+    {
+      "policy_id": "TRIAGE-SYNCOPE-001",
+      "title": "Syncope / near-syncope pathway (demo)",
+      "triggers": ["fainting", "near-syncope", "syncope"],
+      "recommended_actions": [
+        "Check blood pressure, heart rate, and glucose per local protocol",
+        "Assess for trauma, chest pain, dyspnea, or neurologic symptoms",
+        "Escalate if abnormal vitals or concerning features"
+      ],
+      "citation": "Demo policy pack (replace with site protocol)."
+    },
+    {
+      "policy_id": "TRIAGE-HEADACHE-001",
+      "title": "Severe headache red-flag screen (demo)",
+      "triggers": ["severe headache", "worst headache"],
+      "recommended_actions": [
+        "Urgent clinician review if sudden onset, neuro deficits, or meningismus",
+        "Assess blood pressure and neurologic exam per local protocol",
+        "Escalate if altered mental status or focal deficits"
+      ],
+      "citation": "Demo policy pack (replace with site protocol)."
     }
   ]
 }
-

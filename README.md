@@ -125,6 +125,7 @@ Open the local demo UI:
 Console features:
 
 - Structured triage form + JSON mode
+- Workspace tab (save runs locally + import/export JSON)
 - Built-in vignette presets (n=30)
 - Agent trace viewer (audit-friendly)
 - Downloadable audit bundle zip (redacted/full)

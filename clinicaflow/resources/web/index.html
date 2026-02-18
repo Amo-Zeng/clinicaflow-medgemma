@@ -23,6 +23,7 @@
     <main class="container">
       <nav class="tabs" aria-label="Console tabs">
         <button class="tab active" data-tab="triage" type="button">Triage</button>
+        <button class="tab" data-tab="workspace" type="button">Workspace</button>
         <button class="tab" data-tab="regression" type="button">Regression</button>
         <button class="tab" data-tab="review" type="button">Review</button>
         <button class="tab" data-tab="about" type="button">About</button>
@@ -222,6 +223,57 @@
 
             <div id="runError" class="alert hidden"></div>
             <pre id="rawResult" class="pre mono">{}</pre>
+          </section>
+        </div>
+      </section>
+
+      <section id="tab-workspace" class="tabpanel">
+        <div class="grid">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Case workspace</h2>
+              <div class="small">Local-only storage for demo. Do not store PHI.</div>
+            </div>
+
+            <div class="row">
+              <button id="wsSaveIntake" class="btn subtle" type="button">Save intake</button>
+              <button id="wsSaveRun" class="btn primary" type="button">Save run</button>
+              <button id="wsExport" class="btn subtle" type="button">Export JSON</button>
+              <button id="wsImport" class="btn subtle" type="button">Import JSON</button>
+              <button id="wsReset" class="btn subtle" type="button">Reset</button>
+              <span id="wsStatus" class="small"></span>
+            </div>
+            <input id="wsImportFile" class="hidden" type="file" accept="application/json" />
+
+            <div class="tablewrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Saved</th>
+                    <th>Chief complaint</th>
+                    <th>Risk tier</th>
+                    <th>Backend</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="wsTableBody"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Selected item</h2>
+              <div class="small">Load into Triage tab for full trace.</div>
+            </div>
+
+            <pre id="wsSelected" class="pre mono">{}</pre>
+            <div class="row">
+              <button id="wsLoadIntoTriage" class="btn primary" type="button">Load into triage</button>
+              <button id="wsDeleteSelected" class="btn subtle" type="button">Delete selected</button>
+            </div>
+
+            <div id="wsError" class="alert hidden"></div>
           </section>
         </div>
       </section>
