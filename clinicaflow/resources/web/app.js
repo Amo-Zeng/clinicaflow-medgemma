@@ -72,6 +72,12 @@ const state = {
   lastResult: null,
   lastRequestId: null,
   lastBench: null,
+  review: {
+    lastCaseId: null,
+    lastIntake: null,
+    lastLabels: null,
+    lastResult: null,
+  },
 };
 
 function buildIntakeFromForm() {
@@ -151,6 +157,61 @@ function setRiskTier(tier) {
   el.textContent = tier || "—";
 }
 
+function careSettingFromTier(tier) {
+  const t = String(tier || "").toLowerCase();
+  if (t === "critical") return "Suggested care setting: Emergency evaluation now (ED / call emergency services).";
+  if (t === "urgent") return "Suggested care setting: Same-day urgent clinician evaluation.";
+  if (t === "routine") return "Suggested care setting: Routine evaluation / self-care with return precautions.";
+  return "—";
+}
+
+function renderVitalsSummary(intake) {
+  const root = $("vitalsSummary");
+  if (!root) return;
+
+  const demo = (intake || {}).demographics || {};
+  const vitals = (intake || {}).vitals || {};
+
+  const chips = document.createElement("div");
+  chips.className = "chips";
+
+  function addChip(text, level) {
+    const span = document.createElement("span");
+    span.className = `chip ${level || "ok"}`;
+    span.textContent = text;
+    chips.appendChild(span);
+  }
+
+  if (demo.age != null) addChip(`Age ${demo.age}`, "ok");
+  if (demo.sex) addChip(`Sex ${demo.sex}`, "ok");
+
+  const hr = vitals.heart_rate;
+  if (hr != null) addChip(`HR ${hr}`, hr >= 130 || hr < 45 ? "bad" : hr >= 110 || hr < 50 ? "warn" : "ok");
+
+  const sbp = vitals.systolic_bp;
+  const dbp = vitals.diastolic_bp;
+  if (sbp != null) {
+    const bpText = dbp != null ? `BP ${sbp}/${dbp}` : `SBP ${sbp}`;
+    addChip(bpText, sbp < 90 ? "bad" : sbp < 100 || sbp >= 180 ? "warn" : "ok");
+  }
+
+  const temp = vitals.temperature_c;
+  if (temp != null) addChip(`Temp ${temp}°C`, temp >= 39.5 ? "bad" : temp >= 38.0 ? "warn" : "ok");
+
+  const spo2 = vitals.spo2;
+  if (spo2 != null) addChip(`SpO₂ ${spo2}%`, spo2 < 92 ? "bad" : spo2 < 95 ? "warn" : "ok");
+
+  const rr = vitals.respiratory_rate;
+  if (rr != null) addChip(`RR ${rr}`, rr >= 30 ? "bad" : rr >= 22 ? "warn" : "ok");
+
+  root.innerHTML = "";
+  if (chips.childNodes.length === 0) {
+    root.textContent = "No vitals provided.";
+    return;
+  }
+  root.appendChild(chips);
+}
+
 function renderList(el, items, { ordered, emptyText } = {}) {
   el.innerHTML = "";
   (items || []).forEach((x) => {
@@ -220,6 +281,8 @@ function renderResult(result, requestIdFromHeader) {
   state.lastRequestId = requestIdFromHeader || result.request_id || null;
 
   setRiskTier(result.risk_tier);
+  setText("careSetting", careSettingFromTier(result.risk_tier));
+  renderVitalsSummary(state.lastIntake);
   const backend = extractBackend(result);
   setText(
     "metaLine",
@@ -250,6 +313,9 @@ function renderResult(result, requestIdFromHeader) {
 
   const structured = traceOutput(result, "intake_structuring");
   $("structuredOut").textContent = fmtJson(structured || {});
+  const missing = structured?.missing_fields || [];
+  const missingEl = $("missingFields");
+  if (missingEl) renderList(missingEl, missing, { ordered: false, emptyText: "None." });
 
   const reasoning = traceOutput(result, "multimodal_reasoning");
   const model = reasoning.reasoning_backend_model || "";
@@ -732,6 +798,362 @@ async function downloadBench() {
   URL.revokeObjectURL(url);
 }
 
+// ---------------------------
+// Clinician review (UI-local)
+// ---------------------------
+
+const REVIEW_STORAGE_KEY = "clinicaflow.reviews.v1";
+
+function todayISODate() {
+  const d = new Date();
+  const yyyy = String(d.getFullYear());
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function loadStoredReviews() {
+  try {
+    const raw = localStorage.getItem(REVIEW_STORAGE_KEY) || "";
+    if (!raw.trim()) return [];
+    const payload = JSON.parse(raw);
+    return Array.isArray(payload) ? payload : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveStoredReviews(reviews) {
+  try {
+    localStorage.setItem(REVIEW_STORAGE_KEY, JSON.stringify(reviews || []));
+  } catch (e) {
+    // ignore
+  }
+}
+
+function readReviewForm() {
+  return {
+    reviewer: {
+      role: String($("reviewRole")?.value || "").trim(),
+      years_in_practice: toNum($("reviewYears")?.value),
+      setting: String($("reviewSetting")?.value || "").trim(),
+      date: String($("reviewDate")?.value || "").trim(),
+    },
+    ratings: {
+      risk_tier_safety: String($("reviewRiskSafety")?.value || "").trim(),
+      actionability: toNum($("reviewActionability")?.value),
+      handoff_quality: toNum($("reviewHandoff")?.value),
+    },
+    notes: {
+      feedback: String($("reviewFeedback")?.value || "").trim(),
+      improvement: String($("reviewImprovement")?.value || "").trim(),
+    },
+  };
+}
+
+function clearReviewForm() {
+  const ids = [
+    "reviewRiskSafety",
+    "reviewActionability",
+    "reviewHandoff",
+    "reviewFeedback",
+    "reviewImprovement",
+  ];
+  ids.forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    el.value = "";
+  });
+  setError("reviewError", "");
+}
+
+function setReviewIdentityDefaults() {
+  const dateEl = $("reviewDate");
+  if (dateEl && !String(dateEl.value || "").trim()) dateEl.value = todayISODate();
+}
+
+function renderReviewTable() {
+  const body = $("reviewTableBody");
+  if (!body) return;
+  body.innerHTML = "";
+
+  const reviews = loadStoredReviews();
+  if (reviews.length === 0) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td class="muted" colspan="6">No saved reviews yet.</td>`;
+    body.appendChild(tr);
+    return;
+  }
+
+  reviews
+    .slice()
+    .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")))
+    .forEach((r) => {
+      const tr = document.createElement("tr");
+      const safety = r?.ratings?.risk_tier_safety || "";
+      const actionability = r?.ratings?.actionability ?? "";
+      const handoff = r?.ratings?.handoff_quality ?? "";
+      tr.innerHTML = `
+        <td class="mono">${escapeHtml(String(r.case_id || ""))}</td>
+        <td><b>${escapeHtml(String(r.output_preview?.risk_tier || ""))}</b></td>
+        <td class="mono">${escapeHtml(String(safety))}</td>
+        <td class="mono">${escapeHtml(String(actionability))}</td>
+        <td class="mono">${escapeHtml(String(handoff))}</td>
+        <td></td>
+      `;
+
+      const actionsTd = tr.querySelector("td:last-child");
+      const btnLoad = document.createElement("button");
+      btnLoad.className = "btn subtle";
+      btnLoad.type = "button";
+      btnLoad.textContent = "Load";
+      btnLoad.addEventListener("click", () => loadSavedReview(r));
+
+      const btnDel = document.createElement("button");
+      btnDel.className = "btn subtle";
+      btnDel.type = "button";
+      btnDel.textContent = "Delete";
+      btnDel.addEventListener("click", () => deleteSavedReview(r));
+
+      const wrap = document.createElement("div");
+      wrap.className = "row";
+      wrap.style.margin = "0";
+      wrap.appendChild(btnLoad);
+      wrap.appendChild(btnDel);
+      actionsTd.appendChild(wrap);
+
+      body.appendChild(tr);
+    });
+}
+
+function loadSavedReview(r) {
+  if (!r) return;
+  state.review.lastCaseId = r.case_id || null;
+  state.review.lastIntake = r.intake || null;
+  state.review.lastLabels = r.gold_labels || null;
+  state.review.lastResult = r.output_preview_full || r.output_preview || null;
+
+  const sel = $("reviewCaseSelect");
+  if (sel && r.case_id) sel.value = r.case_id;
+
+  const roleEl = $("reviewRole");
+  if (roleEl) roleEl.value = r?.reviewer?.role || "";
+  const yrsEl = $("reviewYears");
+  if (yrsEl) yrsEl.value = r?.reviewer?.years_in_practice ?? "";
+  const settingEl = $("reviewSetting");
+  if (settingEl) settingEl.value = r?.reviewer?.setting || "";
+  const dateEl = $("reviewDate");
+  if (dateEl) dateEl.value = r?.reviewer?.date || "";
+
+  const safetyEl = $("reviewRiskSafety");
+  if (safetyEl) safetyEl.value = r?.ratings?.risk_tier_safety || "";
+  const actEl = $("reviewActionability");
+  if (actEl) actEl.value = r?.ratings?.actionability ?? "";
+  const hoEl = $("reviewHandoff");
+  if (hoEl) hoEl.value = r?.ratings?.handoff_quality ?? "";
+
+  const fbEl = $("reviewFeedback");
+  if (fbEl) fbEl.value = r?.notes?.feedback || "";
+  const imEl = $("reviewImprovement");
+  if (imEl) imEl.value = r?.notes?.improvement || "";
+
+  $("reviewIntake").textContent = fmtJson(r.intake || {});
+  $("reviewOutput").textContent = fmtJson(r.output_preview || {});
+  $("reviewGold").textContent = fmtJson(r.gold_labels || {});
+  const goldDetails = $("reviewGold")?.closest("details");
+  if (goldDetails) goldDetails.classList.toggle("hidden", !($("reviewShowGold")?.checked && r.gold_labels));
+
+  setTab("review");
+  setError("reviewError", "");
+}
+
+function deleteSavedReview(r) {
+  if (!r) return;
+  const ok = confirm(`Delete saved review for ${r.case_id || "case"}?`);
+  if (!ok) return;
+  const reviews = loadStoredReviews().filter((x) => x && x.id !== r.id);
+  saveStoredReviews(reviews);
+  renderReviewTable();
+}
+
+async function loadReviewCases() {
+  const select = $("reviewCaseSelect");
+  if (!select) return;
+  select.innerHTML = "";
+
+  try {
+    const payload = await fetchJson("/vignettes");
+    const vignettes = payload.vignettes || [];
+    vignettes.forEach((v) => {
+      const opt = document.createElement("option");
+      opt.value = v.id;
+      const cc = String(v.chief_complaint || "").slice(0, 60);
+      opt.textContent = `${v.id} — ${cc}`;
+      select.appendChild(opt);
+    });
+  } catch (e) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "Failed to load vignettes";
+    select.appendChild(opt);
+  }
+}
+
+async function reviewLoadCase() {
+  setError("reviewError", "");
+  const caseId = String($("reviewCaseSelect")?.value || "").trim();
+  if (!caseId) return;
+
+  try {
+    const include = $("reviewShowGold")?.checked ? "1" : "0";
+    const resp = await fetchJson(`/vignettes/${encodeURIComponent(caseId)}?include_labels=${include}`);
+    const intake = resp.input || {};
+    const labels = resp.labels || null;
+
+    state.review.lastCaseId = caseId;
+    state.review.lastIntake = intake;
+    state.review.lastLabels = labels;
+    state.review.lastResult = null;
+
+    $("reviewIntake").textContent = fmtJson(intake);
+    $("reviewOutput").textContent = fmtJson({});
+    $("reviewGold").textContent = fmtJson(labels || {});
+    const goldDetails = $("reviewGold")?.closest("details");
+    if (goldDetails) goldDetails.classList.toggle("hidden", !(labels && $("reviewShowGold")?.checked));
+  } catch (e) {
+    setError("reviewError", e);
+  }
+}
+
+async function reviewRunTriage() {
+  setError("reviewError", "");
+  const caseId = String($("reviewCaseSelect")?.value || "").trim();
+  if (!caseId) return;
+
+  try {
+    if (!state.review.lastIntake || state.review.lastCaseId !== caseId) {
+      await reviewLoadCase();
+    }
+    const intake = state.review.lastIntake;
+    if (!intake) throw new Error("No intake loaded.");
+
+    const { data } = await postJson("/triage", intake, {});
+    const reasoning = traceOutput(data, "multimodal_reasoning");
+    const evidence = traceOutput(data, "evidence_policy");
+    const safety = traceOutput(data, "safety_escalation");
+
+    const preview = {
+      risk_tier: data.risk_tier,
+      escalation_required: data.escalation_required,
+      red_flags: data.red_flags,
+      recommended_next_actions: data.recommended_next_actions,
+      clinician_handoff: data.clinician_handoff,
+      confidence: data.confidence,
+      uncertainty_reasons: data.uncertainty_reasons,
+      reasoning_backend: reasoning.reasoning_backend || "",
+      reasoning_backend_model: reasoning.reasoning_backend_model || "",
+      reasoning_prompt_version: reasoning.reasoning_prompt_version || "",
+      policy_pack_sha256: evidence.policy_pack_sha256 || "",
+      safety_rules_version: safety.safety_rules_version || "",
+    };
+
+    state.review.lastResult = data;
+    $("reviewOutput").textContent = fmtJson(preview);
+  } catch (e) {
+    setError("reviewError", e);
+  }
+}
+
+function buildReviewMarkdown(reviews) {
+  const lines = [];
+  lines.push("# ClinicaFlow — Clinician Review Notes (No PHI)");
+  lines.push("");
+  lines.push(
+    "These notes were collected on a **synthetic** vignette regression set. Do not include any real patient identifiers.",
+  );
+  lines.push("");
+
+  (reviews || []).forEach((r) => {
+    lines.push(`## ${r.case_id || "case"}`);
+    lines.push("");
+    if (r.reviewer?.role || r.reviewer?.setting || r.reviewer?.date) {
+      const bits = [];
+      if (r.reviewer?.role) bits.push(`role: ${r.reviewer.role}`);
+      if (r.reviewer?.setting) bits.push(`setting: ${r.reviewer.setting}`);
+      if (r.reviewer?.date) bits.push(`date: ${r.reviewer.date}`);
+      if (r.reviewer?.years_in_practice != null) bits.push(`years: ${r.reviewer.years_in_practice}`);
+      lines.push(`- ${bits.join(" • ")}`);
+    }
+    if (r.ratings?.risk_tier_safety) lines.push(`- risk_tier_safety: ${r.ratings.risk_tier_safety}`);
+    if (r.ratings?.actionability != null) lines.push(`- actionability: ${r.ratings.actionability}/5`);
+    if (r.ratings?.handoff_quality != null) lines.push(`- handoff_quality: ${r.ratings.handoff_quality}/5`);
+    lines.push("");
+
+    if (r.output_preview) {
+      lines.push("**Output preview:**");
+      lines.push("");
+      lines.push("```json");
+      lines.push(JSON.stringify(r.output_preview, null, 2));
+      lines.push("```");
+      lines.push("");
+    }
+
+    if (r.notes?.feedback) {
+      lines.push("**Qualitative feedback:**");
+      lines.push("");
+      lines.push(r.notes.feedback);
+      lines.push("");
+    }
+    if (r.notes?.improvement) {
+      lines.push("**Top improvement suggestion:**");
+      lines.push("");
+      lines.push(r.notes.improvement);
+      lines.push("");
+    }
+  });
+
+  return lines.join("\n").trim() + "\n";
+}
+
+function buildWriteupParagraph() {
+  const reviews = loadStoredReviews();
+  const caseCount = reviews.length;
+  const role = String($("reviewRole")?.value || "").trim();
+  const setting = String($("reviewSetting")?.value || "").trim();
+  const date = String($("reviewDate")?.value || "").trim();
+
+  const noted = [
+    String($("writeupNoted1")?.value || "").trim(),
+    String($("writeupNoted2")?.value || "").trim(),
+    String($("writeupNoted3")?.value || "").trim(),
+  ].filter((x) => x);
+  const helpful = String($("writeupHelpful")?.value || "").trim();
+  const improve = String($("writeupImprove")?.value || "").trim();
+
+  const bits = [];
+  if (role) bits.push(role);
+  if (setting) bits.push(setting);
+  const who = bits.length ? bits.join(", ") : "a clinician reviewer";
+  const when = date ? ` on ${date}` : "";
+
+  const lines = [];
+  lines.push(
+    `Clinician review (qualitative): We collected structured feedback from ${who}${when} using the built-in synthetic vignette set (n=${caseCount}).`,
+  );
+  if (noted.length) lines.push(`Key notes: ${noted.map((x) => `“${x}”`).join("; ")}.`);
+  if (helpful) lines.push(`Most helpful aspect: “${helpful}”.`);
+  if (improve) lines.push(`Top improvement suggestion: “${improve}”.`);
+  lines.push("We do not fabricate reviewer feedback; exportable review notes are generated from recorded inputs.");
+
+  return lines.join(" ");
+}
+
+function updateReviewParagraph() {
+  const out = $("reviewParagraph");
+  if (!out) return;
+  out.textContent = buildWriteupParagraph();
+}
+
 function wireEvents() {
   document.querySelectorAll(".seg").forEach((b) =>
     b.addEventListener("click", () => {
@@ -750,6 +1172,11 @@ function wireEvents() {
   $("copyResult").addEventListener("click", () => copyResult());
   $("copyHandoff").addEventListener("click", () => copyText($("handoff").textContent || "", "Copied handoff."));
   $("copyPatient").addEventListener("click", () => copyText($("patientSummary").textContent || "", "Copied precautions."));
+  $("copyNote")?.addEventListener("click", () => {
+    if (!state.lastIntake || !state.lastResult) return;
+    const md = buildNoteMarkdown(state.lastIntake, state.lastResult);
+    copyText(md, "Copied note.md");
+  });
   $("downloadNote").addEventListener("click", () => {
     if (!state.lastIntake || !state.lastResult) return;
     const md = buildNoteMarkdown(state.lastIntake, state.lastResult);
@@ -792,6 +1219,148 @@ function wireEvents() {
       renderBenchCases(state.lastBench.per_case);
     });
   });
+
+  // Review tab (optional; UI-local storage)
+  const reviewLoad = $("reviewLoadCase");
+  if (reviewLoad) reviewLoad.addEventListener("click", () => reviewLoadCase());
+  const reviewRun = $("reviewRunTriage");
+  if (reviewRun) reviewRun.addEventListener("click", () => reviewRunTriage());
+  const reviewGold = $("reviewShowGold");
+  if (reviewGold)
+    reviewGold.addEventListener("change", () => {
+      reviewLoadCase();
+    });
+
+  const reviewSave = $("reviewSave");
+  if (reviewSave)
+    reviewSave.addEventListener("click", () => {
+      setError("reviewError", "");
+      const caseId = String($("reviewCaseSelect")?.value || "").trim();
+      if (!caseId) {
+        setError("reviewError", "Select a case first.");
+        return;
+      }
+      if (!state.review.lastResult) {
+        setError("reviewError", "Run triage first so the output can be reviewed.");
+        return;
+      }
+
+      const form = readReviewForm();
+      if (!form.ratings.risk_tier_safety) {
+        setError("reviewError", "Please select Risk tier safety (safe/borderline/unsafe).");
+        return;
+      }
+
+      const reviews = loadStoredReviews();
+      const now = new Date().toISOString();
+      const reasoning = traceOutput(state.review.lastResult, "multimodal_reasoning");
+      const evidence = traceOutput(state.review.lastResult, "evidence_policy");
+      const safety = traceOutput(state.review.lastResult, "safety_escalation");
+
+      const outputPreview = {
+        risk_tier: state.review.lastResult.risk_tier,
+        escalation_required: state.review.lastResult.escalation_required,
+        red_flags: state.review.lastResult.red_flags,
+        recommended_next_actions: state.review.lastResult.recommended_next_actions,
+        clinician_handoff: state.review.lastResult.clinician_handoff,
+        confidence: state.review.lastResult.confidence,
+        uncertainty_reasons: state.review.lastResult.uncertainty_reasons,
+      };
+
+      reviews.push({
+        id: `${caseId}-${now}-${Math.random().toString(16).slice(2)}`,
+        created_at: now,
+        case_id: caseId,
+        reviewer: form.reviewer,
+        ratings: form.ratings,
+        notes: form.notes,
+        intake: state.review.lastIntake,
+        gold_labels: state.review.lastLabels,
+        output_preview: outputPreview,
+        output_preview_full: {
+          ...outputPreview,
+          reasoning_backend: reasoning.reasoning_backend || "",
+          reasoning_backend_model: reasoning.reasoning_backend_model || "",
+          reasoning_prompt_version: reasoning.reasoning_prompt_version || "",
+          policy_pack_sha256: evidence.policy_pack_sha256 || "",
+          safety_rules_version: safety.safety_rules_version || "",
+        },
+      });
+      saveStoredReviews(reviews);
+      renderReviewTable();
+      updateReviewParagraph();
+      setText("statusLine", "Saved review locally.");
+    });
+
+  const reviewClear = $("reviewClear");
+  if (reviewClear) reviewClear.addEventListener("click", () => clearReviewForm());
+
+  const reviewDownloadJson = $("reviewDownloadJson");
+  if (reviewDownloadJson)
+    reviewDownloadJson.addEventListener("click", () => {
+      const reviews = loadStoredReviews();
+      downloadText("clinician_reviews.json", fmtJson(reviews), "application/json");
+      setText("statusLine", "Downloaded clinician_reviews.json");
+    });
+
+  const reviewDownloadMd = $("reviewDownloadMd");
+  if (reviewDownloadMd)
+    reviewDownloadMd.addEventListener("click", () => {
+      const reviews = loadStoredReviews();
+      downloadText("clinician_review_notes.md", buildReviewMarkdown(reviews), "text/markdown");
+      setText("statusLine", "Downloaded clinician_review_notes.md");
+    });
+
+  const reviewReset = $("reviewReset");
+  if (reviewReset)
+    reviewReset.addEventListener("click", () => {
+      const ok = confirm("Reset local clinician reviews? This cannot be undone.");
+      if (!ok) return;
+      saveStoredReviews([]);
+      renderReviewTable();
+      updateReviewParagraph();
+      setText("statusLine", "Reset local reviews.");
+    });
+
+  const reviewCaseSel = $("reviewCaseSelect");
+  if (reviewCaseSel)
+    reviewCaseSel.addEventListener("change", () => {
+      // Keep state aligned with selection.
+      state.review.lastCaseId = null;
+      state.review.lastIntake = null;
+      state.review.lastLabels = null;
+      state.review.lastResult = null;
+      $("reviewIntake").textContent = "{}";
+      $("reviewOutput").textContent = "{}";
+      $("reviewGold").textContent = "{}";
+      const goldDetails = $("reviewGold")?.closest("details");
+      if (goldDetails) goldDetails.classList.add("hidden");
+    });
+
+  const reviewCopyParagraph = $("reviewCopyParagraph");
+  if (reviewCopyParagraph)
+    reviewCopyParagraph.addEventListener("click", async () => {
+      updateReviewParagraph();
+      await copyText($("reviewParagraph")?.textContent || "", "Copied writeup paragraph.");
+    });
+
+  // Update paragraph live when inputs change.
+  const paragraphInputs = [
+    "reviewRole",
+    "reviewSetting",
+    "reviewDate",
+    "writeupNoted1",
+    "writeupNoted2",
+    "writeupNoted3",
+    "writeupHelpful",
+    "writeupImprove",
+  ];
+  paragraphInputs.forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    el.addEventListener("input", () => updateReviewParagraph());
+    el.addEventListener("change", () => updateReviewParagraph());
+  });
 }
 
 async function init() {
@@ -800,6 +1369,10 @@ async function init() {
   await loadDoctor();
   await loadPresets();
   await loadPreset();
+  await loadReviewCases();
+  setReviewIdentityDefaults();
+  renderReviewTable();
+  updateReviewParagraph();
 }
 
 init().catch((e) => {

@@ -17,6 +17,8 @@
 
 * { box-sizing: border-box; }
 
+.hidden { display: none !important; }
+
 body {
   margin: 0;
   background: var(--bg);
@@ -226,6 +228,28 @@ textarea.mono { font-size: 12px; }
 }
 .hint { margin-top: 10px; }
 
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: #374151;
+}
+.chip.ok { background: var(--green-bg); color: var(--green); border-color: rgba(6, 95, 70, 0.25); }
+.chip.warn { background: var(--amber-bg); color: var(--amber); border-color: rgba(146, 64, 14, 0.25); }
+.chip.bad { background: var(--red-bg); color: var(--red); border-color: rgba(153, 27, 27, 0.25); }
+
 .summary {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -344,6 +368,25 @@ textarea.mono { font-size: 12px; }
   padding: 10px;
   background: #fff;
   margin-top: 10px;
+}
+
+.review-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 980px) {
+  .review-split { grid-template-columns: 1fr; }
+}
+
+.citations table {
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.citations td {
+  white-space: pre-wrap;
 }
 
 .bench-summary {

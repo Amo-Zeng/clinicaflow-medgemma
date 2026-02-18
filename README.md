@@ -129,6 +129,7 @@ Console features:
 - Agent trace viewer (audit-friendly)
 - Downloadable audit bundle zip (redacted/full)
 - Vignette regression tab + JSON export
+- Clinician review tab (local-only storage + JSON/Markdown export for writeup)
 
 API spec & metrics:
 

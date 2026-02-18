@@ -24,6 +24,7 @@
       <nav class="tabs" aria-label="Console tabs">
         <button class="tab active" data-tab="triage" type="button">Triage</button>
         <button class="tab" data-tab="regression" type="button">Regression</button>
+        <button class="tab" data-tab="review" type="button">Review</button>
         <button class="tab" data-tab="about" type="button">About</button>
       </nav>
 
@@ -144,8 +145,13 @@
                   <div id="riskTier" class="risk">—</div>
                   <span id="escalationPill" class="pill subtle">escalation: —</span>
                 </div>
+                <div id="careSetting" class="small">—</div>
                 <div id="tierRationale" class="small muted">—</div>
                 <div id="metaLine" class="small">request_id: — • latency: —</div>
+              </div>
+              <div class="card">
+                <div class="k">Vitals (input)</div>
+                <div id="vitalsSummary" class="small muted">—</div>
               </div>
               <div class="card">
                 <div class="k">Differential</div>
@@ -159,6 +165,10 @@
                   <div class="bar"><div id="confidenceBar" class="bar-fill"></div></div>
                 </div>
                 <ul id="uncertainty" class="list"></ul>
+              </div>
+              <div class="card">
+                <div class="k">Missing critical fields</div>
+                <ul id="missingFields" class="list"></ul>
               </div>
               <div class="card">
                 <div class="k">Red flags</div>
@@ -204,6 +214,7 @@
               <button id="copyResult" class="btn subtle" type="button">Copy JSON</button>
               <button id="copyHandoff" class="btn subtle" type="button">Copy handoff</button>
               <button id="copyPatient" class="btn subtle" type="button">Copy precautions</button>
+              <button id="copyNote" class="btn subtle" type="button">Copy note.md</button>
               <button id="downloadNote" class="btn subtle" type="button">Download note.md</button>
               <button id="downloadRedacted" class="btn subtle" type="button">Download audit bundle (redacted)</button>
               <button id="downloadFull" class="btn subtle" type="button">Download audit bundle (full)</button>
@@ -254,6 +265,167 @@
             </table>
           </div>
         </section>
+      </section>
+
+      <section id="tab-review" class="tabpanel">
+        <div class="grid">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Clinician review (qualitative)</h2>
+              <div class="small">Collect real feedback on synthetic vignettes. No PHI.</div>
+            </div>
+
+            <div class="row">
+              <select id="reviewCaseSelect" class="select"></select>
+              <button id="reviewLoadCase" class="btn subtle" type="button">Load case</button>
+              <button id="reviewRunTriage" class="btn primary" type="button">Run triage</button>
+              <label class="check"><input id="reviewShowGold" type="checkbox" /> Show gold labels</label>
+            </div>
+
+            <div class="review-split">
+              <div>
+                <div class="k">Intake (synthetic)</div>
+                <pre id="reviewIntake" class="pre mono">{}</pre>
+              </div>
+              <div>
+                <div class="k">ClinicaFlow output (key fields)</div>
+                <pre id="reviewOutput" class="pre mono">{}</pre>
+              </div>
+            </div>
+
+            <details class="details hidden">
+              <summary>Gold label (for regression only)</summary>
+              <pre id="reviewGold" class="pre mono">{}</pre>
+            </details>
+
+            <div id="reviewError" class="alert hidden"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Reviewer inputs</h2>
+              <div class="small">Saved locally in your browser.</div>
+            </div>
+
+            <div class="form-grid">
+              <div class="field">
+                <label for="reviewRole">Reviewer role / specialty</label>
+                <input id="reviewRole" type="text" placeholder="e.g., primary care physician" />
+              </div>
+              <div class="field">
+                <label for="reviewYears">Years in practice (optional)</label>
+                <input id="reviewYears" type="number" min="0" step="1" placeholder="8" />
+              </div>
+              <div class="field span-2">
+                <label for="reviewSetting">Setting (optional)</label>
+                <input id="reviewSetting" type="text" placeholder="e.g., community clinic / urgent care" />
+              </div>
+              <div class="field">
+                <label for="reviewDate">Date</label>
+                <input id="reviewDate" type="date" />
+              </div>
+              <div class="field">
+                <label for="reviewRiskSafety">Risk tier safety</label>
+                <select id="reviewRiskSafety">
+                  <option value="">—</option>
+                  <option value="safe">safe</option>
+                  <option value="borderline">borderline</option>
+                  <option value="unsafe">unsafe</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="reviewActionability">Actionability (1–5)</label>
+                <select id="reviewActionability">
+                  <option value="">—</option>
+                  <option value="1">1</option>
+                  <option value="2">2</option>
+                  <option value="3">3</option>
+                  <option value="4">4</option>
+                  <option value="5">5</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="reviewHandoff">Handoff quality (1–5)</label>
+                <select id="reviewHandoff">
+                  <option value="">—</option>
+                  <option value="1">1</option>
+                  <option value="2">2</option>
+                  <option value="3">3</option>
+                  <option value="4">4</option>
+                  <option value="5">5</option>
+                </select>
+              </div>
+              <div class="field span-2">
+                <label for="reviewFeedback">Qualitative feedback (free text)</label>
+                <textarea id="reviewFeedback" rows="5" placeholder="Missing red flags? Unsafe actions? Workflow fit?"></textarea>
+              </div>
+              <div class="field span-2">
+                <label for="reviewImprovement">Top improvement suggestion</label>
+                <textarea id="reviewImprovement" rows="3" placeholder="What would make this more usable/safe?"></textarea>
+              </div>
+            </div>
+
+            <div class="row">
+              <button id="reviewSave" class="btn primary" type="button">Save review</button>
+              <button id="reviewClear" class="btn subtle" type="button">Clear form</button>
+              <button id="reviewDownloadJson" class="btn subtle" type="button">Download JSON</button>
+              <button id="reviewDownloadMd" class="btn subtle" type="button">Download markdown</button>
+            </div>
+
+            <details class="details">
+              <summary>Writeup paragraph helper</summary>
+              <div class="small muted">Fill these in to produce a copy-paste paragraph for the Kaggle writeup.</div>
+              <div class="form-grid" style="margin-top: 10px;">
+                <div class="field span-2">
+                  <label for="writeupNoted1">Noted (1)</label>
+                  <input id="writeupNoted1" type="text" placeholder="e.g., red-flag escalation was appropriately conservative" />
+                </div>
+                <div class="field span-2">
+                  <label for="writeupNoted2">Noted (2)</label>
+                  <input id="writeupNoted2" type="text" placeholder="e.g., next-action checklist was actionable" />
+                </div>
+                <div class="field span-2">
+                  <label for="writeupNoted3">Noted (3)</label>
+                  <input id="writeupNoted3" type="text" placeholder="e.g., wording of return precautions was clear" />
+                </div>
+                <div class="field span-2">
+                  <label for="writeupHelpful">Most helpful aspect</label>
+                  <input id="writeupHelpful" type="text" placeholder="e.g., deterministic safety escalation + audit trace" />
+                </div>
+                <div class="field span-2">
+                  <label for="writeupImprove">Top improvement area</label>
+                  <input id="writeupImprove" type="text" placeholder="e.g., reduce over-triage in low acuity cases" />
+                </div>
+              </div>
+
+              <div class="row">
+                <button id="reviewCopyParagraph" class="btn subtle" type="button">Copy paragraph</button>
+              </div>
+              <pre id="reviewParagraph" class="pre mono"></pre>
+            </details>
+
+            <div class="k" style="margin-top: 10px;">Saved reviews</div>
+            <div class="tablewrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Case</th>
+                    <th>Pred tier</th>
+                    <th>Safety</th>
+                    <th>Actionability</th>
+                    <th>Handoff</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="reviewTableBody"></tbody>
+              </table>
+            </div>
+
+            <div class="row">
+              <button id="reviewReset" class="btn subtle" type="button">Reset local reviews</button>
+            </div>
+          </section>
+        </div>
       </section>
 
       <section id="tab-about" class="tabpanel">

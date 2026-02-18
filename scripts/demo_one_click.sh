@@ -17,20 +17,26 @@ MEDGEMMA_SERVED_MODEL_NAME="${MEDGEMMA_SERVED_MODEL_NAME:-}"
 RUN_BENCHMARKS="${RUN_BENCHMARKS:-0}"
 
 VLLM_PID=""
+SERVER_PID=""
 
 cleanup() {
   if [[ -n "${VLLM_PID:-}" ]]; then
     kill "${VLLM_PID}" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "${SERVER_PID:-}" ]]; then
+    kill "${SERVER_PID}" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
 
 ensure_venv() {
   if [[ ! -d "$VENV_DIR" ]]; then
+    echo "[demo] Creating venv at: $VENV_DIR"
     python3 -m venv "$VENV_DIR"
   fi
   # shellcheck disable=SC1091
   source "$VENV_DIR/bin/activate"
+  echo "[demo] Installing/refreshing dependencies (pip)…"
   python -m pip install -q -U pip
   python -m pip install -q -e .
 }
@@ -57,6 +63,40 @@ while time.time() < deadline:
 
 sys.exit(1)
 PY
+}
+
+is_port_free() {
+  local port="$1"
+  python - "$port" <<'PY'
+import socket
+import sys
+
+port = int(sys.argv[1])
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+try:
+    s.bind(("127.0.0.1", port))
+except OSError:
+    sys.exit(1)
+finally:
+    s.close()
+sys.exit(0)
+PY
+}
+
+find_free_port() {
+  local start_port="$1"
+  local tries="${2:-20}"
+  local port="$start_port"
+  local i=0
+  while [[ "$i" -lt "$tries" ]]; do
+    if is_port_free "$port" >/dev/null 2>&1; then
+      echo "$port"
+      return 0
+    fi
+    port=$((port + 1))
+    i=$((i + 1))
+  done
+  return 1
 }
 
 maybe_start_medgemma_vllm() {
@@ -99,6 +139,18 @@ maybe_start_medgemma_vllm() {
 ensure_venv
 maybe_start_medgemma_vllm
 
+if ! is_port_free "$CLINICAFLOW_PORT" >/dev/null 2>&1; then
+  echo "[demo] Port ${CLINICAFLOW_PORT} is already in use."
+  if free_port="$(find_free_port "$CLINICAFLOW_PORT" 30)"; then
+    echo "[demo] Using free port: ${free_port}"
+    CLINICAFLOW_PORT="$free_port"
+  else
+    echo "[demo] Could not find a free port near ${CLINICAFLOW_PORT}."
+    echo "       Stop the existing server, or set CLINICAFLOW_PORT=... and re-run."
+    exit 1
+  fi
+fi
+
 echo ""
 echo "[demo] Sanity check:"
 clinicaflow doctor | python -m json.tool
@@ -111,9 +163,27 @@ fi
 
 echo ""
 echo "[demo] Starting ClinicaFlow demo server..."
-echo "       UI: http://127.0.0.1:${CLINICAFLOW_PORT}/"
+set -x
+clinicaflow serve --host "$CLINICAFLOW_HOST" --port "$CLINICAFLOW_PORT" &
+set +x
+SERVER_PID="$!"
+
+echo "[demo] Waiting for server..."
+wait_for_http_200 "http://127.0.0.1:${CLINICAFLOW_PORT}/health" 60
+
+if curl -fsS "http://127.0.0.1:${CLINICAFLOW_PORT}/static/app.js" >/dev/null 2>&1; then
+  echo "[demo] Console UI assets detected."
+else
+  echo "[demo] WARNING: Console UI assets not detected."
+  echo "       You may be running an older server instance or a stale install."
+  echo "       Try stopping existing processes and re-running this script."
+fi
+
+echo ""
+echo "[demo] Ready:"
+echo "       UI:      http://127.0.0.1:${CLINICAFLOW_PORT}/"
 echo "       OpenAPI: http://127.0.0.1:${CLINICAFLOW_PORT}/openapi.json"
 echo "       Metrics: http://127.0.0.1:${CLINICAFLOW_PORT}/metrics"
 echo ""
-clinicaflow serve --host "$CLINICAFLOW_HOST" --port "$CLINICAFLOW_PORT"
 
+wait "$SERVER_PID"

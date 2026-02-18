@@ -114,6 +114,7 @@ Rubric details: `docs/VIGNETTE_REGRESSION.md`
 We include tooling to collect a lightweight clinician review (no PHI), but we **do not fabricate** reviewer feedback.
 
 - Generate a review packet: `python -m clinicaflow.benchmarks.review_packet --out reviews/clinician_review_packet.md --include-gold`
+- Or use the demo UI → **Review** tab to save local reviews and export JSON/Markdown (plus a writeup-paragraph helper).
 - Template for citing feedback responsibly: `docs/CLINICIAN_REVIEW_TEMPLATE.md`
 
 ### Responsible use and limitations

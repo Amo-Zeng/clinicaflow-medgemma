@@ -40,12 +40,13 @@ DEMO_HTML = """<!doctype html>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>ClinicaFlow Demo</title>
+    <title>ClinicaFlow Demo (Legacy UI)</title>
     <style>
       :root { color-scheme: light; }
       body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 24px; max-width: 1100px; }
       h1 { margin: 0 0 6px; font-size: 22px; }
       .sub { color: #555; margin: 0 0 18px; }
+      .warn { background: #fffbeb; border: 1px solid #f59e0b44; border-radius: 10px; padding: 10px; margin: 14px 0; color: #92400e; }
       .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
       textarea { width: 100%; height: 520px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; padding: 10px; border: 1px solid #ccc; border-radius: 8px; }
       pre { height: 520px; overflow: auto; padding: 10px; border: 1px solid #ccc; border-radius: 8px; background: #fafafa; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; margin: 0; }
@@ -59,6 +60,12 @@ DEMO_HTML = """<!doctype html>
   <body>
     <h1>ClinicaFlow Demo <span class="badge">local</span></h1>
     <p class="sub">Agentic triage workflow scaffold with an auditable 5-step trace.</p>
+
+    <div class="warn">
+      <b>Note:</b> You are seeing the <b>legacy fallback UI</b>. The full “ClinicaFlow Console” UI is served from bundled
+      web assets under <code>/static/</code>. If this page looks too minimal, restart the server after reinstalling
+      (e.g. <code>pip install -e .</code>), or run <code>bash scripts/demo_one_click.sh</code>.
+    </div>
 
     <div class="row">
       <button id="load">Load sample</button>
