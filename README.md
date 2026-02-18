@@ -72,6 +72,29 @@ To reduce sensitive fields in the stored bundle:
 clinicaflow audit --input examples/sample_case.json --out-dir audits/run1 --redact
 ```
 
+## FHIR Export (Demo Interoperability)
+
+Export a minimal FHIR R4 `Bundle` (collection) containing:
+
+- `Patient` (narrative only; no birthdate inference),
+- vital-sign `Observation`s,
+- triage `ClinicalImpression`,
+- patient-facing `Communication` (return precautions).
+
+CLI:
+
+```bash
+clinicaflow fhir --input examples/sample_case.json --output exports/fhir_bundle.json --pretty --redact
+```
+
+API:
+
+```bash
+curl -s -X POST 'http://127.0.0.1:8000/fhir_bundle?redact=1' \
+  -H 'Content-Type: application/json' \
+  --data @examples/sample_case.json | python -m json.tool
+```
+
 ## Reproduce Writeup Benchmark
 
 This repo includes a small **synthetic proxy benchmark** used in the write-up to keep results reproducible.
@@ -135,6 +158,7 @@ Console features:
 - Built-in vignette presets (n=30)
 - Agent trace viewer (audit-friendly)
 - Downloadable audit bundle zip (redacted/full)
+- Downloadable minimal FHIR bundle JSON (redacted)
 - Vignette regression tab + JSON export
 - Clinician review tab (local-only storage + JSON/Markdown export for writeup)
 

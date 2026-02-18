@@ -47,10 +47,11 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
 - **Production-ready scaffolding**:
   - request IDs end-to-end (`X-Request-ID`),
   - probes (`GET /health`, `GET /ready`, `GET /live`),
-  - OpenAPI spec + metrics endpoint,
+  - OpenAPI spec + metrics endpoint (JSON + Prometheus),
   - optional JSON logs (`CLINICAFLOW_JSON_LOGS=true`) for log pipelines,
   - optional API-key protection for `POST /triage` (`CLINICAFLOW_API_KEY`),
   - `clinicaflow doctor` for quick runtime/policy-pack sanity checks,
+  - minimal FHIR bundle export (`POST /fhir_bundle`) for demo interoperability,
   - Docker image (non-root runtime + healthcheck) + CI.
 - **Governance metadata**:
   - Evidence agent emits `policy_pack_sha256` + `policy_pack_source`,

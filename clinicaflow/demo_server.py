@@ -167,6 +167,9 @@ def _new_stats() -> dict:
         "audit_bundle_requests_total": 0,
         "audit_bundle_success_total": 0,
         "audit_bundle_errors_total": 0,
+        "fhir_bundle_requests_total": 0,
+        "fhir_bundle_success_total": 0,
+        "fhir_bundle_errors_total": 0,
         "triage_risk_tier_total": {"routine": 0, "urgent": 0, "critical": 0},
         "triage_reasoning_backend_total": {"deterministic": 0, "external": 0},
         "triage_latency_ms_sum": 0.0,
@@ -419,7 +422,7 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
             path = parsed.path
             query = parse_qs(parsed.query)
 
-            if path not in {"/triage", "/audit_bundle"}:
+            if path not in {"/triage", "/audit_bundle", "/fhir_bundle"}:
                 self._write_json({"error": {"code": "not_found"}}, code=HTTPStatus.NOT_FOUND, request_id=request_id)
                 status_code = HTTPStatus.NOT_FOUND
                 return
@@ -468,8 +471,10 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
             except json.JSONDecodeError as exc:
                 if path == "/triage":
                     self.server.stats["triage_errors_total"] += 1
-                else:
+                elif path == "/audit_bundle":
                     self.server.stats["audit_bundle_errors_total"] += 1
+                else:
+                    self.server.stats["fhir_bundle_errors_total"] += 1
                 self._write_json(
                     {"error": {"code": "bad_json", "message": str(exc)}},
                     code=HTTPStatus.BAD_REQUEST,
@@ -481,8 +486,10 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
             if not isinstance(payload, dict):
                 if path == "/triage":
                     self.server.stats["triage_errors_total"] += 1
-                else:
+                elif path == "/audit_bundle":
                     self.server.stats["audit_bundle_errors_total"] += 1
+                else:
+                    self.server.stats["fhir_bundle_errors_total"] += 1
                 self._write_json(
                     {"error": {"code": "invalid_payload", "message": "Expected a JSON object"}},
                     code=HTTPStatus.UNPROCESSABLE_ENTITY,
@@ -528,33 +535,48 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                 status_code = HTTPStatus.OK
                 return
 
-            self.server.stats["audit_bundle_requests_total"] += 1
+            if path == "/audit_bundle":
+                self.server.stats["audit_bundle_requests_total"] += 1
+                redact = str(query.get("redact", ["1"])[0]).strip().lower() in {"1", "true", "yes"}
+
+                from clinicaflow.audit import build_audit_bundle_files
+
+                result_obj = self.server.pipeline.run(intake, request_id=request_id)
+                files = build_audit_bundle_files(intake=intake, result=result_obj, redact=redact)
+
+                buf = io.BytesIO()
+                with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                    for name, data in files.items():
+                        zf.writestr(name, data)
+
+                self.server.stats["audit_bundle_success_total"] += 1
+                filename = f'clinicaflow_audit_{"redacted" if redact else "full"}_{request_id}.zip'
+                self._write_bytes(
+                    buf.getvalue(),
+                    content_type="application/zip",
+                    request_id=request_id,
+                    extra_headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+                )
+                status_code = HTTPStatus.OK
+                return
+
+            self.server.stats["fhir_bundle_requests_total"] += 1
             redact = str(query.get("redact", ["1"])[0]).strip().lower() in {"1", "true", "yes"}
-
-            from clinicaflow.audit import build_audit_bundle_files
-
             result_obj = self.server.pipeline.run(intake, request_id=request_id)
-            files = build_audit_bundle_files(intake=intake, result=result_obj, redact=redact)
 
-            buf = io.BytesIO()
-            with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-                for name, data in files.items():
-                    zf.writestr(name, data)
+            from clinicaflow.fhir_export import build_fhir_bundle
 
-            self.server.stats["audit_bundle_success_total"] += 1
-            filename = f'clinicaflow_audit_{"redacted" if redact else "full"}_{request_id}.zip'
-            self._write_bytes(
-                buf.getvalue(),
-                content_type="application/zip",
-                request_id=request_id,
-                extra_headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-            )
+            bundle = build_fhir_bundle(intake=intake, result=result_obj, redact=redact)
+            self.server.stats["fhir_bundle_success_total"] += 1
+            self._write_json(bundle, request_id=request_id)
             status_code = HTTPStatus.OK
         except Exception as exc:  # noqa: BLE001
             if urlparse(self.path).path == "/triage":
                 self.server.stats["triage_errors_total"] += 1
-            else:
+            elif urlparse(self.path).path == "/audit_bundle":
                 self.server.stats["audit_bundle_errors_total"] += 1
+            else:
+                self.server.stats["fhir_bundle_errors_total"] += 1
             logger.exception("post_error", extra={"event": "post_error", "request_id": request_id})
             error_payload = {"error": {"code": "bad_request"}}
             if self.server.settings.debug:
@@ -594,6 +616,7 @@ def _openapi_spec() -> dict:
             "/bench/vignettes": {"get": {"responses": {"200": {"description": "run vignette benchmark"}}}},
             "/triage": {"post": {"responses": {"200": {"description": "triage result"}}}},
             "/audit_bundle": {"post": {"responses": {"200": {"description": "audit bundle zip"}}}},
+            "/fhir_bundle": {"post": {"responses": {"200": {"description": "FHIR bundle JSON"}}}},
         },
     }
 
@@ -643,6 +666,9 @@ def _format_prometheus_metrics(payload: dict) -> str:
     metric("clinicaflow_audit_bundle_requests_total", payload.get("audit_bundle_requests_total"))
     metric("clinicaflow_audit_bundle_success_total", payload.get("audit_bundle_success_total"))
     metric("clinicaflow_audit_bundle_errors_total", payload.get("audit_bundle_errors_total"))
+    metric("clinicaflow_fhir_bundle_requests_total", payload.get("fhir_bundle_requests_total"))
+    metric("clinicaflow_fhir_bundle_success_total", payload.get("fhir_bundle_success_total"))
+    metric("clinicaflow_fhir_bundle_errors_total", payload.get("fhir_bundle_errors_total"))
 
     metric("clinicaflow_triage_latency_ms_avg", payload.get("triage_latency_ms_avg"))
 
@@ -673,7 +699,7 @@ def run(host: str = "0.0.0.0", port: int = 8000) -> None:
     server = make_server(host, port, settings=settings)
     print(f"ClinicaFlow demo server running at http://{host}:{port}")
     print("Open / in your browser for the demo UI")
-    print("API: POST /triage, POST /audit_bundle, GET /doctor, GET /vignettes, GET /bench/vignettes")
+    print("API: POST /triage, POST /audit_bundle, POST /fhir_bundle, GET /doctor, GET /vignettes, GET /bench/vignettes")
     print("Ops: GET /health, GET /metrics, GET /openapi.json")
     server.serve_forever()
 

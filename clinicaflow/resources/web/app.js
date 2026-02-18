@@ -691,6 +691,27 @@ async function downloadAuditBundle(redact) {
   setText("statusLine", "Downloaded audit bundle.");
 }
 
+async function downloadFhirBundle() {
+  setError("runError", "");
+  if (!state.lastIntake) {
+    setError("runError", "Run a triage case first (so the intake is available).");
+    return;
+  }
+
+  const requestId = state.lastRequestId || "";
+  setText("statusLine", "Building FHIR bundle…");
+
+  try {
+    const { data, headers } = await postJson(`/fhir_bundle?redact=1`, state.lastIntake, requestId ? { "X-Request-ID": requestId } : {});
+    const req = headers.get("X-Request-ID") || requestId || (data?.identifier?.value ?? "run");
+    downloadText(`clinicaflow_fhir_${req}.json`, fmtJson(data), "application/fhir+json");
+    setText("statusLine", "Downloaded FHIR bundle.");
+  } catch (e) {
+    setError("runError", e);
+    setText("statusLine", "Error.");
+  }
+}
+
 function renderBenchSummary(summary) {
   const root = $("benchSummary");
   root.innerHTML = "";
@@ -1369,6 +1390,7 @@ function wireEvents() {
     downloadText(`clinicaflow_note_${req}.md`, md, "text/markdown");
     setText("statusLine", "Downloaded note.md");
   });
+  $("downloadFhir")?.addEventListener("click", () => downloadFhirBundle());
   $("downloadRedacted").addEventListener("click", () => downloadAuditBundle(true));
   $("downloadFull").addEventListener("click", () => downloadAuditBundle(false));
 
@@ -1629,6 +1651,7 @@ function wireEvents() {
   $("demoGoReview")?.addEventListener("click", () => setTab("review"));
   $("demoGoWorkspace")?.addEventListener("click", () => setTab("workspace"));
   $("demoDownloadAudit")?.addEventListener("click", () => downloadAuditBundle(true));
+  $("demoDownloadFhir")?.addEventListener("click", () => downloadFhirBundle());
   $("demoSaveWorkspace")?.addEventListener("click", () => {
     if (!state.lastIntake || !state.lastResult) return;
     workspaceAdd({ intake: state.lastIntake, result: state.lastResult });

@@ -31,6 +31,32 @@ def main() -> None:
         run(host=args.host, port=args.port)
         return
 
+    if len(sys.argv) > 1 and sys.argv[1] in {"fhir", "fhir_bundle", "fhir-bundle"}:
+        fhir_parser = argparse.ArgumentParser(description="Export a minimal FHIR Bundle for a triage run (demo).")
+        fhir_parser.add_argument("--input", required=True, help="Path to intake JSON file")
+        fhir_parser.add_argument("--output", help="Optional output JSON path")
+        fhir_parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON output")
+        fhir_parser.add_argument("--request-id", help="Optional request ID for trace correlation")
+        fhir_parser.add_argument("--redact", action="store_true", help="Redact demographics/notes in export")
+        args = fhir_parser.parse_args(sys.argv[2:])
+
+        input_path = Path(args.input)
+        payload = json.loads(input_path.read_text(encoding="utf-8"))
+        intake = PatientIntake.from_mapping(payload)
+
+        result = ClinicaFlowPipeline().run(intake, request_id=args.request_id)
+
+        from clinicaflow.fhir_export import build_fhir_bundle
+
+        bundle = build_fhir_bundle(intake=intake, result=result, redact=args.redact)
+
+        out_json = json.dumps(bundle, indent=2 if args.pretty else None, ensure_ascii=False)
+        if args.output:
+            Path(args.output).write_text(out_json, encoding="utf-8")
+        else:
+            print(out_json)
+        return
+
     if len(sys.argv) > 1 and sys.argv[1] in {"doctor", "diag"}:
         from clinicaflow.diagnostics import collect_diagnostics
 
