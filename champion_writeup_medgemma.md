@@ -68,7 +68,9 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
 **Code entry points**
 
 - CLI: `python -m clinicaflow --input examples/sample_case.json --pretty`
-- Local API (one-click): `bash scripts/demo_one_click.sh` (UI `/`, POST `/triage`, GET `/openapi.json`, GET `/metrics`)
+- Local demo (one-click): `bash scripts/demo_one_click.sh`
+  - UI: ClinicaFlow Console at `/` (triage form + agent trace + audit bundle download + regression tab)
+  - API: `POST /triage`, `POST /audit_bundle`, `GET /doctor`, `GET /bench/vignettes`
   - With real MedGemma via vLLM (GPU machine): `MEDGEMMA_MODEL='<HF_ID_OR_LOCAL_PATH>' bash scripts/demo_one_click.sh`
 
 ### Results (internal synthetic proxy benchmark, n=220)
