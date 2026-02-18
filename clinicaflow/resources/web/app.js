@@ -1334,6 +1334,11 @@ function updateReviewParagraph() {
   out.textContent = buildWriteupParagraph();
 }
 
+async function demoLoadAndRun(caseId) {
+  await loadVignetteById(caseId);
+  await runTriage();
+}
+
 function wireEvents() {
   document.querySelectorAll(".seg").forEach((b) =>
     b.addEventListener("click", () => {
@@ -1611,6 +1616,23 @@ function wireEvents() {
     const item = workspaceSelectedItem();
     if (!item) return;
     workspaceDelete(item.id);
+  });
+
+  // Demo runbook
+  $("demoCritical")?.addEventListener("click", () => demoLoadAndRun("v01_chest_pain_hypotension"));
+  $("demoNeuro")?.addEventListener("click", () => demoLoadAndRun("v05_slurred_speech_weakness"));
+  $("demoRoutine")?.addEventListener("click", () => demoLoadAndRun("v21_sore_throat_routine"));
+  $("demoRegression")?.addEventListener("click", async () => {
+    setTab("regression");
+    await runBench();
+  });
+  $("demoGoReview")?.addEventListener("click", () => setTab("review"));
+  $("demoGoWorkspace")?.addEventListener("click", () => setTab("workspace"));
+  $("demoDownloadAudit")?.addEventListener("click", () => downloadAuditBundle(true));
+  $("demoSaveWorkspace")?.addEventListener("click", () => {
+    if (!state.lastIntake || !state.lastResult) return;
+    workspaceAdd({ intake: state.lastIntake, result: state.lastResult });
+    setTab("workspace");
   });
 }
 

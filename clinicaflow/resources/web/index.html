@@ -23,6 +23,7 @@
     <main class="container">
       <nav class="tabs" aria-label="Console tabs">
         <button class="tab active" data-tab="triage" type="button">Triage</button>
+        <button class="tab" data-tab="demo" type="button">Demo</button>
         <button class="tab" data-tab="workspace" type="button">Workspace</button>
         <button class="tab" data-tab="regression" type="button">Regression</button>
         <button class="tab" data-tab="review" type="button">Review</button>
@@ -223,6 +224,91 @@
 
             <div id="runError" class="alert hidden"></div>
             <pre id="rawResult" class="pre mono">{}</pre>
+          </section>
+        </div>
+      </section>
+
+      <section id="tab-demo" class="tabpanel">
+        <div class="grid">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>3-minute demo runbook</h2>
+              <div class="small">Click buttons in order while recording.</div>
+            </div>
+
+            <ol class="runbook">
+              <li>
+                <div class="k">Show ops readiness</div>
+                <div class="row">
+                  <a class="btn subtle" href="/doctor" target="_blank" rel="noreferrer">Open /doctor</a>
+                  <a class="btn subtle" href="/metrics" target="_blank" rel="noreferrer">Open /metrics</a>
+                  <a class="btn subtle" href="/openapi.json" target="_blank" rel="noreferrer">OpenAPI</a>
+                </div>
+              </li>
+              <li>
+                <div class="k">High-acuity case (critical)</div>
+                <div class="small muted">Chest pain + hypotension (ACS pathway).</div>
+                <div class="row">
+                  <button id="demoCritical" class="btn primary" type="button">Load + run</button>
+                  <button id="demoDownloadAudit" class="btn subtle" type="button">Download redacted audit</button>
+                  <button id="demoSaveWorkspace" class="btn subtle" type="button">Save run to workspace</button>
+                </div>
+              </li>
+              <li>
+                <div class="k">Neuro red-flag case (urgent)</div>
+                <div class="small muted">Slurred speech + unilateral weakness (stroke pathway).</div>
+                <div class="row">
+                  <button id="demoNeuro" class="btn primary" type="button">Load + run</button>
+                </div>
+              </li>
+              <li>
+                <div class="k">Low-acuity case (routine)</div>
+                <div class="small muted">Sore throat + runny nose (normal vitals).</div>
+                <div class="row">
+                  <button id="demoRoutine" class="btn primary" type="button">Load + run</button>
+                </div>
+              </li>
+              <li>
+                <div class="k">Regression benchmark (reproducibility)</div>
+                <div class="row">
+                  <button id="demoRegression" class="btn primary" type="button">Run vignette benchmark</button>
+                </div>
+              </li>
+              <li>
+                <div class="k">Clinician review tooling</div>
+                <div class="row">
+                  <button id="demoGoReview" class="btn subtle" type="button">Open Review tab</button>
+                  <button id="demoGoWorkspace" class="btn subtle" type="button">Open Workspace tab</button>
+                </div>
+              </li>
+            </ol>
+
+            <div class="callout">
+              <div class="k">Tip</div>
+              <div class="small muted">
+                For “real MedGemma” footage, start the demo with
+                <code>MEDGEMMA_MODEL=&lt;HF_ID_OR_LOCAL_PATH&gt; bash scripts/demo_one_click.sh</code>
+                so the backend badge shows <code>openai_compatible</code>.
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Recording checklist</h2>
+              <div class="small">Make judges’ lives easy.</div>
+            </div>
+            <ul class="checklist">
+              <li>Say “decision support, not diagnosis”.</li>
+              <li>Show deterministic safety escalation + rationale.</li>
+              <li>Show audit bundle download (redacted).</li>
+              <li>Show regression benchmark tab + summary.</li>
+              <li>Show clinician review export (no PHI).</li>
+            </ul>
+            <div class="callout">
+              <div class="k">Video link placeholder</div>
+              <div class="small muted mono">https://www.youtube.com/watch?v=vZgvNssSSGk</div>
+            </div>
           </section>
         </div>
       </section>

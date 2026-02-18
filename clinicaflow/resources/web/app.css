@@ -393,6 +393,28 @@ textarea.mono { font-size: 12px; }
   margin-top: 10px;
 }
 
+.runbook {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.runbook li {
+  margin: 10px 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.checklist {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: #374151;
+}
+
+.checklist li { margin: 8px 0; }
+
 .tablewrap {
   overflow: auto;
   border: 1px solid var(--border);
