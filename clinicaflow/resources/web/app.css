@@ -228,10 +228,37 @@ textarea.mono { font-size: 12px; }
 
 .summary {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 10px;
   margin: 8px 0 12px;
 }
+
+.bar {
+  flex: 1;
+  height: 10px;
+  border-radius: 999px;
+  background: #eef2ff;
+  border: 1px solid var(--border);
+  overflow: hidden;
+  min-width: 120px;
+}
+
+.bar-fill {
+  height: 100%;
+  width: 0%;
+  background: #111827;
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #374151;
+}
+
+.check input { accent-color: #111827; }
 
 .card {
   border: 1px solid var(--border);
@@ -347,4 +374,3 @@ tr:last-child td { border-bottom: 0; }
 
 .row-warn { background: #fffbeb; }
 .row-bad { background: #fef2f2; }
-

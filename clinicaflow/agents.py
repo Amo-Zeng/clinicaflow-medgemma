@@ -5,7 +5,13 @@ import re
 
 from clinicaflow.models import PatientIntake, StructuredIntake, Vitals
 from clinicaflow.policy_pack import PolicySnippet, load_policy_pack, match_policies, policy_pack_sha256
-from clinicaflow.rules import RISK_FACTORS, compute_risk_tier, estimate_confidence, find_red_flags
+from clinicaflow.rules import (
+    RISK_FACTORS,
+    SAFETY_RULES_VERSION,
+    compute_risk_tier_with_rationale,
+    estimate_confidence,
+    find_red_flags,
+)
 from clinicaflow.settings import load_settings_from_env
 from clinicaflow.text import normalize_text
 
@@ -145,7 +151,7 @@ class SafetyEscalationAgent:
 
     def run(self, structured: StructuredIntake, vitals: Vitals, recommended_actions: list[str]) -> dict:
         red_flags = find_red_flags(structured, vitals)
-        risk_tier = compute_risk_tier(red_flags, structured.missing_fields, vitals)
+        risk_tier, risk_tier_rationale = compute_risk_tier_with_rationale(red_flags, structured.missing_fields, vitals)
         confidence, uncertainty_reasons = estimate_confidence(risk_tier, red_flags, structured.missing_fields)
 
         escalation_required = risk_tier in {"critical", "urgent"}
@@ -154,10 +160,12 @@ class SafetyEscalationAgent:
 
         return {
             "risk_tier": risk_tier,
+            "risk_tier_rationale": risk_tier_rationale,
             "red_flags": red_flags,
             "escalation_required": escalation_required,
             "confidence": confidence,
             "uncertainty_reasons": uncertainty_reasons,
+            "safety_rules_version": SAFETY_RULES_VERSION,
             "recommended_next_actions": _dedupe(recommended_actions),
         }
 

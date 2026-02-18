@@ -140,8 +140,25 @@
             <div class="summary">
               <div class="card">
                 <div class="k">Risk tier</div>
-                <div id="riskTier" class="risk">—</div>
+                <div class="row" style="margin-top: 0;">
+                  <div id="riskTier" class="risk">—</div>
+                  <span id="escalationPill" class="pill subtle">escalation: —</span>
+                </div>
+                <div id="tierRationale" class="small muted">—</div>
                 <div id="metaLine" class="small">request_id: — • latency: —</div>
+              </div>
+              <div class="card">
+                <div class="k">Differential</div>
+                <ul id="differential" class="list"></ul>
+                <div id="reasoningInfo" class="small muted">—</div>
+              </div>
+              <div class="card">
+                <div class="k">Confidence & uncertainty</div>
+                <div class="row" style="margin-top: 0;">
+                  <div id="confidenceVal" class="mono">—</div>
+                  <div class="bar"><div id="confidenceBar" class="bar-fill"></div></div>
+                </div>
+                <ul id="uncertainty" class="list"></ul>
               </div>
               <div class="card">
                 <div class="k">Red flags</div>
@@ -164,12 +181,30 @@
             </details>
 
             <details class="details">
+              <summary>Structured intake (normalized)</summary>
+              <pre id="structuredOut" class="pre mono">{}</pre>
+            </details>
+
+            <details class="details">
+              <summary>Reasoning rationale</summary>
+              <div id="rationale" class="prewrap muted">—</div>
+            </details>
+
+            <details class="details">
+              <summary>Protocols & citations</summary>
+              <div id="citations" class="citations muted">—</div>
+            </details>
+
+            <details class="details">
               <summary>Agent trace (audit-friendly)</summary>
               <div id="trace" class="trace"></div>
             </details>
 
             <div class="row">
               <button id="copyResult" class="btn subtle" type="button">Copy JSON</button>
+              <button id="copyHandoff" class="btn subtle" type="button">Copy handoff</button>
+              <button id="copyPatient" class="btn subtle" type="button">Copy precautions</button>
+              <button id="downloadNote" class="btn subtle" type="button">Download note.md</button>
               <button id="downloadRedacted" class="btn subtle" type="button">Download audit bundle (redacted)</button>
               <button id="downloadFull" class="btn subtle" type="button">Download audit bundle (full)</button>
             </div>
@@ -193,6 +228,13 @@
             <button id="runBench" class="btn primary" type="button">Run benchmark</button>
             <button id="downloadBench" class="btn subtle" type="button">Download JSON</button>
             <span id="benchStatus" class="small"></span>
+          </div>
+
+          <div class="row">
+            <label class="check"><input id="filterMismatch" type="checkbox" /> Tier mismatches only</label>
+            <label class="check"><input id="filterUnder" type="checkbox" /> Under-triage only</label>
+            <label class="check"><input id="filterOver" type="checkbox" /> Over-triage only</label>
+            <span class="small muted">Tip: click a row to load that case.</span>
           </div>
 
           <div id="benchSummary" class="bench-summary"></div>
@@ -239,4 +281,3 @@
     <script src="/static/app.js"></script>
   </body>
 </html>
-

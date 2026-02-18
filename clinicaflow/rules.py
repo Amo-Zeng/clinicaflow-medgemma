@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from clinicaflow.models import StructuredIntake, Vitals
 
+SAFETY_RULES_VERSION = "2026-02-18.v1"
+
 RED_FLAG_KEYWORDS = {
     "chest pain": "Potential acute coronary syndrome",
     "chest tightness": "Potential acute coronary syndrome",
@@ -51,11 +53,11 @@ def find_red_flags(structured: StructuredIntake, vitals: Vitals) -> list[str]:
     return _dedupe(red_flags)
 
 
-def compute_risk_tier(red_flags: list[str], missing_fields: list[str], vitals: Vitals) -> str:
+def compute_risk_tier_with_rationale(red_flags: list[str], missing_fields: list[str], vitals: Vitals) -> tuple[str, str]:
     if len(red_flags) >= 2:
-        return "critical"
+        return "critical", "2+ red flags"
     if red_flags:
-        return "urgent"
+        return "urgent", "Red flags present"
 
     vital_concern = (
         (vitals.heart_rate is not None and vitals.heart_rate >= 110)
@@ -63,12 +65,16 @@ def compute_risk_tier(red_flags: list[str], missing_fields: list[str], vitals: V
         or (vitals.spo2 is not None and vitals.spo2 < 95)
     )
     if vital_concern:
-        return "urgent"
+        return "urgent", "Vital concern (HR ≥110, temp ≥38.5°C, or SpO₂ <95)"
 
     if len(missing_fields) >= 3:
-        return "urgent"
+        return "urgent", "Insufficient intake fields"
 
-    return "routine"
+    return "routine", "No red flags and stable vitals"
+
+
+def compute_risk_tier(red_flags: list[str], missing_fields: list[str], vitals: Vitals) -> str:
+    return compute_risk_tier_with_rationale(red_flags, missing_fields, vitals)[0]
 
 
 def estimate_confidence(risk_tier: str, red_flags: list[str], missing_fields: list[str]) -> tuple[float, list[str]]:
