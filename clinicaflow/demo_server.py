@@ -317,7 +317,18 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                     "triage_latency_ms_avg": avg,
                     **self.server.stats,
                 }
-                self._write_json(payload, request_id=request_id)
+                fmt = str(query.get("format", ["json"])[0]).strip().lower()
+                accept = (self.headers.get("Accept") or "").lower()
+                wants_prometheus = fmt in {"prometheus", "prom"} or "text/plain" in accept
+                if wants_prometheus:
+                    metrics = _format_prometheus_metrics(payload)
+                    self._write_bytes(
+                        metrics.encode("utf-8"),
+                        content_type="text/plain; version=0.0.4; charset=utf-8",
+                        request_id=request_id,
+                    )
+                else:
+                    self._write_json(payload, request_id=request_id)
                 status_code = HTTPStatus.OK
                 return
 
@@ -598,6 +609,50 @@ def _extract_reasoning_backend(result_payload: dict) -> str:
     except Exception:  # noqa: BLE001
         return "deterministic"
     return "deterministic"
+
+
+def _format_prometheus_metrics(payload: dict) -> str:
+    lines: list[str] = []
+
+    def esc(value: str) -> str:
+        return str(value).replace("\\", "\\\\").replace('"', '\\"')
+
+    def metric(name: str, value: object, labels: dict[str, str] | None = None) -> None:
+        if value is None:
+            return
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            return
+        if labels:
+            label_s = ",".join(f'{k}="{esc(vv)}"' for k, vv in labels.items())
+            lines.append(f"{name}{{{label_s}}} {v}")
+        else:
+            lines.append(f"{name} {v}")
+
+    metric("clinicaflow_uptime_seconds", payload.get("uptime_s"))
+    version = str(payload.get("version") or "").strip()
+    if version:
+        metric("clinicaflow_version_info", 1, {"version": version})
+
+    # Top-level counters
+    metric("clinicaflow_requests_total", payload.get("requests_total"))
+    metric("clinicaflow_triage_requests_total", payload.get("triage_requests_total"))
+    metric("clinicaflow_triage_success_total", payload.get("triage_success_total"))
+    metric("clinicaflow_triage_errors_total", payload.get("triage_errors_total"))
+    metric("clinicaflow_audit_bundle_requests_total", payload.get("audit_bundle_requests_total"))
+    metric("clinicaflow_audit_bundle_success_total", payload.get("audit_bundle_success_total"))
+    metric("clinicaflow_audit_bundle_errors_total", payload.get("audit_bundle_errors_total"))
+
+    metric("clinicaflow_triage_latency_ms_avg", payload.get("triage_latency_ms_avg"))
+
+    # Nested breakdowns
+    for tier, count in dict(payload.get("triage_risk_tier_total") or {}).items():
+        metric("clinicaflow_triage_risk_tier_total", count, {"tier": str(tier)})
+    for backend, count in dict(payload.get("triage_reasoning_backend_total") or {}).items():
+        metric("clinicaflow_triage_reasoning_backend_total", count, {"backend": str(backend)})
+
+    return "\n".join(lines).strip() + "\n"
 
 
 def make_server(
