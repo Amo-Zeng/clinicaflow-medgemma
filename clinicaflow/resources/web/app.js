@@ -768,7 +768,7 @@ function buildReportHtml(intake, result, checklist) {
   const safety = traceOutput(result, "safety_escalation");
   const structured = traceOutput(result, "intake_structuring");
 
-  const requestId = state.lastRequestId || result.request_id || "run";
+  const requestId = result.request_id || state.lastRequestId || "run";
   const createdAt = result.created_at || new Date().toISOString();
   const title = `ClinicaFlow — Triage Report (${requestId})`;
 
@@ -1250,12 +1250,73 @@ function renderWorkspaceSelected() {
   pre.textContent = fmtJson(item || {});
 }
 
+function renderWorkspaceSummary(items) {
+  const el = $("wsSummaryText");
+  if (!el) return;
+
+  const total = (items || []).length;
+  const runs = (items || []).filter((x) => x && x.result).length;
+
+  const tiers = { routine: 0, urgent: 0, critical: 0, unknown: 0 };
+  const backends = {};
+  const latencies = [];
+
+  (items || []).forEach((item) => {
+    const result = item?.result;
+    if (!result) return;
+    const tier = String(result.risk_tier || "").toLowerCase();
+    if (tier === "routine" || tier === "urgent" || tier === "critical") tiers[tier] += 1;
+    else tiers.unknown += 1;
+
+    const backend = extractBackend(result) || "unknown";
+    backends[backend] = (backends[backend] || 0) + 1;
+
+    const ms = typeof result.total_latency_ms === "number" ? result.total_latency_ms : null;
+    if (ms != null && Number.isFinite(ms)) latencies.push(ms);
+  });
+
+  const backendBits = Object.entries(backends)
+    .sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])))
+    .slice(0, 4)
+    .map(([k, v]) => `${k}=${v}`)
+    .join(", ");
+
+  const avg = latencies.length ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : null;
+  const tierBits = `routine=${tiers.routine}, urgent=${tiers.urgent}, critical=${tiers.critical}`;
+  el.textContent = `items: ${total} (runs: ${runs}) • tiers: ${tierBits} • backends: ${backendBits || "—"} • avg latency: ${
+    avg != null ? `${avg} ms` : "—"
+  }`;
+}
+
+function workspaceItemChecklist(item) {
+  if (!item) return null;
+  const req = item?.result?.request_id || "";
+  return item.checklist || loadActionChecklist(req) || null;
+}
+
+function workspaceDownloadReport(item) {
+  if (!item?.intake || !item?.result) return;
+  const req = item.result.request_id || item.id || "run";
+  const html = buildReportHtml(item.intake, item.result, workspaceItemChecklist(item));
+  downloadText(`clinicaflow_report_${req}.html`, html, "text/html; charset=utf-8");
+  setText("wsStatus", "Downloaded report.html");
+}
+
+function workspaceDownloadNote(item) {
+  if (!item?.intake || !item?.result) return;
+  const req = item.result.request_id || item.id || "run";
+  const md = buildNoteMarkdown(item.intake, item.result, workspaceItemChecklist(item));
+  downloadText(`clinicaflow_note_${req}.md`, md, "text/markdown; charset=utf-8");
+  setText("wsStatus", "Downloaded note.md");
+}
+
 function renderWorkspaceTable() {
   const body = $("wsTableBody");
   if (!body) return;
   body.innerHTML = "";
 
   const items = loadWorkspaceItems();
+  renderWorkspaceSummary(items);
   if (!items.length) {
     const tr = document.createElement("tr");
     tr.innerHTML = `<td class="muted" colspan="5">No saved items yet.</td>`;
@@ -1291,6 +1352,32 @@ function renderWorkspaceTable() {
       });
 
       const actionsTd = tr.querySelector("td:last-child");
+      const wrap = document.createElement("div");
+      wrap.className = "row";
+      wrap.style.margin = "0";
+
+      if (item.result) {
+        const btnReport = document.createElement("button");
+        btnReport.className = "btn subtle";
+        btnReport.type = "button";
+        btnReport.textContent = "Report";
+        btnReport.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          workspaceDownloadReport(item);
+        });
+        wrap.appendChild(btnReport);
+
+        const btnNote = document.createElement("button");
+        btnNote.className = "btn subtle";
+        btnNote.type = "button";
+        btnNote.textContent = "Note";
+        btnNote.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          workspaceDownloadNote(item);
+        });
+        wrap.appendChild(btnNote);
+      }
+
       const btnDel = document.createElement("button");
       btnDel.className = "btn subtle";
       btnDel.type = "button";
@@ -1299,7 +1386,8 @@ function renderWorkspaceTable() {
         ev.stopPropagation();
         workspaceDelete(item.id);
       });
-      actionsTd.appendChild(btnDel);
+      wrap.appendChild(btnDel);
+      actionsTd.appendChild(wrap);
 
       body.appendChild(tr);
     });
@@ -1702,6 +1790,14 @@ function buildWriteupParagraph() {
   const setting = String($("reviewSetting")?.value || "").trim();
   const date = String($("reviewDate")?.value || "").trim();
 
+  // Strict no-fabrication guard: if nothing was recorded, do not imply that a review happened.
+  if (!caseCount) {
+    return (
+      "Clinician review (qualitative): We provide tooling to collect a lightweight clinician review without PHI, " +
+      "but we did not record a clinician review for this submission; therefore we report no clinician feedback here."
+    );
+  }
+
   const noted = [
     String($("writeupNoted1")?.value || "").trim(),
     String($("writeupNoted2")?.value || "").trim(),
@@ -1713,17 +1809,20 @@ function buildWriteupParagraph() {
   const bits = [];
   if (role) bits.push(role);
   if (setting) bits.push(setting);
-  const who = bits.length ? bits.join(", ") : "a clinician reviewer";
+  const whoParen = bits.length ? ` (${bits.join(", ")})` : "";
   const when = date ? ` on ${date}` : "";
 
   const lines = [];
   lines.push(
-    `Clinician review (qualitative): We collected structured feedback from ${who}${when} using the built-in synthetic vignette set (n=${caseCount}).`,
+    `Clinician review (qualitative): A clinician reviewer${whoParen} qualitatively reviewed ClinicaFlow outputs${when} on the built-in synthetic vignette set (n=${caseCount}).`,
   );
   if (noted.length) lines.push(`Key notes: ${noted.map((x) => `“${x}”`).join("; ")}.`);
   if (helpful) lines.push(`Most helpful aspect: “${helpful}”.`);
   if (improve) lines.push(`Top improvement suggestion: “${improve}”.`);
-  lines.push("We do not fabricate reviewer feedback; exportable review notes are generated from recorded inputs.");
+  lines.push(
+    "This feedback is qualitative UX/safety input only and does not substitute for site-specific clinical validation. " +
+      "We do not fabricate reviewer feedback; exportable review notes are generated from recorded inputs.",
+  );
 
   return lines.join(" ");
 }
@@ -2031,6 +2130,26 @@ function wireEvents() {
     const item = workspaceSelectedItem();
     if (!item) return;
     workspaceDelete(item.id);
+  });
+
+  $("wsDownloadReport")?.addEventListener("click", () => {
+    setError("wsError", "");
+    const item = workspaceSelectedItem();
+    if (!item || !item.result) {
+      setError("wsError", "Select a saved run (with result) first.");
+      return;
+    }
+    workspaceDownloadReport(item);
+  });
+
+  $("wsDownloadNote")?.addEventListener("click", () => {
+    setError("wsError", "");
+    const item = workspaceSelectedItem();
+    if (!item || !item.result) {
+      setError("wsError", "Select a saved run (with result) first.");
+      return;
+    }
+    workspaceDownloadNote(item);
   });
 
   // Demo runbook

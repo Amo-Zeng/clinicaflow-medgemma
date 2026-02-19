@@ -49,6 +49,15 @@ def collect_diagnostics() -> dict[str, Any]:
         api_key=os.environ.get("CLINICAFLOW_REASONING_API_KEY"),
     )
 
+    comm_backend = os.environ.get("CLINICAFLOW_COMMUNICATION_BACKEND", "deterministic").strip()
+    comm_connectivity = _check_reasoning_connectivity(
+        backend=comm_backend,
+        base_url=reasoning_base_url,
+        model=reasoning_model,
+        timeout_s=_safe_float(reasoning_timeout_s, default=1.2),
+        api_key=os.environ.get("CLINICAFLOW_REASONING_API_KEY"),
+    )
+
     payload: dict[str, Any] = {
         "version": __version__,
         "settings": {
@@ -72,6 +81,14 @@ def collect_diagnostics() -> dict[str, Any]:
             "timeout_s": reasoning_timeout_s,
             "max_retries": reasoning_max_retries,
             **connectivity,
+        },
+        "communication_backend": {
+            "backend": comm_backend,
+            "base_url": reasoning_base_url,
+            "model": reasoning_model,
+            "timeout_s": reasoning_timeout_s,
+            "max_retries": reasoning_max_retries,
+            **comm_connectivity,
         },
     }
 

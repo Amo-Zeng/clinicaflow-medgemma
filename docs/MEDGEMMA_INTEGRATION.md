@@ -50,6 +50,17 @@ export CLINICAFLOW_REASONING_TEMPERATURE=0.2
 export CLINICAFLOW_REASONING_MAX_TOKENS=600
 ```
 
+## Optional: Use MedGemma for communication polish
+
+ClinicaFlow can also reuse the same OpenAI-compatible endpoint to rewrite the deterministic drafts
+(clinician handoff + patient return precautions) for clarity and conciseness.
+
+This is intentionally a **rewrite-only** step: it is instructed not to add new clinical facts or diagnoses.
+
+```bash
+export CLINICAFLOW_COMMUNICATION_BACKEND=openai_compatible
+```
+
 ## 3) Run a case
 
 ```bash

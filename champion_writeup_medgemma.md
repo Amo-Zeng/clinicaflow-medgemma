@@ -2,6 +2,8 @@
 
 **ClinicaFlow** — an agentic, human-centered triage copilot built for clinics that need **safe decision support under constraints** (limited staff time, intermittent connectivity, and strict privacy requirements).
 
+**Track selection:** Main Track + **Agentic Workflow Prize** (agentic, auditable workflow re-design).
+
 ### Your team
 
 **Team name:** `shilehaoduomingzile`
@@ -27,10 +29,10 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
 ```
 
 1. **Intake Structuring Agent**: normalizes free-text into a compact schema and flags missing critical fields.
-2. **(Multi)modal Reasoning Agent**: generates a short differential + rationale (this is where MedGemma is intended to power clinical reasoning).
+2. **(Multi)modal Reasoning Agent**: generates a short differential + rationale **powered by MedGemma** (served via an OpenAI-compatible endpoint; falls back safely if unreachable).
 3. **Evidence & Policy Agent**: translates reasoning into concrete next actions and attaches lightweight protocol-style citations (demo policy pack; replace with site protocols).
 4. **Safety & Escalation Agent**: applies deterministic red-flag rules + uncertainty thresholds to prevent under-triage.
-5. **Communication Agent**: produces a clinician handoff summary and patient-facing return precautions in plain language.
+5. **Communication Agent**: produces a clinician handoff summary and patient-facing return precautions in plain language (optionally rewritten by MedGemma for clarity; rewrite-only, no new facts).
 
 **Safety-first behaviors**
 
@@ -60,6 +62,7 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
 - **Reliability & security** (when using an external model endpoint):
   - retry/backoff knobs (`CLINICAFLOW_REASONING_MAX_RETRIES`, `...RETRY_BACKOFF_S`),
   - basic prompt-injection hardening (quotes patient summary as JSON; ignores embedded instructions).
+  - optional communication rewrite: `CLINICAFLOW_COMMUNICATION_BACKEND=openai_compatible`.
 
 **Clinic deployment path (practical)**
 
@@ -113,12 +116,11 @@ Rubric details: `docs/VIGNETTE_REGRESSION.md`
 
 ### Clinician review (qualitative)
 
-We include tooling to collect a lightweight clinician review (no PHI), but we **do not fabricate** reviewer feedback.
+Below is a **copy-paste template** for the final submission writeup. It is designed to be **strictly non-fabricated**: fill in real values only, or use the "no clinician review" variant. Do **not** include PHI.
 
-- Generate a review packet: `python -m clinicaflow.benchmarks.review_packet --out reviews/clinician_review_packet.md --include-gold`
-- Or use the demo UI → **Review** tab to save local reviews and export JSON/Markdown (plus a writeup-paragraph helper).
-- Summarize exported review JSON for the writeup: `clinicaflow benchmark review_summary --in clinician_reviews.json --print-markdown`
-- Template for citing feedback responsibly: `docs/CLINICIAN_REVIEW_TEMPLATE.md`
+**Variant A (if clinician review was performed; fill in blanks, then delete this header):** A clinician reviewer (role: ___; experience: ___) qualitatively reviewed ClinicaFlow outputs on ___ synthetic triage vignettes on ___ (YYYY-MM-DD). They reported: (1) ___, (2) ___, (3) ___. Most helpful: ___. Top improvement area: ___. This feedback is qualitative UX/safety input only and does not substitute for site-specific clinical validation.
+
+**Variant B (if no clinician review was performed; delete this header):** We provide tooling to collect a lightweight clinician review without PHI, but we did not conduct a clinician review for this competition submission; therefore we report no clinician feedback here.
 
 ### Responsible use and limitations
 
@@ -139,3 +141,4 @@ We include tooling to collect a lightweight clinician review (no PHI), but we **
 2. MedGemma overview: https://developers.google.com/health-ai-developer-foundations/medgemma
 3. MedGemma 1.5 model card: https://developers.google.com/health-ai-developer-foundations/medgemma/model-card
 4. HAI-DEF terms: https://developers.google.com/health-ai-developer-foundations/terms
+5. Competition citation: Fereshteh Mahvar, Yun Liu, Daniel Golden, Fayaz Jamil, Sunny Jansen, Can Kirmizi, Rory Pilgrim, David F. Steiner, Andrew Sellergren, Richa Tiwari, Sunny Virmani, Liron Yatziv, Rebecca Hemenway, Yossi Matias, Ronit Levavi Morad, Avinatan Hassidim, Shravya Shetty, and María Cruz. *The MedGemma Impact Challenge*. https://kaggle.com/competitions/med-gemma-impact-challenge, 2026. Kaggle.

@@ -212,6 +212,7 @@ Request tracing:
 - `CLINICAFLOW_POLICY_TOPK` (default: `2`)
 - `CLINICAFLOW_CORS_ALLOW_ORIGIN` (default: `*`)
 - `CLINICAFLOW_API_KEY` (default: empty) — if set, `POST /triage` requires auth (`Authorization: Bearer ...` or `X-API-Key`)
+- `CLINICAFLOW_COMMUNICATION_BACKEND` (default: `deterministic`) — optional draft rewriting via an OpenAI-compatible endpoint
 
 Quick config sanity check:
 
@@ -231,12 +232,17 @@ To integrate a real model endpoint:
    - `CLINICAFLOW_REASONING_MODEL=<YOUR_MODEL_NAME>`
 3. Run the pipeline normally; the reasoning agent will call the endpoint and fall back safely if it fails.
 
+Optional (human-centered language polish): reuse the same endpoint to rewrite drafts for clarity:
+
+- `CLINICAFLOW_COMMUNICATION_BACKEND=openai_compatible`
+
 See `docs/MEDGEMMA_INTEGRATION.md` for details.
 
 One-click demo script options:
 
 - Deterministic (no model server): `bash scripts/demo_one_click.sh`
 - Start vLLM automatically (GPU machine): `MEDGEMMA_MODEL='<HF_ID_OR_LOCAL_PATH>' bash scripts/demo_one_click.sh`
+- Require a real MedGemma backend (fails fast if not configured): `REQUIRE_MEDGEMMA=1 MEDGEMMA_MODEL='<HF_ID_OR_LOCAL_PATH>' bash scripts/demo_one_click.sh`
 - Run vignette benchmark before starting server: `RUN_BENCHMARKS=1 bash scripts/demo_one_click.sh`
 
 ## Docker (quick deploy)

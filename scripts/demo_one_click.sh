@@ -162,7 +162,29 @@ fi
 
 echo ""
 echo "[demo] Sanity check:"
-clinicaflow doctor | python -m json.tool
+doctor_json="$(clinicaflow doctor)"
+echo "$doctor_json" | python -m json.tool
+
+if [[ "${REQUIRE_MEDGEMMA:-0}" == "1" ]]; then
+  python - "$doctor_json" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+rb = payload.get("reasoning_backend") or {}
+backend = str(rb.get("backend") or "").strip().lower()
+ok = rb.get("connectivity_ok")
+model = str(rb.get("model") or "").strip()
+
+if backend not in {"openai", "openai_compatible"} or ok is not True or not model:
+    print("")
+    print("[demo] ERROR: REQUIRE_MEDGEMMA=1 but the reasoning backend is not ready.")
+    print(f"       backend={backend!r} connectivity_ok={ok!r} model={model!r}")
+    print("       Fix by setting a real MedGemma endpoint, e.g.:")
+    print("         MEDGEMMA_MODEL='<HF_ID_OR_LOCAL_PATH>' bash scripts/demo_one_click.sh")
+    sys.exit(2)
+PY
+fi
 
 if [[ "$RUN_BENCHMARKS" == "1" ]]; then
   echo ""

@@ -293,7 +293,7 @@
               <div class="k">Tip</div>
               <div class="small muted">
                 For “real MedGemma” footage, start the demo with
-                <code>MEDGEMMA_MODEL=&lt;HF_ID_OR_LOCAL_PATH&gt; bash scripts/demo_one_click.sh</code>
+                <code>REQUIRE_MEDGEMMA=1 MEDGEMMA_MODEL=&lt;HF_ID_OR_LOCAL_PATH&gt; bash scripts/demo_one_click.sh</code>
                 so the backend badge shows <code>openai_compatible</code>.
               </div>
             </div>
@@ -337,6 +337,11 @@
             </div>
             <input id="wsImportFile" class="hidden" type="file" accept="application/json" />
 
+            <div id="wsSummary" class="callout">
+              <div class="k">Workspace summary</div>
+              <div id="wsSummaryText" class="small muted">—</div>
+            </div>
+
             <div class="tablewrap">
               <table>
                 <thead>
@@ -362,6 +367,8 @@
             <pre id="wsSelected" class="pre mono">{}</pre>
             <div class="row">
               <button id="wsLoadIntoTriage" class="btn primary" type="button">Load into triage</button>
+              <button id="wsDownloadReport" class="btn subtle" type="button">Download report</button>
+              <button id="wsDownloadNote" class="btn subtle" type="button">Download note.md</button>
               <button id="wsDeleteSelected" class="btn subtle" type="button">Delete selected</button>
             </div>
 

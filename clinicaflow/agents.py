@@ -228,9 +228,27 @@ class CommunicationAgent:
         for item in _patient_return_precautions(red_flags):
             patient_lines.append(f"- {item}")
 
+        draft_clinician = "\n".join(clinician_lines).strip()
+        draft_patient = "\n".join(patient_lines).strip()
+
+        # Optional: use an external model to rewrite drafts for clarity.
+        # Safety governance and triage decisions remain deterministic.
+        backend_error = ""
+        try:
+            from clinicaflow.inference.communication import run_communication_backend
+
+            backend_payload = run_communication_backend(draft_clinician=draft_clinician, draft_patient=draft_patient)
+            if backend_payload:
+                backend_payload["communication_backend"] = "external"
+                return backend_payload
+        except Exception as exc:  # noqa: BLE001
+            backend_error = str(exc)
+
         return {
-            "clinician_handoff": "\n".join(clinician_lines).strip(),
-            "patient_summary": "\n".join(patient_lines).strip(),
+            "clinician_handoff": draft_clinician,
+            "patient_summary": draft_patient,
+            "communication_backend": "deterministic",
+            "communication_backend_error": backend_error,
         }
 
 

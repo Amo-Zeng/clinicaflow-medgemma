@@ -40,7 +40,12 @@ Share `reviews/clinician_review_packet.md` with the reviewer.
 
 5) **Workflow fit:** Where would this save time vs. add time?
 
-## Copy-paste summary paragraph (fill in)
+## Copy-paste summary paragraph (choose one)
+
+**Option A (review performed; fill in):**
 
 > A clinician reviewer (role: ___) reviewed ClinicaFlow outputs on ___ synthetic triage vignettes and noted: (1) ___, (2) ___, (3) ___. They highlighted ___ as the most helpful aspect and ___ as the top improvement area. This feedback is qualitative and does not substitute for site-specific clinical validation.
 
+**Option B (no clinician review performed):**
+
+> We provide tooling to collect a lightweight clinician review without PHI, but we did not conduct a clinician review for this competition submission; therefore we report no clinician feedback here.

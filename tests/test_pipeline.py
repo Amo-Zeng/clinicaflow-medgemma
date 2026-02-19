@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 from uuid import UUID
 
 from clinicaflow.models import PatientIntake
@@ -55,6 +56,17 @@ class PipelineTests(unittest.TestCase):
         self.assertIn(result.risk_tier, {"routine", "urgent"})
         self.assertIsInstance(result.patient_summary, str)
         self.assertTrue(result.recommended_next_actions)
+
+    def test_communication_backend_failure_falls_back_deterministic(self) -> None:
+        intake = PatientIntake.from_mapping({"chief_complaint": "Mild cough", "vitals": {"heart_rate": 80, "spo2": 99}})
+        with patch.dict("os.environ", {"CLINICAFLOW_COMMUNICATION_BACKEND": "openai_compatible"}, clear=False):
+            result = self.pipeline.run(intake)
+
+        comm = next((x.output for x in result.trace if x.agent == "communication"), {})
+        self.assertEqual(comm.get("communication_backend"), "deterministic")
+        self.assertTrue(isinstance(comm.get("communication_backend_error"), str))
+        self.assertTrue(result.clinician_handoff)
+        self.assertTrue(result.patient_summary)
 
 
 if __name__ == "__main__":
