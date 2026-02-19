@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from clinicaflow.models import StructuredIntake, Vitals
 
 SAFETY_RULES_VERSION = "2026-02-19.v2"
@@ -85,6 +87,43 @@ def compute_risk_tier_with_rationale(red_flags: list[str], missing_fields: list[
 
 def compute_risk_tier(red_flags: list[str], missing_fields: list[str], vitals: Vitals) -> str:
     return compute_risk_tier_with_rationale(red_flags, missing_fields, vitals)[0]
+
+
+def compute_risk_scores(*, structured: StructuredIntake, vitals: Vitals) -> dict[str, Any]:
+    """Compute lightweight, interpretable risk scores (demo only).
+
+    These scores are provided for clinician situational awareness and are NOT
+    intended to replace formal clinical tools or site protocols.
+    """
+
+    scores: dict[str, Any] = {}
+
+    # Shock index (HR/SBP) is a simple hemodynamic instability signal.
+    if vitals.heart_rate is not None and vitals.systolic_bp is not None and vitals.systolic_bp > 0:
+        shock_index = float(vitals.heart_rate) / float(vitals.systolic_bp)
+        scores["shock_index"] = round(shock_index, 2)
+        scores["shock_index_high"] = bool(shock_index >= 0.9)
+
+    # qSOFA (approximate): RR >=22, SBP <=100, and altered mental status (proxy via "confusion" symptom).
+    q = 0
+    rr = vitals.respiratory_rate
+    sbp = vitals.systolic_bp
+    has_ams = "confusion" in (" ".join(structured.symptoms).lower())
+    if rr is not None and rr >= 22:
+        q += 1
+    if sbp is not None and sbp <= 100:
+        q += 1
+    if has_ams:
+        q += 1
+    scores["qsofa"] = int(q)
+    scores["qsofa_high_risk"] = bool(q >= 2)
+    scores["qsofa_components"] = {
+        "rr_ge_22": bool(rr is not None and rr >= 22),
+        "sbp_le_100": bool(sbp is not None and sbp <= 100),
+        "ams_proxy": bool(has_ams),
+    }
+
+    return scores
 
 
 def estimate_confidence(risk_tier: str, red_flags: list[str], missing_fields: list[str]) -> tuple[float, list[str]]:

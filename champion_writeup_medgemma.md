@@ -38,6 +38,7 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
 
 - Deterministic red-flag triggers from symptoms + vitals (hard to “prompt-jailbreak”).
 - Mandatory escalation when urgent/critical criteria are met.
+- Lightweight interpretable risk scores (demo): shock index + qSOFA (for clinician situational awareness).
 - Uncertainty reasons are surfaced for clinician review.
 - Clear “decision support, not diagnosis” posture.
 
@@ -56,6 +57,10 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
   - minimal FHIR bundle export (`POST /fhir_bundle`) for demo interoperability (includes `Task`s for the next-action checklist),
   - printable triage report export (`report.html`) + action checklist (local-only storage),
   - Docker image (non-root runtime + healthcheck) + CI.
+- **Multimodal path (practical):**
+  - demo UI supports image uploads (`image_data_urls`),
+  - optional vision send-to-model toggle (`CLINICAFLOW_REASONING_SEND_IMAGES=1`),
+  - redacted audit bundles exclude images; full bundles store them as separate files under `images/` (not inline base64 in `intake.json`).
 - **Governance metadata**:
   - Evidence agent emits `policy_pack_sha256` + `policy_pack_source`,
   - external reasoning emits `reasoning_backend_model` + `reasoning_prompt_version`.

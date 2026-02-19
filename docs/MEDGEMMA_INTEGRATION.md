@@ -48,6 +48,11 @@ export CLINICAFLOW_REASONING_MAX_RETRIES=1
 export CLINICAFLOW_REASONING_RETRY_BACKOFF_S=0.5
 export CLINICAFLOW_REASONING_TEMPERATURE=0.2
 export CLINICAFLOW_REASONING_MAX_TOKENS=600
+# optional (multimodal): send uploaded `image_data_urls` to a vision-capable endpoint
+export CLINICAFLOW_REASONING_SEND_IMAGES=1
+export CLINICAFLOW_REASONING_MAX_IMAGES=2
+# optional: allow larger payloads if you attach images
+export CLINICAFLOW_MAX_REQUEST_BYTES=2097152
 ```
 
 ## Optional: Use MedGemma for communication polish
@@ -59,6 +64,31 @@ This is intentionally a **rewrite-only** step: it is instructed not to add new c
 
 ```bash
 export CLINICAFLOW_COMMUNICATION_BACKEND=openai_compatible
+# optional: point the rewrite step at a different endpoint/model
+export CLINICAFLOW_COMMUNICATION_BASE_URL=http://127.0.0.1:8001
+export CLINICAFLOW_COMMUNICATION_MODEL=<YOUR_MODEL_NAME>
+export CLINICAFLOW_COMMUNICATION_API_KEY=<TOKEN_IF_NEEDED>
+```
+
+## Optional: Multimodal images in the Console UI
+
+The demo UI supports image uploads for **synthetic** multimodal cases:
+
+- uploaded images are stored in-memory in your browser session,
+- the API payload includes `image_data_urls` (data URLs),
+- redacted audit bundles exclude images,
+- full audit bundles store images as separate files under `images/` (not inline base64 in `intake.json`).
+
+To actually send images to a vision-capable MedGemma endpoint, set:
+
+```bash
+export CLINICAFLOW_REASONING_SEND_IMAGES=1
+```
+
+If your payloads become large, increase:
+
+```bash
+export CLINICAFLOW_MAX_REQUEST_BYTES=2097152
 ```
 
 ## 3) Run a case

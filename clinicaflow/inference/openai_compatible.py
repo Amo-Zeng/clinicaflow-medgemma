@@ -6,6 +6,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from typing import Any
 
 
 class InferenceError(RuntimeError):
@@ -25,23 +26,61 @@ class OpenAICompatibleConfig:
 
 
 def load_openai_compatible_config_from_env() -> OpenAICompatibleConfig:
-    base_url = os.environ.get("CLINICAFLOW_REASONING_BASE_URL", "").strip()
-    model = os.environ.get("CLINICAFLOW_REASONING_MODEL", "").strip()
-    api_key = os.environ.get("CLINICAFLOW_REASONING_API_KEY")
-    timeout_s = float(os.environ.get("CLINICAFLOW_REASONING_TIMEOUT_S", "30").strip())
-    max_retries = int(os.environ.get("CLINICAFLOW_REASONING_MAX_RETRIES", "1").strip())
-    retry_backoff_s = float(os.environ.get("CLINICAFLOW_REASONING_RETRY_BACKOFF_S", "0.5").strip())
-    temperature = float(os.environ.get("CLINICAFLOW_REASONING_TEMPERATURE", "0.2").strip())
-    max_tokens = int(os.environ.get("CLINICAFLOW_REASONING_MAX_TOKENS", "600").strip())
+    return load_openai_compatible_config_from_env_prefix("CLINICAFLOW_REASONING")
+
+
+def load_openai_compatible_config_from_env_prefix(prefix: str) -> OpenAICompatibleConfig:
+    """Load OpenAI-compatible client config from env vars.
+
+    Examples:
+    - Reasoning: prefix="CLINICAFLOW_REASONING"
+      - CLINICAFLOW_REASONING_BASE_URL, CLINICAFLOW_REASONING_MODEL, ...
+    - Communication rewrite: prefix="CLINICAFLOW_COMMUNICATION"
+      - CLINICAFLOW_COMMUNICATION_BASE_URL, CLINICAFLOW_COMMUNICATION_MODEL, ...
+
+    Back-compat: when prefix is not CLINICAFLOW_REASONING, missing values fall
+    back to the CLINICAFLOW_REASONING_* env vars.
+    """
+
+    prefix = (prefix or "").strip().upper()
+    if not prefix:
+        prefix = "CLINICAFLOW_REASONING"
+
+    def env(name: str, default: str = "") -> str:
+        key = f"{prefix}_{name}"
+        fallback = f"CLINICAFLOW_REASONING_{name}" if prefix != "CLINICAFLOW_REASONING" else ""
+        if key in os.environ:
+            return str(os.environ.get(key) or "").strip()
+        if fallback and fallback in os.environ:
+            return str(os.environ.get(fallback) or "").strip()
+        return default
+
+    def env_opt(name: str) -> str | None:
+        key = f"{prefix}_{name}"
+        fallback = f"CLINICAFLOW_REASONING_{name}" if prefix != "CLINICAFLOW_REASONING" else ""
+        if key in os.environ:
+            return os.environ.get(key)
+        if fallback and fallback in os.environ:
+            return os.environ.get(fallback)
+        return None
+
+    base_url = env("BASE_URL", "")
+    model = env("MODEL", "")
+    api_key = env_opt("API_KEY")
+    timeout_s = float(env("TIMEOUT_S", "30"))
+    max_retries = int(env("MAX_RETRIES", "1"))
+    retry_backoff_s = float(env("RETRY_BACKOFF_S", "0.5"))
+    temperature = float(env("TEMPERATURE", "0.2"))
+    max_tokens = int(env("MAX_TOKENS", "600"))
 
     if not base_url:
-        raise InferenceError("Missing env var: CLINICAFLOW_REASONING_BASE_URL")
+        raise InferenceError(f"Missing env var: {prefix}_BASE_URL")
     if not model:
-        raise InferenceError("Missing env var: CLINICAFLOW_REASONING_MODEL")
+        raise InferenceError(f"Missing env var: {prefix}_MODEL")
     if max_retries < 0:
-        raise InferenceError("CLINICAFLOW_REASONING_MAX_RETRIES must be >= 0")
+        raise InferenceError(f"{prefix}_MAX_RETRIES must be >= 0")
     if timeout_s <= 0:
-        raise InferenceError("CLINICAFLOW_REASONING_TIMEOUT_S must be > 0")
+        raise InferenceError(f"{prefix}_TIMEOUT_S must be > 0")
     return OpenAICompatibleConfig(
         base_url=base_url,
         model=model,
@@ -55,13 +94,20 @@ def load_openai_compatible_config_from_env() -> OpenAICompatibleConfig:
 
 
 def chat_completion(*, config: OpenAICompatibleConfig, system: str, user: str) -> str:
-    url = config.base_url.rstrip("/") + "/v1/chat/completions"
-    body = {
-        "model": config.model,
-        "messages": [
+    return chat_completion_messages(
+        config=config,
+        messages=[
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
+    )
+
+
+def chat_completion_messages(*, config: OpenAICompatibleConfig, messages: list[dict[str, Any]]) -> str:
+    url = config.base_url.rstrip("/") + "/v1/chat/completions"
+    body = {
+        "model": config.model,
+        "messages": messages,
         "temperature": config.temperature,
         "max_tokens": config.max_tokens,
     }

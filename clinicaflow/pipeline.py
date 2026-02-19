@@ -44,7 +44,7 @@ class ClinicaFlowPipeline:
         structured = StructuredIntake(**structured_payload)
 
         start = time.perf_counter()
-        reasoning_payload = self.multimodal_reasoning.run(structured, intake.vitals)
+        reasoning_payload = self.multimodal_reasoning.run(structured, intake.vitals, image_data_urls=intake.image_data_urls)
         trace.append(
             AgentTrace(
                 agent=self.multimodal_reasoning.name,

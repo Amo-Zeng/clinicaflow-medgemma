@@ -54,3 +54,6 @@ python -m clinicaflow.benchmarks.vignettes --set adversarial --print-markdown
 - Avoid logging identifiable patient information.
 - If integrating a hosted model endpoint, ensure compliance with local policy and patient consent requirements.
 - If writing audit bundles (`clinicaflow audit`), store them securely and follow retention/access controls.
+- If using image uploads (`image_data_urls`) in the demo UI, treat them as sensitive:
+  - redacted audit bundles exclude images,
+  - full audit bundles store images as separate files under `images/` (not inline base64 in `intake.json`).

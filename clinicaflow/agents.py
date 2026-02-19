@@ -9,6 +9,7 @@ from clinicaflow.rules import (
     RISK_FACTORS,
     SAFETY_RULES_VERSION,
     compute_risk_tier_with_rationale,
+    compute_risk_scores,
     estimate_confidence,
     find_red_flags,
 )
@@ -115,11 +116,11 @@ class IntakeStructuringAgent:
 class MultimodalClinicalReasoningAgent:
     name = "multimodal_reasoning"
 
-    def run(self, structured: StructuredIntake, vitals: Vitals) -> dict:
+    def run(self, structured: StructuredIntake, vitals: Vitals, *, image_data_urls: list[str] | None = None) -> dict:
         try:
             from clinicaflow.inference.reasoning import run_reasoning_backend
 
-            backend_payload = run_reasoning_backend(structured=structured, vitals=vitals)
+            backend_payload = run_reasoning_backend(structured=structured, vitals=vitals, image_data_urls=image_data_urls)
             if backend_payload:
                 backend_payload["reasoning_backend"] = "external"
                 return backend_payload
@@ -150,7 +151,7 @@ class MultimodalClinicalReasoningAgent:
         return {
             "differential_considerations": _dedupe(differential)[:5],
             "reasoning_rationale": rationale,
-            "uses_multimodal_context": bool(structured.normalized_summary),
+            "uses_multimodal_context": bool(structured.normalized_summary) or bool(image_data_urls),
             "reasoning_backend": "deterministic",
             "reasoning_backend_error": backend_error,
         }
@@ -187,6 +188,7 @@ class SafetyEscalationAgent:
     def run(self, structured: StructuredIntake, vitals: Vitals, recommended_actions: list[str]) -> dict:
         red_flags = find_red_flags(structured, vitals)
         risk_tier, risk_tier_rationale = compute_risk_tier_with_rationale(red_flags, structured.missing_fields, vitals)
+        risk_scores = compute_risk_scores(structured=structured, vitals=vitals)
         confidence, uncertainty_reasons = estimate_confidence(risk_tier, red_flags, structured.missing_fields)
 
         escalation_required = risk_tier in {"critical", "urgent"}
@@ -196,6 +198,7 @@ class SafetyEscalationAgent:
         return {
             "risk_tier": risk_tier,
             "risk_tier_rationale": risk_tier_rationale,
+            "risk_scores": risk_scores,
             "red_flags": red_flags,
             "escalation_required": escalation_required,
             "confidence": confidence,

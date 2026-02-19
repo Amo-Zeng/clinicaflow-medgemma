@@ -104,6 +104,15 @@
                 </div>
 
                 <div class="field span-2">
+                  <label for="imageFiles">Upload images (optional)</label>
+                  <input id="imageFiles" type="file" accept="image/*" multiple />
+                  <div id="imagePreview" class="image-preview"></div>
+                  <div id="imageHint" class="small muted">
+                    Images are kept in-memory for this browser session. Redacted audit bundles exclude images by default.
+                  </div>
+                </div>
+
+                <div class="field span-2">
                   <label for="priorNotes">Prior notes (1 per line)</label>
                   <textarea id="priorNotes" rows="3" placeholder="Prior episode of exertional chest tightness last week"></textarea>
                 </div>
@@ -154,6 +163,10 @@
               <div class="card">
                 <div class="k">Vitals (input)</div>
                 <div id="vitalsSummary" class="small muted">—</div>
+              </div>
+              <div class="card">
+                <div class="k">Risk scores (demo)</div>
+                <div id="riskScores" class="small muted">—</div>
               </div>
               <div class="card">
                 <div class="k">Differential</div>

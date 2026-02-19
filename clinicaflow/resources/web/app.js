@@ -68,6 +68,8 @@ async function postJson(url, payload, extraHeaders) {
 
 const state = {
   mode: "form",
+  doctor: null,
+  imageDataUrls: [],
   lastIntake: null,
   lastResult: null,
   lastRequestId: null,
@@ -84,6 +86,152 @@ const state = {
     selectedId: null,
   },
 };
+
+function dataUrlSizeBytes(dataUrl) {
+  const s = String(dataUrl || "");
+  const idx = s.indexOf(",");
+  if (idx === -1) return 0;
+  const b64 = s.slice(idx + 1);
+  // Rough base64 → bytes estimate.
+  return Math.floor((b64.length * 3) / 4);
+}
+
+function formatBytes(n) {
+  const v = Number(n) || 0;
+  if (v < 1024) return `${v} B`;
+  if (v < 1024 * 1024) return `${(v / 1024).toFixed(1)} KB`;
+  return `${(v / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function intakeForJsonView(intake) {
+  const out = JSON.parse(JSON.stringify(intake || {}));
+  const imgs = out.image_data_urls;
+  if (Array.isArray(imgs) && imgs.length) {
+    delete out.image_data_urls;
+    out.image_data_urls_count = imgs.length;
+  }
+  return out;
+}
+
+function setImages(dataUrls) {
+  const arr = Array.isArray(dataUrls)
+    ? dataUrls.filter((x) => typeof x === "string" && x.trim().startsWith("data:image/"))
+    : [];
+  state.imageDataUrls = arr;
+  renderImagePreview();
+}
+
+function attachImagesToIntake(intake) {
+  intake = intake || {};
+  // If JSON already includes images, prefer them and hydrate UI state.
+  if (Array.isArray(intake.image_data_urls) && intake.image_data_urls.length) {
+    setImages(intake.image_data_urls);
+    return intake;
+  }
+  if (Array.isArray(state.imageDataUrls) && state.imageDataUrls.length) {
+    return { ...intake, image_data_urls: [...state.imageDataUrls] };
+  }
+  return intake;
+}
+
+function renderImagePreview() {
+  const root = $("imagePreview");
+  if (!root) return;
+  root.innerHTML = "";
+
+  const urls = state.imageDataUrls || [];
+  root.classList.toggle("hidden", !urls.length);
+
+  urls.forEach((u, idx) => {
+    const wrap = document.createElement("div");
+    wrap.className = "thumb";
+    const img = document.createElement("img");
+    img.src = u;
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    meta.textContent = `image_${idx} • ${formatBytes(dataUrlSizeBytes(u))}`;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = "×";
+    btn.title = "Remove";
+    btn.addEventListener("click", () => {
+      const next = [...(state.imageDataUrls || [])];
+      next.splice(idx, 1);
+      setImages(next);
+      if ($("intakeJson")) $("intakeJson").value = fmtJson(intakeForJsonView(buildIntakeFromForm()));
+    });
+    wrap.appendChild(img);
+    wrap.appendChild(btn);
+    wrap.appendChild(meta);
+    root.appendChild(wrap);
+  });
+
+  const hint = $("imageHint");
+  if (hint) {
+    const total = urls.reduce((acc, x) => acc + dataUrlSizeBytes(x), 0);
+    const maxBytes = state.doctor?.settings?.max_request_bytes;
+    const budget = typeof maxBytes === "number" ? ` • max_request_bytes=${formatBytes(maxBytes)}` : "";
+    const warn = typeof maxBytes === "number" && total > maxBytes * 0.75 ? " ⚠ may exceed request limit" : "";
+    hint.textContent = `Images in memory: ${urls.length} • approx ${formatBytes(total)}${budget}${warn}`;
+  }
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Failed to read file."));
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImageFromDataUrl(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Failed to decode image."));
+    img.src = dataUrl;
+  });
+}
+
+async function compressImageDataUrl(dataUrl, { maxDim = 512, quality = 0.75 } = {}) {
+  // Keep non-image data URLs unchanged.
+  if (!String(dataUrl || "").startsWith("data:image/")) return dataUrl;
+
+  const img = await loadImageFromDataUrl(dataUrl);
+  const w = img.naturalWidth || img.width || 0;
+  const h = img.naturalHeight || img.height || 0;
+  if (!w || !h) return dataUrl;
+
+  const scale = Math.min(1, maxDim / Math.max(w, h));
+  const outW = Math.max(1, Math.round(w * scale));
+  const outH = Math.max(1, Math.round(h * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = outW;
+  canvas.height = outH;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return dataUrl;
+  ctx.drawImage(img, 0, 0, outW, outH);
+
+  // JPEG is smaller for demo payloads; acceptable for a synthetic demo.
+  return canvas.toDataURL("image/jpeg", quality);
+}
+
+async function addUploadedImages(files) {
+  const list = Array.from(files || []);
+  if (!list.length) return;
+
+  const next = [...(state.imageDataUrls || [])];
+  for (const file of list) {
+    if (!file || !String(file.type || "").startsWith("image/")) continue;
+    const raw = await readFileAsDataUrl(file);
+    const compressed = await compressImageDataUrl(raw, { maxDim: 512, quality: 0.75 });
+    next.push(compressed);
+  }
+  setImages(next);
+  if ($("intakeJson")) $("intakeJson").value = fmtJson(intakeForJsonView(buildIntakeFromForm()));
+}
 
 function buildIntakeFromForm() {
   const chief = String($("chiefComplaint").value || "").trim();
@@ -115,6 +263,7 @@ function buildIntakeFromForm() {
     demographics,
     vitals,
     image_descriptions: parseLines($("imageDesc").value),
+    image_data_urls: [...(state.imageDataUrls || [])],
     prior_notes: parseLines($("priorNotes").value),
   };
 
@@ -140,6 +289,12 @@ function fillFormFromIntake(intake) {
 
   $("imageDesc").value = (intake.image_descriptions || []).join("\n");
   $("priorNotes").value = (intake.prior_notes || []).join("\n");
+
+  if (Array.isArray(intake.image_data_urls)) {
+    setImages(intake.image_data_urls);
+  } else {
+    setImages([]);
+  }
 }
 
 function setMode(mode) {
@@ -168,6 +323,20 @@ function careSettingFromTier(tier) {
   if (t === "urgent") return "Suggested care setting: Same-day urgent clinician evaluation.";
   if (t === "routine") return "Suggested care setting: Routine evaluation / self-care with return precautions.";
   return "—";
+}
+
+function formatRiskScores(scores) {
+  scores = scores || {};
+  const parts = [];
+  if (typeof scores.shock_index === "number") {
+    const hi = scores.shock_index_high ? " (high)" : "";
+    parts.push(`shock_index=${scores.shock_index}${hi}`);
+  }
+  if (typeof scores.qsofa === "number") {
+    const hi = scores.qsofa_high_risk ? " (≥2)" : "";
+    parts.push(`qSOFA=${scores.qsofa}${hi}`);
+  }
+  return parts.length ? parts.join(" • ") : "—";
 }
 
 function renderVitalsSummary(intake) {
@@ -405,6 +574,7 @@ function renderResult(result, requestIdFromHeader) {
     "tierRationale",
     safety.safety_rules_version ? `${tierRationale} • rules: ${safety.safety_rules_version}` : tierRationale,
   );
+  setText("riskScores", formatRiskScores(safety.risk_scores || {}));
 
   renderList($("differential"), result.differential_considerations, {
     ordered: false,
@@ -521,6 +691,7 @@ function setError(targetId, msg) {
 async function loadDoctor() {
   try {
     const d = await fetchJson("/doctor");
+    state.doctor = d;
     const backend = (d.reasoning_backend || {}).backend || "deterministic";
     const model = (d.reasoning_backend || {}).model || "";
     const ok = (d.reasoning_backend || {}).connectivity_ok;
@@ -531,6 +702,7 @@ async function loadDoctor() {
 
     const policy = (d.policy_pack || {}).sha256 || "";
     setText("policyBadge", policy ? `policy: ${policy.slice(0, 10)}…` : "policy: (none)");
+    renderImagePreview();
   } catch (e) {
     setText("backendBadge", "backend: unknown");
     setText("policyBadge", "policy: unknown");
@@ -589,7 +761,7 @@ async function loadPreset() {
 
   state.lastIntake = intake;
   fillFormFromIntake(intake);
-  $("intakeJson").value = fmtJson(intake);
+  $("intakeJson").value = fmtJson(intakeForJsonView(intake));
   setText("statusLine", `Loaded preset: ${id}`);
 }
 
@@ -618,8 +790,9 @@ async function runTriage() {
     return;
   }
 
+  intake = attachImagesToIntake(intake);
   state.lastIntake = intake;
-  $("intakeJson").value = fmtJson(intake);
+  $("intakeJson").value = fmtJson(intakeForJsonView(intake));
 
   try {
     const { data, headers } = await postJson("/triage", intake, {});
@@ -727,6 +900,8 @@ function buildNoteMarkdown(intake, result, checklist) {
   lines.push(`- risk_tier: ${result.risk_tier}`);
   lines.push(`- escalation_required: ${result.escalation_required}`);
   if (safety.risk_tier_rationale) lines.push(`- rationale: ${safety.risk_tier_rationale}`);
+  const rs = formatRiskScores(safety.risk_scores || {});
+  if (rs !== "—") lines.push(`- risk_scores: ${rs}`);
   lines.push("");
   lines.push("## Red flags");
   (result.red_flags || []).forEach((x) => lines.push(`- ${x}`));
@@ -861,6 +1036,8 @@ function buildReportHtml(intake, result, checklist) {
 
   const riskClass =
     result.risk_tier === "critical" ? "risk-critical" : result.risk_tier === "urgent" ? "risk-urgent" : "risk-routine";
+  const riskScoreText = formatRiskScores((safety || {}).risk_scores || {});
+  const riskScoreLi = riskScoreText !== "—" ? `<li>risk_scores: <span class="mono">${escapeHtml(String(riskScoreText))}</span></li>` : "";
 
   return `<!doctype html>
 <html lang="en">
@@ -894,6 +1071,7 @@ function buildReportHtml(intake, result, checklist) {
         <ul>
           <li>escalation_required: <b>${escapeHtml(String(result.escalation_required))}</b></li>
           <li>rationale: ${escapeHtml(String(safety.risk_tier_rationale || ""))}</li>
+          ${riskScoreLi}
           <li>confidence (proxy): <span class="mono">${escapeHtml(String(result.confidence))}</span></li>
         </ul>
       </div>
@@ -1166,7 +1344,7 @@ async function loadVignetteById(caseId) {
     const intake = resp.input || resp;
     state.lastIntake = intake;
     fillFormFromIntake(intake);
-    $("intakeJson").value = fmtJson(intake);
+    $("intakeJson").value = fmtJson(intakeForJsonView(intake));
     setTab("triage");
     setMode("form");
     setText("statusLine", `Loaded vignette: ${caseId}`);
@@ -1423,6 +1601,16 @@ function getIntakeFromUiForWorkspace() {
   return buildIntakeFromForm();
 }
 
+function stripImagesForWorkspace(intake) {
+  const out = JSON.parse(JSON.stringify(intake || {}));
+  const imgs = out.image_data_urls;
+  if (Array.isArray(imgs) && imgs.length) {
+    delete out.image_data_urls;
+    out.image_data_urls_count = imgs.length;
+  }
+  return out;
+}
+
 function workspaceAdd({ intake, result, checklist }) {
   const items = loadWorkspaceItems();
   const now = new Date().toISOString();
@@ -1430,7 +1618,7 @@ function workspaceAdd({ intake, result, checklist }) {
   items.push({
     id,
     created_at: now,
-    intake: intake || {},
+    intake: stripImagesForWorkspace(intake || {}),
     result: result || null,
     checklist: checklist || null,
   });
@@ -1469,7 +1657,7 @@ async function workspaceImportFromFile(file) {
       .map((x) => ({
         id: String(x.id || newLocalId()),
         created_at: String(x.created_at || new Date().toISOString()),
-        intake: x.intake || {},
+        intake: stripImagesForWorkspace(x.intake || {}),
         result: x.result || null,
         checklist: x.checklist || null,
       }));
@@ -1897,8 +2085,13 @@ function wireEvents() {
 
   $("applyJsonToForm").addEventListener("click", () => {
     try {
+      const beforeImages = [...(state.imageDataUrls || [])];
       const intake = JSON.parse($("intakeJson").value || "{}");
       fillFormFromIntake(intake);
+      // If JSON doesn't explicitly include images, preserve current uploads.
+      if (!("image_data_urls" in (intake || {})) && !("images" in (intake || {}))) {
+        setImages(beforeImages);
+      }
       setText("statusLine", "Applied JSON to form.");
       setError("intakeError", "");
     } catch (e) {
@@ -1909,11 +2102,27 @@ function wireEvents() {
   $("updateJsonFromForm").addEventListener("click", () => {
     try {
       const intake = buildIntakeFromForm();
-      $("intakeJson").value = fmtJson(intake);
+      $("intakeJson").value = fmtJson(intakeForJsonView(intake));
       setText("statusLine", "Updated JSON from form.");
       setError("intakeError", "");
     } catch (e) {
       setError("intakeError", e);
+    }
+  });
+
+  $("imageFiles")?.addEventListener("change", async (ev) => {
+    try {
+      const files = ev?.target?.files || [];
+      await addUploadedImages(files);
+      setText("statusLine", "Images added.");
+    } catch (e) {
+      setError("intakeError", e);
+    } finally {
+      try {
+        ev.target.value = "";
+      } catch (e) {
+        // ignore
+      }
     }
   });
 
@@ -2133,7 +2342,7 @@ function wireEvents() {
     const intake = item.intake || {};
     state.lastIntake = intake;
     fillFormFromIntake(intake);
-    $("intakeJson").value = fmtJson(intake);
+    $("intakeJson").value = fmtJson(intakeForJsonView(intake));
     setTab("triage");
     setMode("form");
     if (item.result) {

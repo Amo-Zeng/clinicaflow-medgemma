@@ -35,16 +35,35 @@ class PatientIntake:
     demographics: dict[str, Any] = field(default_factory=dict)
     vitals: Vitals = field(default_factory=Vitals)
     image_descriptions: list[str] = field(default_factory=list)
+    # Optional: inline image payloads for multimodal demos (data URLs: "data:image/...;base64,...").
+    # These can be large; audit bundles should store them as separate files when included.
+    image_data_urls: list[str] = field(default_factory=list)
     prior_notes: list[str] = field(default_factory=list)
 
     @classmethod
     def from_mapping(cls, payload: dict[str, Any]) -> "PatientIntake":
+        images: list[str] = []
+        raw_images = payload.get("image_data_urls")
+        if isinstance(raw_images, list):
+            images.extend([str(x) for x in raw_images if isinstance(x, (str, bytes)) and str(x).strip()])
+        # Back-compat/alternate key: "images" can be a list of strings or dicts with "data_url"/"url".
+        raw_images2 = payload.get("images")
+        if isinstance(raw_images2, list):
+            for item in raw_images2:
+                if isinstance(item, str) and item.strip():
+                    images.append(item.strip())
+                elif isinstance(item, dict):
+                    url = item.get("data_url") or item.get("url")
+                    if isinstance(url, str) and url.strip():
+                        images.append(url.strip())
+
         return cls(
             chief_complaint=str(payload.get("chief_complaint", "")).strip(),
             history=str(payload.get("history", "")).strip(),
             demographics=dict(payload.get("demographics", {})),
             vitals=Vitals.from_mapping(payload.get("vitals")),
             image_descriptions=[str(x) for x in payload.get("image_descriptions", [])],
+            image_data_urls=images,
             prior_notes=[str(x) for x in payload.get("prior_notes", [])],
         )
 

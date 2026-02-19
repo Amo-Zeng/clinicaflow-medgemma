@@ -22,6 +22,7 @@ Show the demo UI (local):
 - Load a sample case and highlight:
   - risk tier,
   - red flags,
+  - optional: upload an image (multimodal demo) and mention `image_data_urls` + `CLINICAFLOW_REASONING_SEND_IMAGES=1`,
   - recommended next actions,
   - action checklist (mark a couple as done),
   - clinician handoff,

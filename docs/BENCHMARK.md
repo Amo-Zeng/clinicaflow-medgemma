@@ -39,3 +39,11 @@ python -m clinicaflow.benchmarks.synthetic --seed 17 --n 220 --out results/synth
 - Synthetic cases cannot substitute for real clinical validation.
 - Metrics are proxies and should be interpreted as *workflow reliability signals*, not medical performance claims.
 - Before any real deployment, evaluate on site-specific data distributions with clinical oversight.
+
+## One-command writeup reproduction
+
+For convenience, you can generate all markdown tables + a diagnostics snapshot with:
+
+```bash
+bash scripts/reproduce_writeup.sh
+```

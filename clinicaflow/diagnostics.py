@@ -40,22 +40,30 @@ def collect_diagnostics() -> dict[str, Any]:
     reasoning_model = os.environ.get("CLINICAFLOW_REASONING_MODEL", "").strip()
     reasoning_timeout_s = os.environ.get("CLINICAFLOW_REASONING_TIMEOUT_S", "").strip()
     reasoning_max_retries = os.environ.get("CLINICAFLOW_REASONING_MAX_RETRIES", "").strip()
+    reasoning_api_key = os.environ.get("CLINICAFLOW_REASONING_API_KEY")
 
     connectivity = _check_reasoning_connectivity(
         backend=reasoning_backend,
         base_url=reasoning_base_url,
         model=reasoning_model,
         timeout_s=_safe_float(reasoning_timeout_s, default=1.2),
-        api_key=os.environ.get("CLINICAFLOW_REASONING_API_KEY"),
+        api_key=reasoning_api_key,
     )
 
     comm_backend = os.environ.get("CLINICAFLOW_COMMUNICATION_BACKEND", "deterministic").strip()
+    comm_base_url = os.environ.get("CLINICAFLOW_COMMUNICATION_BASE_URL", "").strip() or reasoning_base_url
+    comm_model = os.environ.get("CLINICAFLOW_COMMUNICATION_MODEL", "").strip() or reasoning_model
+    comm_timeout_s = os.environ.get("CLINICAFLOW_COMMUNICATION_TIMEOUT_S", "").strip() or reasoning_timeout_s
+    comm_max_retries = os.environ.get("CLINICAFLOW_COMMUNICATION_MAX_RETRIES", "").strip() or reasoning_max_retries
+    comm_api_key = os.environ.get("CLINICAFLOW_COMMUNICATION_API_KEY")
+    if comm_api_key is None:
+        comm_api_key = reasoning_api_key
     comm_connectivity = _check_reasoning_connectivity(
         backend=comm_backend,
-        base_url=reasoning_base_url,
-        model=reasoning_model,
-        timeout_s=_safe_float(reasoning_timeout_s, default=1.2),
-        api_key=os.environ.get("CLINICAFLOW_REASONING_API_KEY"),
+        base_url=comm_base_url,
+        model=comm_model,
+        timeout_s=_safe_float(comm_timeout_s, default=_safe_float(reasoning_timeout_s, default=1.2)),
+        api_key=comm_api_key,
     )
 
     payload: dict[str, Any] = {
@@ -84,10 +92,10 @@ def collect_diagnostics() -> dict[str, Any]:
         },
         "communication_backend": {
             "backend": comm_backend,
-            "base_url": reasoning_base_url,
-            "model": reasoning_model,
-            "timeout_s": reasoning_timeout_s,
-            "max_retries": reasoning_max_retries,
+            "base_url": comm_base_url,
+            "model": comm_model,
+            "timeout_s": comm_timeout_s,
+            "max_retries": comm_max_retries,
             **comm_connectivity,
         },
     }

@@ -6,7 +6,7 @@ from clinicaflow.inference.json_extract import JsonExtractError, extract_first_j
 from clinicaflow.inference.openai_compatible import (
     InferenceError,
     chat_completion,
-    load_openai_compatible_config_from_env,
+    load_openai_compatible_config_from_env_prefix,
 )
 
 COMMUNICATION_PROMPT_VERSION = "2026-02-19.v1"
@@ -52,7 +52,7 @@ def run_communication_backend(*, draft_clinician: str, draft_patient: str) -> di
     if backend not in {"openai", "openai_compatible"}:
         raise ValueError(f"Unsupported CLINICAFLOW_COMMUNICATION_BACKEND: {backend}")
 
-    config = load_openai_compatible_config_from_env()
+    config = load_openai_compatible_config_from_env_prefix("CLINICAFLOW_COMMUNICATION")
     system, user = build_communication_prompt(draft_clinician=draft_clinician, draft_patient=draft_patient)
     text = chat_completion(config=config, system=system, user=user)
 
@@ -75,4 +75,3 @@ def run_communication_backend(*, draft_clinician: str, draft_patient: str) -> di
         "communication_backend_model": config.model,
         "communication_prompt_version": COMMUNICATION_PROMPT_VERSION,
     }
-

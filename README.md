@@ -24,6 +24,7 @@ It implements a deterministic, auditable 5-agent triage pipeline aligned with th
 - `tests/` — unit tests
 - `examples/` — sample payloads
 - `docs/` — architecture + benchmark + safety + video script
+- `docs/JUDGES.md` — 3-minute judge quickstart
 - `champion_writeup_medgemma.md` — competition write-up draft
 
 ## Quick Start
@@ -212,7 +213,11 @@ Request tracing:
 - `CLINICAFLOW_POLICY_TOPK` (default: `2`)
 - `CLINICAFLOW_CORS_ALLOW_ORIGIN` (default: `*`)
 - `CLINICAFLOW_API_KEY` (default: empty) — if set, `POST /triage` requires auth (`Authorization: Bearer ...` or `X-API-Key`)
+- `CLINICAFLOW_REASONING_SEND_IMAGES` (default: `false`) — if `true`, send `image_data_urls` to the OpenAI-compatible backend (vision models)
+- `CLINICAFLOW_REASONING_MAX_IMAGES` (default: `2`)
 - `CLINICAFLOW_COMMUNICATION_BACKEND` (default: `deterministic`) — optional draft rewriting via an OpenAI-compatible endpoint
+- `CLINICAFLOW_COMMUNICATION_BASE_URL` / `CLINICAFLOW_COMMUNICATION_MODEL` — override rewrite endpoint/model (defaults to `CLINICAFLOW_REASONING_*`)
+- `CLINICAFLOW_COMMUNICATION_API_KEY` — optional (defaults to `CLINICAFLOW_REASONING_API_KEY`)
 
 Quick config sanity check:
 

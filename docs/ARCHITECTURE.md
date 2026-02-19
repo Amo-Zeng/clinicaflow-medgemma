@@ -30,6 +30,7 @@ Structured triage result + trace
 2. **(Multi)modal Reasoning Agent** (`clinicaflow/agents.py`)
    - Produces a short differential and a reasoning rationale.
    - Optional OpenAI-compatible inference backend (`CLINICAFLOW_REASONING_BACKEND=openai_compatible`).
+   - Optional image payloads via `image_data_urls` (data URLs). To send images to a vision-capable endpoint, set `CLINICAFLOW_REASONING_SEND_IMAGES=1`.
    - Intended integration point for MedGemma inference.
 
 3. **Evidence & Policy Agent** (`clinicaflow/agents.py`)
@@ -41,10 +42,12 @@ Structured triage result + trace
 4. **Safety & Escalation Agent** (`clinicaflow/agents.py`, `clinicaflow/rules.py`)
    - Applies deterministic red-flag logic.
    - Computes a conservative `risk_tier` and forces escalation when needed.
+   - Emits lightweight interpretable risk scores (demo): shock index + qSOFA.
    - Emits `uncertainty_reasons` to avoid “black box” handoff.
 
 5. **Communication Agent** (`clinicaflow/agents.py`)
    - Produces a clinician handoff summary and patient return precautions.
+   - Optional rewrite-only polish via `CLINICAFLOW_COMMUNICATION_BACKEND=openai_compatible` (can point to a separate `CLINICAFLOW_COMMUNICATION_BASE_URL`/`MODEL`).
 
 ## Trace / auditability
 

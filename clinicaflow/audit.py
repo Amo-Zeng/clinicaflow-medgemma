@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import html
 import json
@@ -54,10 +55,14 @@ def build_audit_bundle_files(
     created_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
     intake_payload = asdict(intake)
+    image_files: dict[str, bytes] = {}
     if redact:
         intake_payload["demographics"] = {}
         intake_payload["prior_notes"] = []
         intake_payload["image_descriptions"] = []
+        intake_payload["image_data_urls"] = []
+    else:
+        intake_payload, image_files = _extract_inline_images(intake_payload)
 
     intake_bytes = _json_bytes(intake_payload)
     result_bytes = _json_bytes(result.to_dict())
@@ -68,14 +73,17 @@ def build_audit_bundle_files(
     note_bytes = _note_markdown_bytes(intake_payload=intake_payload, result_payload=result.to_dict(), checklist=checklist_payload)
     report_bytes = _report_html_bytes(intake_payload=intake_payload, result_payload=result.to_dict(), checklist=checklist_payload)
 
-    file_hashes = {
-        "intake.json": hashlib.sha256(intake_bytes).hexdigest(),
-        "triage_result.json": hashlib.sha256(result_bytes).hexdigest(),
-        "doctor.json": hashlib.sha256(diagnostics_bytes).hexdigest(),
-        "actions_checklist.json": hashlib.sha256(checklist_bytes).hexdigest(),
-        "note.md": hashlib.sha256(note_bytes).hexdigest(),
-        "report.html": hashlib.sha256(report_bytes).hexdigest(),
+    files: dict[str, bytes] = {
+        "intake.json": intake_bytes,
+        "triage_result.json": result_bytes,
+        "doctor.json": diagnostics_bytes,
+        "actions_checklist.json": checklist_bytes,
+        "note.md": note_bytes,
+        "report.html": report_bytes,
+        **image_files,
     }
+
+    file_hashes = {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}
 
     manifest = {
         "created_at": created_at,
@@ -89,15 +97,8 @@ def build_audit_bundle_files(
     }
     manifest_bytes = _json_bytes(manifest)
 
-    return {
-        "intake.json": intake_bytes,
-        "triage_result.json": result_bytes,
-        "doctor.json": diagnostics_bytes,
-        "actions_checklist.json": checklist_bytes,
-        "note.md": note_bytes,
-        "report.html": report_bytes,
-        "manifest.json": manifest_bytes,
-    }
+    files["manifest.json"] = manifest_bytes
+    return files
 
 
 def write_audit_bundle(
@@ -118,9 +119,55 @@ def write_audit_bundle(
 
     files = build_audit_bundle_files(intake=intake, result=result, redact=redact)
     for name, data in files.items():
-        (out_path / name).write_bytes(data)
+        path = out_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
 
     return out_path
+
+
+def _extract_inline_images(intake_payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, bytes]]:
+    """Extract `image_data_urls` into separate files for audit bundles.
+
+    Returns (updated intake_payload, image_files).
+    """
+
+    raw = intake_payload.get("image_data_urls")
+    if not isinstance(raw, list):
+        return intake_payload, {}
+
+    image_files: dict[str, bytes] = {}
+    images_meta: list[dict[str, Any]] = []
+
+    for idx, item in enumerate(raw):
+        if not isinstance(item, str):
+            continue
+        s = item.strip()
+        if not s.startswith("data:image/"):
+            continue
+        try:
+            header, b64 = s.split(",", 1)
+            mime = header.split(":", 1)[1].split(";", 1)[0].strip().lower()
+            ext = {
+                "image/jpeg": "jpg",
+                "image/jpg": "jpg",
+                "image/png": "png",
+                "image/webp": "webp",
+            }.get(mime, "bin")
+            data = base64.b64decode(b64.encode("utf-8"), validate=False)
+        except Exception:  # noqa: BLE001
+            continue
+
+        filename = f"images/image_{idx}.{ext}"
+        image_files[filename] = data
+        images_meta.append({"filename": filename, "mime_type": mime})
+
+    # Always strip inline image payloads from intake.json to keep it small.
+    intake_payload["image_data_urls"] = []
+    if images_meta:
+        intake_payload["images"] = images_meta
+
+    return intake_payload, image_files
 
 
 def _write_json(path: Path, payload: Any) -> str:
@@ -157,6 +204,30 @@ def _extract_reasoning_meta(result_payload: dict) -> dict[str, Any]:
     return {}
 
 
+def _trace_output(result_payload: dict, agent: str) -> dict[str, Any]:
+    try:
+        for step in result_payload.get("trace", []):
+            if step.get("agent") == agent:
+                return dict(step.get("output") or {})
+    except Exception:  # noqa: BLE001
+        return {}
+    return {}
+
+
+def _format_risk_scores(payload: dict[str, Any]) -> str:
+    scores = dict(payload.get("risk_scores") or {})
+    parts: list[str] = []
+    si = scores.get("shock_index")
+    if isinstance(si, (int, float)):
+        hi = " (high)" if scores.get("shock_index_high") else ""
+        parts.append(f"shock_index={float(si):.2f}{hi}")
+    q = scores.get("qsofa")
+    if isinstance(q, int):
+        hi = " (≥2)" if scores.get("qsofa_high_risk") else ""
+        parts.append(f"qSOFA={q}{hi}")
+    return " • ".join(parts)
+
+
 def _note_markdown_bytes(
     *,
     intake_payload: dict[str, Any],
@@ -166,6 +237,7 @@ def _note_markdown_bytes(
     request_id = str(result_payload.get("request_id") or "").strip()
     run_id = str(result_payload.get("run_id") or "").strip()
     created_at = str(result_payload.get("created_at") or "").strip()
+    pipeline_version = str(result_payload.get("pipeline_version") or "").strip()
     tier = str(result_payload.get("risk_tier") or "").strip()
     escalation = bool(result_payload.get("escalation_required"))
     confidence = result_payload.get("confidence")
@@ -178,6 +250,10 @@ def _note_markdown_bytes(
     done = sum(1 for x in checklist if x.get("checked"))
     total = len(checklist)
 
+    safety = _trace_output(result_payload, "safety_escalation")
+    evidence = _trace_output(result_payload, "evidence_policy")
+    reasoning = _trace_output(result_payload, "multimodal_reasoning")
+
     lines: list[str] = []
     lines.append("# ClinicaFlow triage note (demo)")
     lines.append("")
@@ -189,6 +265,18 @@ def _note_markdown_bytes(
         lines.append(f"- run_id: `{run_id}`")
     if created_at:
         lines.append(f"- created_at: `{created_at}`")
+    if pipeline_version:
+        lines.append(f"- pipeline_version: `{pipeline_version}`")
+    if safety.get("safety_rules_version"):
+        lines.append(f"- safety_rules_version: `{str(safety.get('safety_rules_version'))}`")
+    if reasoning.get("reasoning_backend"):
+        lines.append(f"- reasoning_backend: `{str(reasoning.get('reasoning_backend'))}`")
+    if reasoning.get("reasoning_backend_model"):
+        lines.append(f"- reasoning_model: `{str(reasoning.get('reasoning_backend_model'))}`")
+    if reasoning.get("reasoning_prompt_version"):
+        lines.append(f"- reasoning_prompt_version: `{str(reasoning.get('reasoning_prompt_version'))}`")
+    if evidence.get("policy_pack_sha256"):
+        lines.append(f"- policy_pack_sha256: `{str(evidence.get('policy_pack_sha256'))}`")
     lines.append("")
 
     lines.append("## Intake (as provided)")
@@ -208,6 +296,16 @@ def _note_markdown_bytes(
         for item in intake_payload.get("image_descriptions") or []:
             lines.append(f"  - {item}")
 
+    if intake_payload.get("images"):
+        lines.append("- images:")
+        for item in intake_payload.get("images") or []:
+            if isinstance(item, dict):
+                name = str(item.get("filename") or "").strip()
+                mime = str(item.get("mime_type") or "").strip()
+                label = f"{name} ({mime})".strip()
+                if label.strip():
+                    lines.append(f"  - {label}")
+
     if intake_payload.get("prior_notes"):
         lines.append("- prior_notes:")
         for item in intake_payload.get("prior_notes") or []:
@@ -217,6 +315,11 @@ def _note_markdown_bytes(
     lines.append("## Triage")
     lines.append(f"- risk_tier: **{tier}**")
     lines.append(f"- escalation_required: **{escalation}**")
+    if safety.get("risk_tier_rationale"):
+        lines.append(f"- rationale: {str(safety.get('risk_tier_rationale')).strip()}")
+    rs = _format_risk_scores(safety)
+    if rs:
+        lines.append(f"- risk_scores: {rs}")
     if isinstance(confidence, (int, float)):
         lines.append(f"- confidence (proxy): {float(confidence):.2f}")
     lines.append("")
@@ -286,6 +389,11 @@ def _report_html_bytes(
     differential = [str(x) for x in (result_payload.get("differential_considerations") or []) if str(x).strip()]
     uncertainty = [str(x) for x in (result_payload.get("uncertainty_reasons") or []) if str(x).strip()]
 
+    safety = _trace_output(result_payload, "safety_escalation")
+    evidence = _trace_output(result_payload, "evidence_policy")
+    reasoning = _trace_output(result_payload, "multimodal_reasoning")
+    risk_scores = _format_risk_scores(safety)
+
     done = sum(1 for x in checklist if x.get("checked"))
     total = len(checklist)
 
@@ -350,6 +458,10 @@ def _report_html_bytes(
         <ul>
           <li><span class="mono">request_id</span>: <span class="mono">{html.escape(request_id)}</span></li>
           <li>created_at: <span class="mono">{html.escape(created_at)}</span></li>
+          <li>pipeline_version: <span class="mono">{html.escape(str(result_payload.get('pipeline_version') or ''))}</span></li>
+          <li>reasoning_backend: <span class="mono">{html.escape(str(reasoning.get('reasoning_backend') or ''))}</span></li>
+          <li>reasoning_model: <span class="mono">{html.escape(str(reasoning.get('reasoning_backend_model') or ''))}</span></li>
+          <li>policy_pack_sha256: <span class="mono">{html.escape(str(evidence.get('policy_pack_sha256') or ''))}</span></li>
         </ul>
       </div>
       <div class="card">
@@ -358,6 +470,8 @@ def _report_html_bytes(
         <div style="height:10px"></div>
         <ul>
           <li>escalation_required: <b>{html.escape(str(escalation))}</b></li>
+          <li>rationale: {html.escape(str(safety.get('risk_tier_rationale') or ''))}</li>
+          {f'<li>risk_scores: <span class="mono">{html.escape(risk_scores)}</span></li>' if risk_scores else ''}
           <li>confidence (proxy): <span class="mono">{html.escape(str(confidence))}</span></li>
         </ul>
       </div>
@@ -372,6 +486,7 @@ def _report_html_bytes(
           <li>chief_complaint: {html.escape(str(intake_payload.get('chief_complaint') or ''))}</li>
           <li>history: {html.escape(str(intake_payload.get('history') or ''))}</li>
           <li>vitals: <span class="mono">{html.escape(', '.join(vitals_bits))}</span></li>
+          {f"<li>images: <span class='mono'>{html.escape(str(len(intake_payload.get('images') or [])))}</span></li>" if intake_payload.get("images") else ""}
         </ul>
       </div>
       <div class="card">
