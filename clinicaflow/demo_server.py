@@ -701,7 +701,7 @@ def _unwrap_intake_payload(payload: dict) -> tuple[dict, dict | None, Any]:
 
 def _normalize_vignette_set(value: str) -> str:
     key = str(value or "").strip().lower()
-    if key in {"standard", "adversarial", "all"}:
+    if key in {"standard", "adversarial", "extended", "all", "mega"}:
         return key
     return "standard"
 

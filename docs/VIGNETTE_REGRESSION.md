@@ -1,4 +1,4 @@
-# Clinical Vignette Regression Set (standard n=30, adversarial n=20)
+# Clinical Vignette Regression Sets (standard n=30, adversarial n=20, extended n=100)
 
 This repository includes a small **synthetic clinical vignette** regression set intended to:
 
@@ -12,6 +12,7 @@ Important: These are **not real patient records** and are not meant to represent
 
 - Standard vignettes: `clinicaflow/resources/vignettes.jsonl` (n=30)
 - Adversarial vignettes: `clinicaflow/resources/vignettes_adversarial.jsonl` (n=20)
+- Extended vignettes: `clinicaflow/resources/vignettes_extended.jsonl` (n=100)
 - Benchmark runner: `clinicaflow/benchmarks/vignettes.py`
 
 The **adversarial** set is intentionally crafted to stress:
@@ -76,6 +77,12 @@ Print a markdown table:
 python -m clinicaflow.benchmarks.vignettes --set standard --print-markdown
 ```
 
+Run on the extended set:
+
+```bash
+python -m clinicaflow.benchmarks.vignettes --set extended --print-markdown
+```
+
 Run on the adversarial set:
 
 ```bash
@@ -86,6 +93,12 @@ Run on both combined:
 
 ```bash
 python -m clinicaflow.benchmarks.vignettes --set all --print-markdown
+```
+
+Run on all three sets combined:
+
+```bash
+python -m clinicaflow.benchmarks.vignettes --set mega --print-markdown
 ```
 
 Write JSON outputs:
@@ -102,7 +115,7 @@ python -m clinicaflow.benchmarks.vignettes \\
 Generate a review packet to collect qualitative feedback (no PHI):
 
 ```bash
-python -m clinicaflow.benchmarks.review_packet --out reviews/clinician_review_packet.md --include-gold
+python -m clinicaflow.benchmarks.review_packet --set standard --out reviews/clinician_review_packet.md --include-gold
 ```
 
 See `docs/CLINICIAN_REVIEW_TEMPLATE.md` for suggested questions and how to cite the feedback responsibly.

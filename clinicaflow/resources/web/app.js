@@ -740,6 +740,7 @@ async function loadPresets() {
 
   await addGroup("standard", "Vignettes (standard)");
   await addGroup("adversarial", "Vignettes (adversarial)");
+  await addGroup("extended", "Vignettes (extended)");
 }
 
 async function loadPreset() {
@@ -1337,9 +1338,10 @@ function getBenchFilters() {
   };
 }
 
-async function loadVignetteById(caseId) {
+async function loadVignetteById(caseId, opts) {
   try {
-    const setName = state.lastBenchSet || $("benchSet")?.value || "standard";
+    const override = opts && typeof opts === "object" ? String(opts.set || "").trim() : "";
+    const setName = override || state.lastBenchSet || $("benchSet")?.value || "standard";
     const resp = await fetchJson(`/vignettes/${encodeURIComponent(caseId)}?set=${encodeURIComponent(setName)}`);
     const intake = resp.input || resp;
     state.lastIntake = intake;
@@ -1757,7 +1759,7 @@ function renderReviewTable() {
   const reviews = loadStoredReviews();
   if (reviews.length === 0) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td class="muted" colspan="6">No saved reviews yet.</td>`;
+    tr.innerHTML = `<td class="muted" colspan="7">No saved reviews yet.</td>`;
     body.appendChild(tr);
     return;
   }
@@ -1767,11 +1769,13 @@ function renderReviewTable() {
     .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")))
     .forEach((r) => {
       const tr = document.createElement("tr");
+      const setName = r?.vignette_set || "standard";
       const safety = r?.ratings?.risk_tier_safety || "";
       const actionability = r?.ratings?.actionability ?? "";
       const handoff = r?.ratings?.handoff_quality ?? "";
       tr.innerHTML = `
         <td class="mono">${escapeHtml(String(r.case_id || ""))}</td>
+        <td class="mono">${escapeHtml(String(setName))}</td>
         <td><b>${escapeHtml(String(r.output_preview?.risk_tier || ""))}</b></td>
         <td class="mono">${escapeHtml(String(safety))}</td>
         <td class="mono">${escapeHtml(String(actionability))}</td>
@@ -1803,12 +1807,18 @@ function renderReviewTable() {
     });
 }
 
-function loadSavedReview(r) {
+async function loadSavedReview(r) {
   if (!r) return;
   state.review.lastCaseId = r.case_id || null;
   state.review.lastIntake = r.intake || null;
   state.review.lastLabels = r.gold_labels || null;
   state.review.lastResult = r.output_preview_full || r.output_preview || null;
+
+  const setEl = $("reviewSet");
+  if (setEl) {
+    setEl.value = r?.vignette_set || "standard";
+    await loadReviewCases();
+  }
 
   const sel = $("reviewCaseSelect");
   if (sel && r.case_id) sel.value = r.case_id;
@@ -1858,8 +1868,10 @@ async function loadReviewCases() {
   if (!select) return;
   select.innerHTML = "";
 
+  const setName = String($("reviewSet")?.value || "standard").trim() || "standard";
+
   try {
-    const payload = await fetchJson("/vignettes?set=standard");
+    const payload = await fetchJson(`/vignettes?set=${encodeURIComponent(setName)}`);
     const vignettes = payload.vignettes || [];
     vignettes.forEach((v) => {
       const opt = document.createElement("option");
@@ -1871,7 +1883,7 @@ async function loadReviewCases() {
   } catch (e) {
     const opt = document.createElement("option");
     opt.value = "";
-    opt.textContent = "Failed to load vignettes";
+    opt.textContent = `Failed to load vignettes (${setName})`;
     select.appendChild(opt);
   }
 }
@@ -1882,8 +1894,11 @@ async function reviewLoadCase() {
   if (!caseId) return;
 
   try {
+    const setName = String($("reviewSet")?.value || "standard").trim() || "standard";
     const include = $("reviewShowGold")?.checked ? "1" : "0";
-    const resp = await fetchJson(`/vignettes/${encodeURIComponent(caseId)}?set=standard&include_labels=${include}`);
+    const resp = await fetchJson(
+      `/vignettes/${encodeURIComponent(caseId)}?set=${encodeURIComponent(setName)}&include_labels=${include}`,
+    );
     const intake = resp.input || {};
     const labels = resp.labels || null;
 
@@ -1994,13 +2009,23 @@ function buildReviewMarkdown(reviews) {
 
 function buildWriteupParagraph() {
   const reviews = loadStoredReviews();
-  const caseCount = reviews.length;
+  const nReviews = reviews.length;
+  const caseIds = new Set();
+  const setCounts = {};
+  (reviews || []).forEach((r) => {
+    const cid = String(r?.case_id || "").trim();
+    if (cid) caseIds.add(cid);
+    const s = String(r?.vignette_set || "standard").trim() || "standard";
+    setCounts[s] = (setCounts[s] || 0) + 1;
+  });
+  const nCases = caseIds.size;
+  const setList = Object.keys(setCounts).sort();
   const role = String($("reviewRole")?.value || "").trim();
   const setting = String($("reviewSetting")?.value || "").trim();
   const date = String($("reviewDate")?.value || "").trim();
 
   // Strict no-fabrication guard: if nothing was recorded, do not imply that a review happened.
-  if (!caseCount) {
+  if (!nReviews) {
     return (
       "Clinician review (qualitative): We provide tooling to collect a lightweight clinician review without PHI, " +
       "but we did not record a clinician review for this submission; therefore we report no clinician feedback here."
@@ -2020,10 +2045,11 @@ function buildWriteupParagraph() {
   if (setting) bits.push(setting);
   const whoParen = bits.length ? ` (${bits.join(", ")})` : "";
   const when = date ? ` on ${date}` : "";
+  const setPhrase = setList.length ? ` (sets: ${setList.join(", ")})` : "";
 
   const lines = [];
   lines.push(
-    `Clinician review (qualitative): A clinician reviewer${whoParen} qualitatively reviewed ClinicaFlow outputs${when} on the built-in synthetic vignette set (n=${caseCount}).`,
+    `Clinician review (qualitative): A clinician reviewer${whoParen} qualitatively reviewed ClinicaFlow outputs${when} on synthetic vignette regression cases (n=${nCases})${setPhrase}.`,
   );
   if (noted.length) lines.push(`Key notes: ${noted.map((x) => `“${x}”`).join("; ")}.`);
   if (helpful) lines.push(`Most helpful aspect: “${helpful}”.`);
@@ -2042,8 +2068,8 @@ function updateReviewParagraph() {
   out.textContent = buildWriteupParagraph();
 }
 
-async function demoLoadAndRun(caseId) {
-  await loadVignetteById(caseId);
+async function demoLoadAndRun(caseId, opts) {
+  await loadVignetteById(caseId, opts);
   await runTriage();
 }
 
@@ -2182,6 +2208,7 @@ function wireEvents() {
       const reasoning = traceOutput(state.review.lastResult, "multimodal_reasoning");
       const evidence = traceOutput(state.review.lastResult, "evidence_policy");
       const safety = traceOutput(state.review.lastResult, "safety_escalation");
+      const setName = String($("reviewSet")?.value || "standard").trim() || "standard";
 
       const outputPreview = {
         risk_tier: state.review.lastResult.risk_tier,
@@ -2197,6 +2224,7 @@ function wireEvents() {
         id: `${caseId}-${now}-${Math.random().toString(16).slice(2)}`,
         created_at: now,
         case_id: caseId,
+        vignette_set: setName,
         reviewer: form.reviewer,
         ratings: form.ratings,
         notes: form.notes,
@@ -2252,6 +2280,22 @@ function wireEvents() {
   if (reviewCaseSel)
     reviewCaseSel.addEventListener("change", () => {
       // Keep state aligned with selection.
+      state.review.lastCaseId = null;
+      state.review.lastIntake = null;
+      state.review.lastLabels = null;
+      state.review.lastResult = null;
+      $("reviewIntake").textContent = "{}";
+      $("reviewOutput").textContent = "{}";
+      $("reviewGold").textContent = "{}";
+      const goldDetails = $("reviewGold")?.closest("details");
+      if (goldDetails) goldDetails.classList.add("hidden");
+    });
+
+  const reviewSetSel = $("reviewSet");
+  if (reviewSetSel)
+    reviewSetSel.addEventListener("change", async () => {
+      await loadReviewCases();
+      // Reset the view since the case list changed.
       state.review.lastCaseId = null;
       state.review.lastIntake = null;
       state.review.lastLabels = null;

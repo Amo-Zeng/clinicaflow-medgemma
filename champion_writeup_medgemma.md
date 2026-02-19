@@ -101,14 +101,22 @@ python -m clinicaflow.benchmarks.synthetic --seed 17 --n 220 --print-markdown
 | Handoff completeness (0-5 proxy) | `2.52/5` | `4.94/5` | `+2.42` |
 | Clinician usefulness (0-5 proxy) | `3.11/5` | `4.76/5` | `+1.65` |
 
-### Results (clinical vignette regression set, n=30)
+### Results (clinical vignette regression sets)
 
-To complement the generator-based benchmark, we ship a small **synthetic vignette regression set** with a transparent labeling rubric to catch under-triage regressions.
+To complement the generator-based benchmark, we ship **three synthetic vignette regression sets** with a transparent labeling rubric to catch under-triage regressions:
+
+- `standard` (n=30): demo-ready core patterns
+- `adversarial` (n=20): abbrev/negation/injection-like strings + Unicode edge cases
+- `extended` (n=100): broader coverage across cardiopulmonary/neuro/syncope/GI/OB/sepsis patterns
+
+Rubric details: `docs/VIGNETTE_REGRESSION.md`
+
+#### Standard (n=30)
 
 Reproduce exactly with:
 
 ```bash
-python -m clinicaflow.benchmarks.vignettes --print-markdown
+python -m clinicaflow.benchmarks.vignettes --set standard --print-markdown
 ```
 
 | Metric | Baseline | ClinicaFlow |
@@ -117,12 +125,7 @@ python -m clinicaflow.benchmarks.vignettes --print-markdown
 | Under-triage rate (gold urgent/critical → predicted routine) | `11.5%` | `0.0%` |
 | Over-triage rate (gold routine → predicted urgent/critical) | `50.0%` | `0.0%` |
 
-Rubric details: `docs/VIGNETTE_REGRESSION.md`
-
-### Results (adversarial vignette stress test, n=20)
-
-To demonstrate robustness beyond “clean” templates, we include an **adversarial** vignette set that injects common real-world failure patterns:
-abbreviations (e.g., `CP`, `SOB`, `AMS`), negation + contrast, Unicode punctuation, non-English snippets, and prompt-injection-like strings embedded in patient text.
+#### Adversarial (n=20)
 
 Reproduce exactly with:
 
@@ -135,6 +138,34 @@ python -m clinicaflow.benchmarks.vignettes --set adversarial --print-markdown
 | Red-flag recall (category-level) | `78.9%` | `100.0%` |
 | Under-triage rate (gold urgent/critical → predicted routine) | `10.5%` | `0.0%` |
 | Over-triage rate (gold routine → predicted urgent/critical) | `100.0%` | `0.0%` |
+
+#### Extended (n=100)
+
+Reproduce exactly with:
+
+```bash
+python -m clinicaflow.benchmarks.vignettes --set extended --print-markdown
+```
+
+| Metric | Baseline | ClinicaFlow |
+|---|---:|---:|
+| Red-flag recall (category-level) | `30.3%` | `100.0%` |
+| Under-triage rate (gold urgent/critical → predicted routine) | `65.6%` | `0.0%` |
+| Over-triage rate (gold routine → predicted urgent/critical) | `30.0%` | `0.0%` |
+
+#### Combined (mega, n=150)
+
+Reproduce exactly with:
+
+```bash
+python -m clinicaflow.benchmarks.vignettes --set mega --print-markdown
+```
+
+| Metric | Baseline | ClinicaFlow |
+|---|---:|---:|
+| Red-flag recall (category-level) | `47.7%` | `100.0%` |
+| Under-triage rate (gold urgent/critical → predicted routine) | `47.4%` | `0.0%` |
+| Over-triage rate (gold routine → predicted urgent/critical) | `40.0%` | `0.0%` |
 
 ### Clinician review (qualitative)
 

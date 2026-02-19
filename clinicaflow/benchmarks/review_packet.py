@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from clinicaflow.benchmarks.vignettes import load_default_vignette_path, load_vignettes
+from clinicaflow.benchmarks.vignettes import load_default_vignette_paths, load_vignettes
 from clinicaflow.models import PatientIntake
 from clinicaflow.pipeline import ClinicaFlowPipeline
 
@@ -14,6 +14,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Generate a clinician review packet from the vignette set.")
     parser.add_argument("--out", type=Path, required=True, help="Output markdown path")
     parser.add_argument("--path", type=Path, help="Optional vignettes JSONL path (default: packaged resource)")
+    parser.add_argument(
+        "--set",
+        choices=["standard", "adversarial", "extended", "all", "mega"],
+        default="standard",
+        help=(
+            "Which packaged vignette set to use when --path is not provided (default: standard). "
+            "`all` = standard + adversarial; `mega` = standard + adversarial + extended."
+        ),
+    )
     parser.add_argument("--limit", type=int, default=30, help="Limit number of cases (default: 30)")
     parser.add_argument("--include-gold", action="store_true", help="Include gold labels in the packet")
     return parser
@@ -21,8 +30,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
-    path = args.path or load_default_vignette_path()
-    rows = load_vignettes(path)[: max(0, args.limit)]
+    if args.path:
+        rows = load_vignettes(args.path)
+        set_name = "custom"
+    else:
+        set_name = args.set
+        rows: list[dict[str, Any]] = []
+        for p in load_default_vignette_paths(args.set):
+            rows.extend(load_vignettes(p))
+    rows = rows[: max(0, args.limit)]
 
     pipeline = ClinicaFlowPipeline()
 
@@ -33,6 +49,9 @@ def main() -> None:
         "This packet is generated from a **synthetic** vignette regression set (not real patients). "
         "Please do not add any real patient identifiers when providing feedback."
     )
+    lines.append("")
+    lines.append(f"- Vignette set: `{set_name}`")
+    lines.append(f"- Cases included: `{len(rows)}`")
     lines.append("")
     lines.append("## Quick questions (fill in)")
     lines.append("")
@@ -97,4 +116,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

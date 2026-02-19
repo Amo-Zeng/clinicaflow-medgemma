@@ -119,7 +119,7 @@ Write JSON summary:
 python -m clinicaflow.benchmarks.synthetic --seed 17 --n 220 --out results/synthetic_benchmark.json
 ```
 
-## Clinical Vignette Regression Set (standard n=30, adversarial n=20)
+## Clinical Vignette Regression Sets (standard n=30, adversarial n=20, extended n=100)
 
 A small **synthetic vignette** regression set is included to catch under-triage regressions and verify red-flag recall.
 
@@ -127,12 +127,24 @@ A small **synthetic vignette** regression set is included to catch under-triage 
 python -m clinicaflow.benchmarks.vignettes --set standard --print-markdown
 ```
 
+Extended set:
+
+```bash
+python -m clinicaflow.benchmarks.vignettes --set extended --print-markdown
+```
+
+All sets combined:
+
+```bash
+python -m clinicaflow.benchmarks.vignettes --set mega --print-markdown
+```
+
 Labeling rubric + definitions: `docs/VIGNETTE_REGRESSION.md`
 
 Optional clinician review packet generator (no PHI):
 
 ```bash
-python -m clinicaflow.benchmarks.review_packet --out reviews/clinician_review_packet.md --include-gold
+python -m clinicaflow.benchmarks.review_packet --set standard --out reviews/clinician_review_packet.md --include-gold
 ```
 
 Summarize clinician reviews exported from the demo UI:
@@ -164,7 +176,7 @@ Console features:
 - Structured triage form + JSON mode
 - Action checklist (progress stored locally)
 - Workspace tab (save runs locally + import/export JSON)
-- Built-in vignette presets (n=30)
+- Built-in vignette presets (standard/adversarial/extended)
 - Agent trace viewer (audit-friendly)
 - Downloadable audit bundle zip (redacted/full)
 - Downloadable printable triage report (`report.html`)

@@ -65,7 +65,17 @@ _SYMPTOM_RULES: list[tuple[str, list[re.Pattern[str]]]] = [
     ("fainting", [re.compile(r"\bfaint(ed|ing)?\b"), re.compile(r"\bsyncope\b"), re.compile(r"\bpassed out\b")]),
     ("near-syncope", [re.compile(r"\bnear[- ]syncope\b"), re.compile(r"\bnear syncop(al|e)\b"), re.compile(r"\balmost faint(ed|ing)?\b"), re.compile(r"\bnearly passed out\b")]),
     ("vomiting blood", [re.compile(r"\bvomit(ing)? blood\b"), re.compile(r"\bhemat\s*emesis\b"), re.compile(r"\bhematemesis\b"), re.compile(r"\bcoffee[- ]ground\b")]),
-    ("bloody stool", [re.compile(r"\bbloody stool\b"), re.compile(r"\bmelena\b"), re.compile(r"\bblack (tarry )?stool(s)?\b"), re.compile(r"\bhematochezia\b"), re.compile(r"\bbright red blood per rectum\b")]),
+    (
+        "bloody stool",
+        [
+            re.compile(r"\bbloody stool\b"),
+            re.compile(r"\bmelena\b"),
+            re.compile(r"\bblack (tarry )?stool(s)?\b"),
+            re.compile(r"\bhematochezia\b"),
+            re.compile(r"\bbright red blood per rectum\b"),
+            re.compile(r"\bbrbpr\b"),
+        ],
+    ),
     # pregnancy bleeding is added via a two-factor check (pregnancy + bleeding/spotting).
 ]
 

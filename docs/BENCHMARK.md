@@ -7,7 +7,7 @@ To keep results **reproducible** and avoid inflated claims, this repo includes a
 - under-triage avoidance,
 - handoff completeness / documentation burden.
 
-In addition, we include a small **clinical vignette regression set** (standard n=30, adversarial n=20) with a transparent labeling rubric to catch under-triage regressions:
+In addition, we include a small **clinical vignette regression set** (standard n=30, adversarial n=20, extended n=100) with a transparent labeling rubric to catch under-triage regressions:
 
 - `docs/VIGNETTE_REGRESSION.md`
 - `python -m clinicaflow.benchmarks.vignettes --set standard --print-markdown`

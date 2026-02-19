@@ -33,12 +33,20 @@ echo "[writeup] Vignette regression (standard)"
 python -m clinicaflow.benchmarks.vignettes --set standard --print-markdown | tee "$OUT_DIR/vignettes_standard.md"
 echo ""
 
+echo "[writeup] Vignette regression (extended)"
+python -m clinicaflow.benchmarks.vignettes --set extended --print-markdown | tee "$OUT_DIR/vignettes_extended.md"
+echo ""
+
 echo "[writeup] Vignette stress test (adversarial)"
 python -m clinicaflow.benchmarks.vignettes --set adversarial --print-markdown | tee "$OUT_DIR/vignettes_adversarial.md"
 echo ""
 
 echo "[writeup] Vignettes combined (all)"
 python -m clinicaflow.benchmarks.vignettes --set all --print-markdown | tee "$OUT_DIR/vignettes_all.md"
+echo ""
+
+echo "[writeup] Vignettes combined (mega)"
+python -m clinicaflow.benchmarks.vignettes --set mega --print-markdown | tee "$OUT_DIR/vignettes_mega.md"
 echo ""
 
 echo "[writeup] Diagnostics snapshot (no secrets)"
