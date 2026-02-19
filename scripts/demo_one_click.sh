@@ -210,8 +210,18 @@ else
   echo "       Try stopping existing processes and re-running this script."
 fi
 
+headers="$(
+  curl -fsSI "http://127.0.0.1:${CLINICAFLOW_PORT}/" 2>/dev/null || true
+)"
+if [[ -z "${headers:-}" ]]; then
+  # Some older server builds may not implement HEAD; fall back to GET header dump.
+  headers="$(
+    curl -fsS -D - -o /dev/null "http://127.0.0.1:${CLINICAFLOW_PORT}/" 2>/dev/null || true
+  )"
+fi
+
 ui_header="$(
-  curl -fsSI "http://127.0.0.1:${CLINICAFLOW_PORT}/" 2>/dev/null \
+  echo "${headers:-}" \
     | tr -d '\r' \
     | awk -F': ' 'tolower($1)=="x-clinicaflow-ui"{print $2}' \
     | tail -n 1

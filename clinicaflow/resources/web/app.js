@@ -73,6 +73,7 @@ const state = {
   lastRequestId: null,
   lastActionChecklist: null,
   lastBench: null,
+  lastBenchSet: null,
   review: {
     lastCaseId: null,
     lastIntake: null,
@@ -545,19 +546,28 @@ async function loadPresets() {
   optSample.textContent = "Sample case (chest pain)";
   select.appendChild(optSample);
 
-  try {
-    const payload = await fetchJson("/vignettes");
-    const vignettes = payload.vignettes || [];
-    vignettes.forEach((v) => {
-      const opt = document.createElement("option");
-      opt.value = v.id;
-      const cc = String(v.chief_complaint || "").slice(0, 60);
-      opt.textContent = `${v.id} — ${cc}`;
-      select.appendChild(opt);
-    });
-  } catch (e) {
-    // ignore
+  async function addGroup(setName, label) {
+    try {
+      const payload = await fetchJson(`/vignettes?set=${encodeURIComponent(setName)}`);
+      const vignettes = payload.vignettes || [];
+      if (!vignettes.length) return;
+      const group = document.createElement("optgroup");
+      group.label = label;
+      vignettes.forEach((v) => {
+        const opt = document.createElement("option");
+        opt.value = `vignette:${setName}:${v.id}`;
+        const cc = String(v.chief_complaint || "").slice(0, 60);
+        opt.textContent = `${v.id} — ${cc}`;
+        group.appendChild(opt);
+      });
+      select.appendChild(group);
+    } catch (e) {
+      // ignore
+    }
   }
+
+  await addGroup("standard", "Vignettes (standard)");
+  await addGroup("adversarial", "Vignettes (adversarial)");
 }
 
 async function loadPreset() {
@@ -566,6 +576,12 @@ async function loadPreset() {
   let intake = null;
   if (id === "sample") {
     intake = await fetchJson("/example");
+  } else if (id.startsWith("vignette:")) {
+    const parts = id.split(":");
+    const setName = parts[1] || "standard";
+    const vid = parts.slice(2).join(":");
+    const resp = await fetchJson(`/vignettes/${encodeURIComponent(vid)}?set=${encodeURIComponent(setName)}`);
+    intake = resp.input || resp;
   } else {
     const resp = await fetchJson(`/vignettes/${encodeURIComponent(id)}`);
     intake = resp.input || resp;
@@ -1145,7 +1161,8 @@ function getBenchFilters() {
 
 async function loadVignetteById(caseId) {
   try {
-    const resp = await fetchJson(`/vignettes/${encodeURIComponent(caseId)}`);
+    const setName = state.lastBenchSet || $("benchSet")?.value || "standard";
+    const resp = await fetchJson(`/vignettes/${encodeURIComponent(caseId)}?set=${encodeURIComponent(setName)}`);
     const intake = resp.input || resp;
     state.lastIntake = intake;
     fillFormFromIntake(intake);
@@ -1161,8 +1178,10 @@ async function loadVignetteById(caseId) {
 async function runBench() {
   $("benchStatus").textContent = "Running…";
   try {
-    const payload = await fetchJson("/bench/vignettes");
+    const setName = $("benchSet")?.value || "standard";
+    const payload = await fetchJson(`/bench/vignettes?set=${encodeURIComponent(setName)}`);
     state.lastBench = payload;
+    state.lastBenchSet = payload.set || setName;
     renderBenchSummary(payload.summary);
     renderBenchCases(payload.per_case);
     $("benchStatus").textContent = "Done.";
@@ -1186,8 +1205,10 @@ async function downloadBench() {
 
 function benchMarkdownTable(summary) {
   if (!summary) return "";
+  const setName = state.lastBenchSet || "standard";
   const pct = (v) => `${Number(v).toFixed(1)}%`;
   return [
+    `<!-- vignette_set: ${setName} -->`,
     "| Metric | Baseline | ClinicaFlow |",
     "|---|---:|---:|",
     `| Red-flag recall (category-level) | \`${pct(summary.red_flag_recall_baseline)}\` | \`${pct(summary.red_flag_recall_clinicaflow)}\` |`,
@@ -1650,7 +1671,7 @@ async function loadReviewCases() {
   select.innerHTML = "";
 
   try {
-    const payload = await fetchJson("/vignettes");
+    const payload = await fetchJson("/vignettes?set=standard");
     const vignettes = payload.vignettes || [];
     vignettes.forEach((v) => {
       const opt = document.createElement("option");
@@ -1674,7 +1695,7 @@ async function reviewLoadCase() {
 
   try {
     const include = $("reviewShowGold")?.checked ? "1" : "0";
-    const resp = await fetchJson(`/vignettes/${encodeURIComponent(caseId)}?include_labels=${include}`);
+    const resp = await fetchJson(`/vignettes/${encodeURIComponent(caseId)}?set=standard&include_labels=${include}`);
     const intake = resp.input || {};
     const labels = resp.labels || null;
 
@@ -2160,6 +2181,7 @@ function wireEvents() {
     setTab("regression");
     await runBench();
   });
+  $("demoAdversarial")?.addEventListener("click", () => demoLoadAndRun("a01_cp_abbrev_hypotension", { set: "adversarial" }));
   $("demoGoReview")?.addEventListener("click", () => setTab("review"));
   $("demoGoWorkspace")?.addEventListener("click", () => setTab("workspace"));
   $("demoDownloadAudit")?.addEventListener("click", () => downloadAuditBundle(true));

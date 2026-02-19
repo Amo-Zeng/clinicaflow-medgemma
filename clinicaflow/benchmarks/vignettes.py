@@ -41,6 +41,12 @@ class VignetteBenchmarkSummary:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Clinical vignette regression benchmark for ClinicaFlow.")
     parser.add_argument("--path", type=Path, help="Path to vignettes JSONL (default: packaged resource)")
+    parser.add_argument(
+        "--set",
+        choices=["standard", "adversarial", "all"],
+        default="standard",
+        help="Which packaged vignette set to use when --path is not provided (default: standard).",
+    )
     parser.add_argument("--out", type=Path, help="Optional JSON output path for the summary")
     parser.add_argument("--cases-out", type=Path, help="Optional JSON output path for per-case results")
     parser.add_argument("--print-markdown", action="store_true", help="Print the markdown table")
@@ -51,6 +57,20 @@ def load_default_vignette_path() -> Path:
     from importlib.resources import files
 
     return Path(files("clinicaflow.resources").joinpath("vignettes.jsonl"))
+
+
+def load_default_vignette_paths(set_name: str) -> list[Path]:
+    from importlib.resources import files
+
+    root = files("clinicaflow.resources")
+    name = (set_name or "standard").strip().lower()
+    if name == "standard":
+        return [Path(root.joinpath("vignettes.jsonl"))]
+    if name == "adversarial":
+        return [Path(root.joinpath("vignettes_adversarial.jsonl"))]
+    if name == "all":
+        return [Path(root.joinpath("vignettes.jsonl")), Path(root.joinpath("vignettes_adversarial.jsonl"))]
+    raise ValueError(f"Unknown vignette set: {set_name}")
 
 
 def load_vignettes(path: Path) -> list[dict[str, Any]]:
@@ -144,8 +164,7 @@ def baseline_predict(case: dict[str, Any]) -> tuple[str, set[str]]:
     return tier, cats
 
 
-def run_benchmark(path: Path) -> tuple[VignetteBenchmarkSummary, list[dict[str, Any]]]:
-    rows = load_vignettes(path)
+def run_benchmark_rows(rows: list[dict[str, Any]]) -> tuple[VignetteBenchmarkSummary, list[dict[str, Any]]]:
     pipeline = ClinicaFlowPipeline()
 
     gold_urgent_critical = 0
@@ -228,11 +247,19 @@ def run_benchmark(path: Path) -> tuple[VignetteBenchmarkSummary, list[dict[str, 
     return summary, per_case
 
 
+def run_benchmark(path: Path) -> tuple[VignetteBenchmarkSummary, list[dict[str, Any]]]:
+    return run_benchmark_rows(load_vignettes(path))
+
+
 def main() -> None:
     args = build_parser().parse_args()
-    path = args.path or load_default_vignette_path()
-
-    summary, per_case = run_benchmark(path)
+    if args.path:
+        summary, per_case = run_benchmark(args.path)
+    else:
+        rows: list[dict[str, Any]] = []
+        for p in load_default_vignette_paths(args.set):
+            rows.extend(load_vignettes(p))
+        summary, per_case = run_benchmark_rows(rows)
 
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)

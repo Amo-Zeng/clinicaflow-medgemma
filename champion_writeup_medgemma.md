@@ -61,7 +61,7 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
   - external reasoning emits `reasoning_backend_model` + `reasoning_prompt_version`.
 - **Reliability & security** (when using an external model endpoint):
   - retry/backoff knobs (`CLINICAFLOW_REASONING_MAX_RETRIES`, `...RETRY_BACKOFF_S`),
-  - basic prompt-injection hardening (quotes patient summary as JSON; ignores embedded instructions).
+  - basic prompt-injection hardening (sanitize injection-like lines; quote patient summary as JSON; ignore embedded instructions).
   - optional communication rewrite: `CLINICAFLOW_COMMUNICATION_BACKEND=openai_compatible`.
 
 **Clinic deployment path (practical)**
@@ -113,6 +113,23 @@ python -m clinicaflow.benchmarks.vignettes --print-markdown
 | Over-triage rate (gold routine → predicted urgent/critical) | `50.0%` | `0.0%` |
 
 Rubric details: `docs/VIGNETTE_REGRESSION.md`
+
+### Results (adversarial vignette stress test, n=20)
+
+To demonstrate robustness beyond “clean” templates, we include an **adversarial** vignette set that injects common real-world failure patterns:
+abbreviations (e.g., `CP`, `SOB`, `AMS`), negation + contrast, Unicode punctuation, non-English snippets, and prompt-injection-like strings embedded in patient text.
+
+Reproduce exactly with:
+
+```bash
+python -m clinicaflow.benchmarks.vignettes --set adversarial --print-markdown
+```
+
+| Metric | Baseline | ClinicaFlow |
+|---|---:|---:|
+| Red-flag recall (category-level) | `78.9%` | `100.0%` |
+| Under-triage rate (gold urgent/critical → predicted routine) | `10.5%` | `0.0%` |
+| Over-triage rate (gold routine → predicted urgent/critical) | `100.0%` | `0.0%` |
 
 ### Clinician review (qualitative)
 

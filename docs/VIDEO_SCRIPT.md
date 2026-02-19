@@ -66,7 +66,13 @@ python -m clinicaflow.benchmarks.synthetic --seed 17 --n 220 --print-markdown
 Also show the small vignette regression set (n=30):
 
 ```bash
-python -m clinicaflow.benchmarks.vignettes --print-markdown
+python -m clinicaflow.benchmarks.vignettes --set standard --print-markdown
+```
+
+Optional: show the adversarial stress set (abbreviations/negation/injection-like strings):
+
+```bash
+python -m clinicaflow.benchmarks.vignettes --set adversarial --print-markdown
 ```
 
 Or run it in the UI:

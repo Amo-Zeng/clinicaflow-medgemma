@@ -72,6 +72,32 @@ class DemoServerTests(unittest.TestCase):
         finally:
             _stop_server(server, thread)
 
+    def test_head_supported_for_ui_and_static(self) -> None:
+        settings = Settings(
+            debug=False,
+            log_level="INFO",
+            json_logs=False,
+            max_request_bytes=262144,
+            policy_top_k=2,
+            policy_pack_path="",
+            cors_allow_origin="*",
+            api_key="",
+        )
+        server, thread, base_url = _start_server(settings=settings)
+        try:
+            status, headers, raw = _http("HEAD", base_url + "/", headers={"X-Request-ID": "head1"})
+            self.assertEqual(status, 200)
+            self.assertEqual(headers.get("X-Request-ID"), "head1")
+            self.assertIn(headers.get("X-ClinicaFlow-UI"), {"console", "legacy"})
+            self.assertEqual(raw, b"")
+
+            status, headers, raw = _http("HEAD", base_url + "/static/app.js")
+            self.assertEqual(status, 200)
+            self.assertIn("javascript", (headers.get("Content-Type") or "").lower())
+            self.assertEqual(raw, b"")
+        finally:
+            _stop_server(server, thread)
+
     def test_triage_happy_path(self) -> None:
         settings = Settings(
             debug=False,

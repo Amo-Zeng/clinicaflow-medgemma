@@ -33,9 +33,20 @@ It is **not** a diagnostic device and must not be used for autonomous medical de
 
 ## Threats considered (non-exhaustive)
 
-- **Prompt injection** in patient-provided text: external reasoning prompt treats intake as untrusted data and instructs the model to ignore embedded instructions.
+- **Prompt injection** in patient-provided text:
+  - the prompting path treats intake as untrusted data (quotes the patient summary as JSON),
+  - we sanitize high-confidence prompt-structure lines (e.g., `SYSTEM:` / `ignore previous instructions`) before sending text to an external model,
+  - and safety escalation remains deterministic.
 - **Model outage / invalid outputs**: reasoning backend is optional; failures fall back to deterministic reasoning, and safety escalation remains deterministic.
 - **Protocol drift**: evidence agent emits `policy_pack_sha256` so protocol updates are traceable in logs/traces.
+
+## Adversarial regression (recommended)
+
+For a judge-friendly safety story, use the built-in adversarial vignette set (abbreviations, negation, Unicode punctuation, injection-like strings):
+
+```bash
+python -m clinicaflow.benchmarks.vignettes --set adversarial --print-markdown
+```
 
 ## Data and privacy posture
 

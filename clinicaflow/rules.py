@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from clinicaflow.models import StructuredIntake, Vitals
 
-SAFETY_RULES_VERSION = "2026-02-18.v1"
+SAFETY_RULES_VERSION = "2026-02-19.v2"
 
 RED_FLAG_KEYWORDS = {
     "chest pain": "Potential acute coronary syndrome",
     "chest tightness": "Potential acute coronary syndrome",
     "shortness of breath": "Respiratory compromise risk",
-    "can’t catch breath": "Respiratory compromise risk",
+    "can't catch breath": "Respiratory compromise risk",
     "confusion": "Possible neurological or metabolic emergency",
     "fainting": "Syncope requiring urgent evaluation",
     "near-syncope": "Syncope requiring urgent evaluation",
@@ -54,6 +54,16 @@ def find_red_flags(structured: StructuredIntake, vitals: Vitals) -> list[str]:
 
 
 def compute_risk_tier_with_rationale(red_flags: list[str], missing_fields: list[str], vitals: Vitals) -> tuple[str, str]:
+    # Hemodynamic instability is an immediate escalation trigger.
+    if any("Hypotension" in rf or "Severe tachycardia" in rf for rf in red_flags):
+        return "critical", "Hemodynamic instability (hypotension/tachycardia)"
+
+    # Hypoxemia is particularly high-risk when paired with a cardiopulmonary complaint.
+    has_hypox = any("Low oxygen saturation" in rf for rf in red_flags)
+    has_cardio = any("Respiratory compromise risk" in rf or "acute coronary syndrome" in rf.lower() for rf in red_flags)
+    if has_hypox and has_cardio:
+        return "critical", "Hypoxemia with cardiopulmonary complaint"
+
     if len(red_flags) >= 2:
         return "critical", "2+ red flags"
     if red_flags:

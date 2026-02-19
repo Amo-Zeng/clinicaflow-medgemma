@@ -118,12 +118,12 @@ Write JSON summary:
 python -m clinicaflow.benchmarks.synthetic --seed 17 --n 220 --out results/synthetic_benchmark.json
 ```
 
-## Clinical Vignette Regression Set (n=30)
+## Clinical Vignette Regression Set (standard n=30, adversarial n=20)
 
 A small **synthetic vignette** regression set is included to catch under-triage regressions and verify red-flag recall.
 
 ```bash
-python -m clinicaflow.benchmarks.vignettes --print-markdown
+python -m clinicaflow.benchmarks.vignettes --set standard --print-markdown
 ```
 
 Labeling rubric + definitions: `docs/VIGNETTE_REGRESSION.md`

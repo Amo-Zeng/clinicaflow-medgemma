@@ -1,4 +1,4 @@
-# Clinical Vignette Regression Set (n=30)
+# Clinical Vignette Regression Set (standard n=30, adversarial n=20)
 
 This repository includes a small **synthetic clinical vignette** regression set intended to:
 
@@ -10,8 +10,17 @@ Important: These are **not real patient records** and are not meant to represent
 
 ## Files
 
-- Vignettes: `clinicaflow/resources/vignettes.jsonl`
+- Standard vignettes: `clinicaflow/resources/vignettes.jsonl` (n=30)
+- Adversarial vignettes: `clinicaflow/resources/vignettes_adversarial.jsonl` (n=20)
 - Benchmark runner: `clinicaflow/benchmarks/vignettes.py`
+
+The **adversarial** set is intentionally crafted to stress:
+
+- abbreviations (e.g., `CP`, `SOB`, `AMS`),
+- negation + contrast ("no X, but Y"),
+- prompt-injection-like strings inside patient text,
+- Unicode punctuation variants (e.g., “Can’t”),
+- and non-English snippets.
 
 ## Labeling rubric (transparent + lightweight)
 
@@ -64,13 +73,26 @@ We also report **over-triage** (gold routine → predicted urgent/critical), sin
 Print a markdown table:
 
 ```bash
-python -m clinicaflow.benchmarks.vignettes --print-markdown
+python -m clinicaflow.benchmarks.vignettes --set standard --print-markdown
+```
+
+Run on the adversarial set:
+
+```bash
+python -m clinicaflow.benchmarks.vignettes --set adversarial --print-markdown
+```
+
+Run on both combined:
+
+```bash
+python -m clinicaflow.benchmarks.vignettes --set all --print-markdown
 ```
 
 Write JSON outputs:
 
 ```bash
 python -m clinicaflow.benchmarks.vignettes \\
+  --set standard \\
   --out results/vignette_summary.json \\
   --cases-out results/vignette_cases.json
 ```
@@ -84,4 +106,3 @@ python -m clinicaflow.benchmarks.review_packet --out reviews/clinician_review_pa
 ```
 
 See `docs/CLINICIAN_REVIEW_TEMPLATE.md` for suggested questions and how to cite the feedback responsibly.
-

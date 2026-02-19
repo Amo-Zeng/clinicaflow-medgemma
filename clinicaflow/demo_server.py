@@ -130,32 +130,68 @@ def _load_web_assets() -> dict[str, tuple[bytes, str]]:
         "app.css": "text/css; charset=utf-8",
         "app.js": "application/javascript; charset=utf-8",
     }
+
+    # 1) Preferred: importlib.resources (works for normal installs and editable installs).
     try:
         from importlib.resources import files
 
         root = files("clinicaflow.resources").joinpath("web")
-        return {name: (root.joinpath(name).read_bytes(), content_type) for name, content_type in assets.items()}
+        out: dict[str, tuple[bytes, str]] = {}
+        for name, content_type in assets.items():
+            out[name] = (root.joinpath(name).read_bytes(), content_type)
+        return out
+    except Exception:  # noqa: BLE001
+        pass
+
+    # 2) Fallback: pkgutil.get_data (works when resources are inside a zip).
+    try:
+        import pkgutil
+
+        out = {}
+        for name, content_type in assets.items():
+            data = pkgutil.get_data("clinicaflow.resources", f"web/{name}")
+            if isinstance(data, (bytes, bytearray)):
+                out[name] = (bytes(data), content_type)
+        if out:
+            return out
+    except Exception:  # noqa: BLE001
+        pass
+
+    # 3) Last resort: read from filesystem relative to this module (source checkout).
+    try:
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent / "resources" / "web"
+        out = {}
+        for name, content_type in assets.items():
+            p = root / name
+            if p.is_file():
+                out[name] = (p.read_bytes(), content_type)
+        return out
     except Exception:  # noqa: BLE001
         return {}
 
 
 WEB_ASSETS = _load_web_assets()
 
-VIGNETTE_CACHE: list[dict] | None = None
+VIGNETTE_CACHE: dict[str, list[dict]] = {}
 
 
-def _load_vignettes() -> list[dict]:
-    global VIGNETTE_CACHE  # noqa: PLW0603
-    if VIGNETTE_CACHE is not None:
-        return VIGNETTE_CACHE
+def _load_vignettes(set_name: str = "standard") -> list[dict]:
+    key = str(set_name or "standard").strip().lower()
+    if key in VIGNETTE_CACHE:
+        return VIGNETTE_CACHE[key]
 
     try:
-        from clinicaflow.benchmarks.vignettes import load_default_vignette_path, load_vignettes
+        from clinicaflow.benchmarks.vignettes import load_default_vignette_paths, load_vignettes
 
-        VIGNETTE_CACHE = load_vignettes(load_default_vignette_path())
+        rows: list[dict] = []
+        for p in load_default_vignette_paths(key):
+            rows.extend(load_vignettes(p))
+        VIGNETTE_CACHE[key] = rows
     except Exception:  # noqa: BLE001
-        VIGNETTE_CACHE = []
-    return VIGNETTE_CACHE
+        VIGNETTE_CACHE[key] = []
+    return VIGNETTE_CACHE[key]
 
 
 def _new_stats() -> dict:
@@ -215,6 +251,9 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
         self._last_status_code = int(code)
         self.send_response(code)
         self.send_header("Content-Type", content_type)
+        # Light hardening; safe defaults for a local demo.
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
         if request_id:
             self.send_header("X-Request-ID", request_id)
         allow_origin = getattr(self.server, "settings", None)
@@ -237,6 +276,8 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
         extra_headers: dict[str, str] | None = None,
     ) -> None:
         self._set_headers(code, request_id=request_id, extra_headers=extra_headers)
+        if getattr(self, "_head_only", False):
+            return
         self.wfile.write(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
 
     def _write_bytes(
@@ -249,10 +290,21 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
         extra_headers: dict[str, str] | None = None,
     ) -> None:
         self._set_headers(code, content_type=content_type, request_id=request_id, extra_headers=extra_headers)
+        if getattr(self, "_head_only", False):
+            return
         self.wfile.write(data)
 
     def do_OPTIONS(self) -> None:  # noqa: N802
         self._set_headers(HTTPStatus.NO_CONTENT)
+
+    def do_HEAD(self) -> None:  # noqa: N802
+        # Reuse GET routing while suppressing response bodies. This also enables
+        # `curl -I` checks in demo scripts and basic ops tooling.
+        self._head_only = True
+        try:
+            self.do_GET()
+        finally:
+            self._head_only = False
 
     def do_GET(self) -> None:  # noqa: N802
         request_id = self._get_request_id()
@@ -347,8 +399,10 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                 return
 
             if path == "/vignettes":
-                rows = _load_vignettes()
+                set_name = _normalize_vignette_set(str(query.get("set", ["standard"])[0]))
+                rows = _load_vignettes(set_name)
                 payload = {
+                    "set": set_name,
                     "vignettes": [
                         {"id": str(row.get("id", "")), "chief_complaint": str((row.get("input") or {}).get("chief_complaint", ""))}
                         for row in rows
@@ -365,7 +419,8 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                     status_code = HTTPStatus.NOT_FOUND
                     return
 
-                rows = _load_vignettes()
+                set_name = _normalize_vignette_set(str(query.get("set", ["standard"])[0]))
+                rows = _load_vignettes(set_name)
                 row = next((r for r in rows if str(r.get("id", "")).strip() == vid), None)
                 if not row:
                     self._write_json({"error": {"code": "not_found"}}, code=HTTPStatus.NOT_FOUND, request_id=request_id)
@@ -373,7 +428,7 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                     return
 
                 include_labels = str(query.get("include_labels", ["0"])[0]).strip().lower() in {"1", "true", "yes"}
-                out = {"id": vid, "input": dict(row.get("input") or {})}
+                out = {"id": vid, "set": set_name, "input": dict(row.get("input") or {})}
                 if include_labels:
                     out["labels"] = dict(row.get("labels") or {})
                 self._write_json(out, request_id=request_id)
@@ -381,10 +436,11 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                 return
 
             if path == "/bench/vignettes":
-                from clinicaflow.benchmarks.vignettes import load_default_vignette_path, run_benchmark
+                from clinicaflow.benchmarks.vignettes import run_benchmark_rows
 
-                summary, per_case = run_benchmark(load_default_vignette_path())
-                self._write_json({"summary": summary.to_dict(), "per_case": per_case}, request_id=request_id)
+                set_name = _normalize_vignette_set(str(query.get("set", ["standard"])[0]))
+                summary, per_case = run_benchmark_rows(_load_vignettes(set_name))
+                self._write_json({"set": set_name, "summary": summary.to_dict(), "per_case": per_case}, request_id=request_id)
                 status_code = HTTPStatus.OK
                 return
 
@@ -405,7 +461,7 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                 "http_request",
                 extra={
                     "event": "http_request",
-                    "method": "GET",
+                    "method": getattr(self, "command", "GET"),
                     "path": urlparse(self.path).path,
                     "status_code": status_code_i,
                     "latency_ms": latency_ms,
@@ -641,6 +697,13 @@ def _unwrap_intake_payload(payload: dict) -> tuple[dict, dict | None, Any]:
     result = payload.get("result")
     result_payload = result if isinstance(result, dict) else None
     return dict(intake), result_payload, payload.get("checklist")
+
+
+def _normalize_vignette_set(value: str) -> str:
+    key = str(value or "").strip().lower()
+    if key in {"standard", "adversarial", "all"}:
+        return key
+    return "standard"
 
 
 def _openapi_spec() -> dict:

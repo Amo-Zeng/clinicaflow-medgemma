@@ -13,13 +13,13 @@ from clinicaflow.rules import (
     find_red_flags,
 )
 from clinicaflow.settings import load_settings_from_env
-from clinicaflow.text import normalize_text
+from clinicaflow.text import normalize_text, sanitize_untrusted_text
 
 SYMPTOM_LEXICON = [
     "chest pain",
     "chest tightness",
     "shortness of breath",
-    "can’t catch breath",
+    "can't catch breath",
     "cough",
     "fever",
     "headache",
@@ -41,17 +41,52 @@ SYMPTOM_LEXICON = [
     "confusion",
 ]
 
+_SYMPTOM_RULES: list[tuple[str, list[re.Pattern[str]]]] = [
+    ("chest pain", [re.compile(r"\bchest pain\b"), re.compile(r"\bchest pressure\b"), re.compile(r"\bcp\b")]),
+    ("chest tightness", [re.compile(r"\bchest tightness\b"), re.compile(r"\btightness in (the|my) chest\b")]),
+    (
+        "shortness of breath",
+        [re.compile(r"\bshortness of breath\b"), re.compile(r"\bsob\b"), re.compile(r"\bdyspnea\b"), re.compile(r"\bdifficulty breathing\b")],
+    ),
+    ("can't catch breath", [re.compile(r"\b(can't|cannot) catch (my )?breath\b")]),
+    ("confusion", [re.compile(r"\bconfusion\b"), re.compile(r"\bams\b"), re.compile(r"\baltered mental status\b"), re.compile(r"\bnot making sense\b")]),
+    ("slurred speech", [re.compile(r"\bslurred speech\b"), re.compile(r"\bdysarthria\b")]),
+    (
+        "weakness one side",
+        [
+            re.compile(r"\b(one[- ]sided|unilateral)\b.{0,12}\bweakness\b"),
+            re.compile(r"\bweakness on (the )?(left|right) (side|arm|leg)\b"),
+            re.compile(r"\bweakness( on)? one side\b"),
+        ],
+    ),
+    ("word-finding difficulty", [re.compile(r"\bword[- ]finding\b"), re.compile(r"\baphasia\b"), re.compile(r"\btrouble finding words\b")]),
+    ("severe headache", [re.compile(r"\bsevere headache\b"), re.compile(r"\bworst headache\b"), re.compile(r"\bthunderclap\b")]),
+    ("fainting", [re.compile(r"\bfaint(ed|ing)?\b"), re.compile(r"\bsyncope\b"), re.compile(r"\bpassed out\b")]),
+    ("near-syncope", [re.compile(r"\bnear[- ]syncope\b"), re.compile(r"\bnear syncop(al|e)\b"), re.compile(r"\balmost faint(ed|ing)?\b"), re.compile(r"\bnearly passed out\b")]),
+    ("vomiting blood", [re.compile(r"\bvomit(ing)? blood\b"), re.compile(r"\bhemat\s*emesis\b"), re.compile(r"\bhematemesis\b"), re.compile(r"\bcoffee[- ]ground\b")]),
+    ("bloody stool", [re.compile(r"\bbloody stool\b"), re.compile(r"\bmelena\b"), re.compile(r"\bblack (tarry )?stool(s)?\b"), re.compile(r"\bhematochezia\b"), re.compile(r"\bbright red blood per rectum\b")]),
+    # pregnancy bleeding is added via a two-factor check (pregnancy + bleeding/spotting).
+]
+
 
 class IntakeStructuringAgent:
     name = "intake_structuring"
 
     def run(self, intake: PatientIntake) -> dict:
         text = normalize_text(intake.combined_text()).lower()
-        symptoms = []
-        for symptom in SYMPTOM_LEXICON:
-            needle = normalize_text(symptom).lower()
-            if _contains_non_negated(text, needle):
-                symptoms.append(symptom)
+
+        symptoms: list[str] = []
+        for canonical, patterns in _SYMPTOM_RULES:
+            for pat in patterns:
+                if _contains_non_negated_regex(text, pat):
+                    symptoms.append(canonical)
+                    break
+
+        # Two-factor: only trigger obstetric red-flag when pregnancy context is present.
+        if _contains_non_negated_regex(text, re.compile(r"\bpregnan")) and _contains_non_negated_regex(
+            text, re.compile(r"\b(bleeding|spotting)\b")
+        ):
+            symptoms.append("pregnancy bleeding")
 
         risk_factors: list[str] = []
         for factor in RISK_FACTORS:
@@ -69,10 +104,10 @@ class IntakeStructuringAgent:
             missing_fields.append("temperature_c")
 
         structured = StructuredIntake(
-            symptoms=symptoms or ["unspecified symptoms"],
+            symptoms=_dedupe(symptoms) or ["unspecified symptoms"],
             risk_factors=risk_factors,
             missing_fields=missing_fields,
-            normalized_summary=intake.combined_text()[:1200],
+            normalized_summary=sanitize_untrusted_text(intake.combined_text(), max_chars=1200),
         )
         return asdict(structured)
 
@@ -347,6 +382,12 @@ def _contains_non_negated(text: str, needle: str) -> bool:
         if not _is_negated(text, idx):
             return True
         start = idx + len(needle)
+
+def _contains_non_negated_regex(text: str, pat: re.Pattern[str]) -> bool:
+    for m in pat.finditer(text):
+        if not _is_negated(text, m.start()):
+            return True
+    return False
 
 
 def _is_negated(text: str, idx: int, *, window: int = 40) -> bool:

@@ -281,6 +281,13 @@
                 </div>
               </li>
               <li>
+                <div class="k">Adversarial robustness (safety)</div>
+                <div class="small muted">Abbreviations + negation + prompt-injection strings.</div>
+                <div class="row">
+                  <button id="demoAdversarial" class="btn primary" type="button">Load + run</button>
+                </div>
+              </li>
+              <li>
                 <div class="k">Clinician review tooling</div>
                 <div class="row">
                   <button id="demoGoReview" class="btn subtle" type="button">Open Review tab</button>
@@ -387,6 +394,11 @@
           </div>
 
           <div class="row">
+            <select id="benchSet" class="select">
+              <option value="standard">standard</option>
+              <option value="adversarial">adversarial</option>
+              <option value="all">all</option>
+            </select>
             <button id="runBench" class="btn primary" type="button">Run benchmark</button>
             <button id="downloadBench" class="btn subtle" type="button">Download JSON</button>
             <button id="copyBenchMd" class="btn subtle" type="button">Copy markdown</button>
