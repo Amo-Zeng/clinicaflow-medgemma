@@ -51,6 +51,7 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
 - **Reproducible evaluation**: we ship a synthetic benchmark + baseline so improvements are measurable and repeatable.
 - **Safety governance gate**: `clinicaflow benchmark governance --set mega --gate` generates an exportable governance report + failure packet and fails CI if under-triage regresses.
 - **Auditability**: every run records a 5-step trace that can be logged and inspected.
+- **Ops readiness**: the Console UI includes an Ops dashboard backed by `/metrics` (JSON + Prometheus) with per-agent latency/error breakdowns.
 - **Production-ready scaffolding**:
   - request IDs end-to-end (`X-Request-ID`),
   - probes (`GET /health`, `GET /ready`, `GET /live`),

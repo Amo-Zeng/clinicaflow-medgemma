@@ -205,7 +205,7 @@ Console features:
 
 - Structured triage form + JSON mode
 - Action checklist (progress stored locally)
-- Workspace tab (save runs locally + import/export JSON)
+- Workspace tab (case board: statuses + one-click triage/re-run + local import/export)
 - Built-in vignette presets (standard/adversarial/extended)
 - Agent trace viewer (audit-friendly)
 - Downloadable audit bundle zip (redacted/full)
@@ -214,6 +214,7 @@ Console features:
 - Vignette regression tab + JSON export
 - Vignette regression tab + markdown table export (copy/download)
 - Governance tab (safety gate dashboard + trigger coverage + action provenance + markdown export)
+- Ops tab (live `/metrics` + per-agent latency/errors + markdown export)
 - Failure analysis packet export (includes safety triggers + provenance + workflow mini)
 - Clinician review tab (local-only storage + JSON/Markdown export for writeup)
 

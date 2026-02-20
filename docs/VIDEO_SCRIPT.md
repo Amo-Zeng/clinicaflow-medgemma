@@ -19,6 +19,7 @@ Show the demo UI (local):
 - Open `http://127.0.0.1:8000/`
 - Optional: open the **Demo** tab for a click-through runbook.
 - Optional: mention `GET /openapi.json`, `GET /metrics`, `GET /doctor`, and `X-Request-ID` for audit/ops readiness.
+- Optional: open the **Ops** tab to show live `/metrics` and per-agent latency/errors.
 - Load a sample case and highlight:
   - risk tier,
   - red flags,
@@ -80,6 +81,7 @@ Or run it in the UI:
 
 - Go to the **Regression** tab → **Run benchmark** → show summary + per-case table.
 - Optional: **Copy markdown** and paste into the writeup (reproducibility).
+- Go to the **Governance** tab → **Run governance benchmark (mega)** → show the hard safety gate and download the governance report.
 
 Optional: show production-ish sanity check output:
 

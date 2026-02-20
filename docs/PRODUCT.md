@@ -52,6 +52,7 @@ Out of the box (stdlib server):
 - Request correlation via `X-Request-ID`
 - Health probes: `GET /health`, `GET /ready`, `GET /live`
 - Minimal metrics: `GET /metrics`
+- Ops dashboard (Console UI): **Ops** tab renders live `/metrics` plus per-agent latency/errors (demo-only UI; no secrets)
 - Optional structured JSON logs: `CLINICAFLOW_JSON_LOGS=true`
 - Optional API auth for `POST /triage`: set `CLINICAFLOW_API_KEY` and send `Authorization: Bearer ...` or `X-API-Key`
 - Config sanity check: `clinicaflow doctor`
