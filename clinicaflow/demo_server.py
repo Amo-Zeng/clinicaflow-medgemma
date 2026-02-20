@@ -432,6 +432,13 @@ def _load_vignettes(set_name: str = "standard") -> list[dict]:
 
 
 def _new_stats() -> dict:
+    agents = [
+        "intake_structuring",
+        "multimodal_reasoning",
+        "evidence_policy",
+        "safety_escalation",
+        "communication",
+    ]
     return {
         "requests_total": 0,
         "triage_requests_total": 0,
@@ -447,6 +454,9 @@ def _new_stats() -> dict:
         "triage_reasoning_backend_total": {"deterministic": 0, "external": 0},
         "triage_latency_ms_sum": 0.0,
         "triage_latency_ms_count": 0,
+        "triage_agent_latency_ms_sum": {a: 0.0 for a in agents},
+        "triage_agent_latency_ms_count": {a: 0 for a in agents},
+        "triage_agent_errors_total": {a: 0 for a in agents},
     }
 
 
@@ -896,6 +906,30 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                 self.server.stats["triage_latency_ms_sum"] += latency
                 self.server.stats["triage_latency_ms_count"] += 1
 
+                # Per-agent latency/error metrics (production-style observability).
+                trace_rows = result.get("trace") or []
+                if isinstance(trace_rows, list):
+                    for step in trace_rows:
+                        if not isinstance(step, dict):
+                            continue
+                        agent = str(step.get("agent") or "").strip()
+                        if not agent:
+                            continue
+
+                        if agent not in self.server.stats["triage_agent_latency_ms_sum"]:
+                            self.server.stats["triage_agent_latency_ms_sum"][agent] = 0.0
+                            self.server.stats["triage_agent_latency_ms_count"][agent] = 0
+                            self.server.stats["triage_agent_errors_total"][agent] = 0
+
+                        latency_ms = step.get("latency_ms")
+                        if isinstance(latency_ms, (int, float)):
+                            self.server.stats["triage_agent_latency_ms_sum"][agent] += float(latency_ms)
+                            self.server.stats["triage_agent_latency_ms_count"][agent] += 1
+
+                        err = step.get("error")
+                        if isinstance(err, str) and err.strip():
+                            self.server.stats["triage_agent_errors_total"][agent] += 1
+
                 logger.info(
                     "triage_complete",
                     extra={
@@ -1084,6 +1118,13 @@ def _format_prometheus_metrics(payload: dict) -> str:
         metric("clinicaflow_triage_risk_tier_total", count, {"tier": str(tier)})
     for backend, count in dict(payload.get("triage_reasoning_backend_total") or {}).items():
         metric("clinicaflow_triage_reasoning_backend_total", count, {"backend": str(backend)})
+
+    for agent, total in dict(payload.get("triage_agent_latency_ms_sum") or {}).items():
+        metric("clinicaflow_triage_agent_latency_ms_sum", total, {"agent": str(agent)})
+    for agent, count in dict(payload.get("triage_agent_latency_ms_count") or {}).items():
+        metric("clinicaflow_triage_agent_latency_ms_count", count, {"agent": str(agent)})
+    for agent, count in dict(payload.get("triage_agent_errors_total") or {}).items():
+        metric("clinicaflow_triage_agent_errors_total", count, {"agent": str(agent)})
 
     return "\n".join(lines).strip() + "\n"
 

@@ -472,6 +472,7 @@ def _report_html_bytes(
     safety = _trace_output(result_payload, "safety_escalation")
     evidence = _trace_output(result_payload, "evidence_policy")
     reasoning = _trace_output(result_payload, "multimodal_reasoning")
+    communication = _trace_output(result_payload, "communication")
     risk_scores = _format_risk_scores(safety)
     structured = _trace_output(result_payload, "intake_structuring")
 
@@ -702,6 +703,11 @@ def _report_html_bytes(
             <li>reasoning_model: <span class="mono">{html.escape(str(reasoning.get('reasoning_backend_model') or ''))}</span></li>
             <li>reasoning_prompt_version: <span class="mono">{html.escape(str(reasoning.get('reasoning_prompt_version') or ''))}</span></li>
             <li>policy_pack_sha256: <span class="mono">{html.escape(str(evidence.get('policy_pack_sha256') or ''))}</span></li>
+            <li>policy_pack_source: <span class="mono">{html.escape(str(evidence.get('policy_pack_source') or ''))}</span></li>
+            <li>safety_rules_version: <span class="mono">{html.escape(str(safety.get('safety_rules_version') or ''))}</span></li>
+            <li>communication_backend: <span class="mono">{html.escape(str(communication.get('communication_backend') or ''))}</span></li>
+            <li>communication_model: <span class="mono">{html.escape(str(communication.get('communication_backend_model') or ''))}</span></li>
+            <li>communication_prompt_version: <span class="mono">{html.escape(str(communication.get('communication_prompt_version') or ''))}</span></li>
           </ul>
           <div class="small" style="margin-top: 8px;">
             DISCLAIMER: Decision support only. Not a diagnosis. Clinician confirmation required.
