@@ -65,6 +65,7 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
   - demo UI supports image uploads (`image_data_urls`),
   - optional vision send-to-model toggle (`CLINICAFLOW_REASONING_SEND_IMAGES=1`),
   - redacted audit bundles exclude images; full bundles store them as separate files under `images/` (not inline base64 in `intake.json`).
+  - action provenance tags: **SAFETY** (deterministic rules) vs **POLICY** (policy pack / evidence agent), surfaced in UI + reports.
 - **Governance metadata**:
   - Evidence agent emits `policy_pack_sha256` + `policy_pack_source`,
   - external reasoning emits `reasoning_backend_model` + `reasoning_prompt_version`.
@@ -83,7 +84,7 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
 
 - CLI: `python -m clinicaflow --input examples/sample_case.json --pretty`
 - Local demo (one-click): `bash scripts/demo_one_click.sh`
-  - UI: ClinicaFlow Console at `/` (triage + checklist + printable report + workspace + regression + clinician review + audit bundle download)
+  - UI: ClinicaFlow Console at `/` (triage + checklist with action provenance tags + printable report + workspace + regression + failure packet export + clinician review + audit bundle download)
   - API: `POST /triage`, `POST /audit_bundle`, `GET /doctor`, `GET /policy_pack`, `GET /bench/vignettes`
   - With real MedGemma via vLLM (GPU machine): `MEDGEMMA_MODEL='<HF_ID_OR_LOCAL_PATH>' bash scripts/demo_one_click.sh`
 

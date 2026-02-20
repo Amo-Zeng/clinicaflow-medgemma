@@ -385,12 +385,19 @@ def _note_markdown_bytes(
 
     lines.append("## Recommended next actions (checklist)")
     lines.append(f"- progress: {done}/{total}")
+    safety_actions = [str(x) for x in (safety.get("actions_added_by_safety") or []) if str(x).strip()]
+    safety_set = set(safety_actions)
+    if safety_set:
+        lines.append("- tags: SAFETY=rules, POLICY=policy pack")
     for item in checklist:
         text = str(item.get("text") or "").strip()
         if not text:
             continue
         mark = "x" if item.get("checked") else " "
-        lines.append(f"- [{mark}] {text}")
+        tag = ""
+        if safety_set:
+            tag = "[SAFETY] " if text in safety_set else "[POLICY] "
+        lines.append(f"- [{mark}] {tag}{text}")
     lines.append("")
 
     lines.append("## Uncertainty")
@@ -440,28 +447,104 @@ def _report_html_bytes(
     done = sum(1 for x in checklist if x.get("checked"))
     total = len(checklist)
 
+    safety_actions = [str(x) for x in (safety.get("actions_added_by_safety") or []) if str(x).strip()]
+    safety_set = set(safety_actions)
+
     def li(items: list[str]) -> str:
         if not items:
             return "<li>(none)</li>"
         return "".join(f"<li>{html.escape(x)}</li>" for x in items)
 
-    action_li = (
-        "".join(
-            (
-                f"<li class=\"{'done' if x.get('checked') else ''}\">"
-                f"{'☑' if x.get('checked') else '☐'} {html.escape(str(x.get('text') or ''))}</li>"
+    action_li = "".join(
+        (
+            f"<li class=\"{'done' if x.get('checked') else ''}\">"
+            f"{'☑' if x.get('checked') else '☐'} "
+            + (
+                f"<span class=\"tag {'safety' if str(x.get('text') or '').strip() in safety_set else 'policy'}\">"
+                f"{'SAFETY' if str(x.get('text') or '').strip() in safety_set else 'POLICY'}</span> "
+                if safety_set
+                else ""
             )
-            for x in checklist
-            if str(x.get("text") or "").strip()
+            + f"{html.escape(str(x.get('text') or ''))}</li>"
         )
-        or "<li>(none)</li>"
-    )
+        for x in checklist
+        if str(x.get("text") or "").strip()
+    ) or "<li>(none)</li>"
 
     risk_class = "risk-routine"
     if tier == "critical":
         risk_class = "risk-critical"
     elif tier == "urgent":
         risk_class = "risk-urgent"
+
+    banner_title = f"Triage: {tier.upper()}" if tier else "Triage"
+    banner_subtitle = "Decision support only — clinician confirmation required."
+    if tier == "critical":
+        banner_title = "CRITICAL — emergency evaluation now"
+        banner_subtitle = "Escalation required. Do not delay clinician review."
+    elif tier == "urgent":
+        banner_title = "URGENT — same-day evaluation"
+        banner_subtitle = "Escalation required. Ensure clinician review today."
+    elif tier == "routine":
+        banner_title = "ROUTINE — stable (with return precautions)"
+        banner_subtitle = "No explicit red flags detected in provided intake."
+
+    top_action = ""
+    try:
+        top_action = str((result_payload.get("recommended_next_actions") or [])[0] or "").strip()
+    except Exception:  # noqa: BLE001
+        top_action = ""
+
+    meta_bits: list[str] = []
+    if safety.get("risk_tier_rationale"):
+        meta_bits.append(f"Why: {str(safety.get('risk_tier_rationale')).strip()}")
+    if red_flags:
+        preview = " • ".join(red_flags[:2])
+        ell = " • …" if len(red_flags) > 2 else ""
+        meta_bits.append(f"Red flags: {preview}{ell}")
+    if top_action:
+        meta_bits.append(f"Top action: {top_action}")
+    banner_meta = "  |  ".join(meta_bits) if meta_bits else "—"
+
+    trace_rows = result_payload.get("trace") or []
+    workflow_rows = ""
+    if isinstance(trace_rows, list):
+        for step in trace_rows:
+            if not isinstance(step, dict):
+                continue
+            agent = str(step.get("agent") or "").strip() or "agent"
+            latency = step.get("latency_ms")
+            err = str(step.get("error") or "").strip()
+            latency_str = ""
+            if isinstance(latency, (int, float)):
+                latency_str = f"{float(latency):.2f} ms"
+            workflow_rows += (
+                "<tr>"
+                f"<td class=\"mono\">{html.escape(agent)}</td>"
+                f"<td class=\"mono\">{html.escape(latency_str)}</td>"
+                f"<td>{html.escape(err) if err else ''}</td>"
+                "</tr>"
+            )
+
+    citations = evidence.get("protocol_citations") or []
+    citation_rows = ""
+    if isinstance(citations, list):
+        for c in citations:
+            if not isinstance(c, dict):
+                continue
+            pid = str(c.get("policy_id") or "").strip()
+            title = str(c.get("title") or "").strip()
+            cite = str(c.get("citation") or "").strip()
+            acts = c.get("recommended_actions") or []
+            acts_str = "; ".join(str(x) for x in acts if str(x).strip()) if isinstance(acts, list) else ""
+            citation_rows += (
+                "<tr>"
+                f"<td class=\"mono\">{html.escape(pid)}</td>"
+                f"<td>{html.escape(title)}</td>"
+                f"<td class=\"mono\">{html.escape(cite)}</td>"
+                f"<td>{html.escape(acts_str)}</td>"
+                "</tr>"
+            )
 
     html_doc = f"""<!doctype html>
 <html lang="en">
@@ -470,103 +553,183 @@ def _report_html_bytes(
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>ClinicaFlow — Triage Report ({html.escape(request_id)})</title>
     <style>
-      :root {{ color-scheme: light; }}
-      body {{ font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial, sans-serif; margin: 24px; color: #111827; }}
-      h1 {{ margin: 0 0 6px; font-size: 22px; }}
-      .sub {{ color: #6b7280; margin: 0 0 18px; font-size: 13px; }}
+      :root {{
+        color-scheme: light;
+        --bg: #f6f7f9;
+        --panel: #ffffff;
+        --text: #111827;
+        --muted: #6b7280;
+        --border: #e5e7eb;
+        --shadow: 0 1px 2px rgba(16, 24, 40, 0.08), 0 8px 28px rgba(16, 24, 40, 0.06);
+        --radius: 14px;
+        --green-bg: #ecfdf5;
+        --green: #065f46;
+        --amber-bg: #fffbeb;
+        --amber: #92400e;
+        --red-bg: #fef2f2;
+        --red: #991b1b;
+        --blue-bg: #eef2ff;
+        --blue: #3730a3;
+      }}
+      * {{ box-sizing: border-box; }}
+      body {{ margin: 0; background: var(--bg); color: var(--text); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial, sans-serif; }}
+      code, .mono {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }}
+      header {{ display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--border); background: rgba(255,255,255,0.7); backdrop-filter: blur(8px); position: sticky; top: 0; z-index: 5; }}
+      .brand-title {{ font-size: 18px; font-weight: 950; }}
+      .brand-subtitle {{ font-size: 12px; color: var(--muted); margin-top: 2px; }}
+      .container {{ max-width: 1200px; margin: 0 auto; padding: 18px; }}
       .grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }}
-      .card {{ border: 1px solid #e5e7eb; border-radius: 12px; padding: 12px; background: #fff; }}
-      .k {{ font-weight: 900; font-size: 12px; color: #374151; margin-bottom: 6px; }}
+      @media (max-width: 980px) {{ .grid {{ grid-template-columns: 1fr; }} }}
+      .card {{ background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; box-shadow: var(--shadow); }}
+      .k {{ font-size: 12px; font-weight: 900; color: #374151; margin-bottom: 6px; }}
+      .small {{ font-size: 12px; color: var(--muted); }}
       ul, ol {{ margin: 0; padding-left: 18px; }}
       li {{ margin: 6px 0; }}
       .done {{ opacity: 0.75; text-decoration: line-through; }}
-      .mono {{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }}
-      .pill {{ display: inline-block; padding: 3px 10px; border-radius: 999px; border: 1px solid #e5e7eb; font-weight: 900; font-size: 12px; }}
-      .risk-critical {{ background: #fef2f2; border-color: #ef444433; color: #991b1b; }}
-      .risk-urgent {{ background: #fffbeb; border-color: #f59e0b44; color: #92400e; }}
-      .risk-routine {{ background: #ecfdf5; border-color: #10b98133; color: #065f46; }}
+      .pill {{ display: inline-block; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); font-weight: 950; font-size: 12px; background: #fff; color: #374151; }}
+      .risk-critical {{ background: var(--red-bg); border-color: rgba(153, 27, 27, 0.25); color: var(--red); }}
+      .risk-urgent {{ background: var(--amber-bg); border-color: rgba(146, 64, 14, 0.25); color: var(--amber); }}
+      .risk-routine {{ background: var(--green-bg); border-color: rgba(6, 95, 70, 0.25); color: var(--green); }}
+      .banner {{ border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; background: #fff; margin-bottom: 14px; box-shadow: var(--shadow); }}
+      .banner-title {{ font-weight: 950; letter-spacing: 0.2px; }}
+      .banner-subtitle {{ margin-top: 4px; font-size: 12px; opacity: 0.92; }}
+      .banner-meta {{ margin-top: 8px; font-size: 12px; color: rgba(17, 24, 39, 0.72); }}
+      .banner.routine {{ background: var(--green-bg); color: var(--green); border-color: rgba(6, 95, 70, 0.25); }}
+      .banner.urgent {{ background: var(--amber-bg); color: var(--amber); border-color: rgba(146, 64, 14, 0.25); }}
+      .banner.critical {{ background: var(--red-bg); color: var(--red); border-color: rgba(153, 27, 27, 0.25); }}
+      .tag {{ display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); background: #f3f4f6; color: #374151; font-size: 11px; font-weight: 950; letter-spacing: 0.2px; }}
+      .tag.safety {{ background: var(--red-bg); color: var(--red); border-color: rgba(153, 27, 27, 0.25); }}
+      .tag.policy {{ background: var(--blue-bg); color: var(--blue); border-color: rgba(55, 48, 163, 0.2); }}
+      table {{ width: 100%; border-collapse: collapse; font-size: 12px; }}
+      th, td {{ padding: 10px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }}
+      th {{ background: #f9fafb; font-weight: 950; }}
       pre {{ white-space: pre-wrap; background: #0b1020; color: #e5e7eb; padding: 10px; border-radius: 12px; overflow: auto; }}
       @media print {{
-        body {{ margin: 12mm; }}
+        header {{ position: static; }}
+        body {{ margin: 0; }}
+        .container {{ padding: 12mm; }}
       }}
     </style>
   </head>
   <body>
-    <h1>ClinicaFlow — Triage Report <span class="mono">{html.escape(request_id)}</span></h1>
-    <p class="sub"><b>DISCLAIMER:</b> Decision support only. Not a diagnosis. Clinician confirmation required.</p>
-
-    <div class="grid">
-      <div class="card">
-        <div class="k">Metadata</div>
-        <ul>
-          <li><span class="mono">request_id</span>: <span class="mono">{html.escape(request_id)}</span></li>
-          <li>created_at: <span class="mono">{html.escape(created_at)}</span></li>
-          <li>pipeline_version: <span class="mono">{html.escape(str(result_payload.get('pipeline_version') or ''))}</span></li>
-          <li>reasoning_backend: <span class="mono">{html.escape(str(reasoning.get('reasoning_backend') or ''))}</span></li>
-          <li>reasoning_model: <span class="mono">{html.escape(str(reasoning.get('reasoning_backend_model') or ''))}</span></li>
-          <li>policy_pack_sha256: <span class="mono">{html.escape(str(evidence.get('policy_pack_sha256') or ''))}</span></li>
-        </ul>
+    <header>
+      <div>
+        <div class="brand-title">ClinicaFlow — Triage Report</div>
+        <div class="brand-subtitle"><span class="mono">{html.escape(request_id)}</span> • {html.escape(created_at)}</div>
       </div>
-      <div class="card">
-        <div class="k">Triage</div>
-        <div class="pill {risk_class}">risk_tier: {html.escape(tier)}</div>
-        <div style="height:10px"></div>
-        <ul>
-          <li>escalation_required: <b>{html.escape(str(escalation))}</b></li>
-          <li>rationale: {html.escape(str(safety.get('risk_tier_rationale') or ''))}</li>
-          {f'<li>risk_scores: <span class="mono">{html.escape(risk_scores)}</span></li>' if risk_scores else ''}
-          <li>confidence (proxy): <span class="mono">{html.escape(str(confidence))}</span></li>
-        </ul>
+      <div>
+        <span class="pill {risk_class}">risk_tier: {html.escape(tier)}</span>
       </div>
-    </div>
+    </header>
 
-    <div style="height:14px"></div>
-
-    <div class="grid">
-      <div class="card">
-        <div class="k">Intake (demo)</div>
-        <ul>
-          <li>chief_complaint: {html.escape(str(intake_payload.get('chief_complaint') or ''))}</li>
-          <li>history: {html.escape(str(intake_payload.get('history') or ''))}</li>
-          <li>vitals: <span class="mono">{html.escape(', '.join(vitals_bits))}</span></li>
-          {f"<li>images: <span class='mono'>{html.escape(str(len(intake_payload.get('images') or [])))}</span></li>" if intake_payload.get("images") else ""}
-        </ul>
+    <main class="container">
+      <div class="banner {html.escape(tier.lower() if tier else '')}">
+        <div class="banner-title">{html.escape(banner_title)}</div>
+        <div class="banner-subtitle">{html.escape(banner_subtitle)}</div>
+        <div class="banner-meta">{html.escape(banner_meta)}</div>
       </div>
-      <div class="card">
-        <div class="k">Red flags</div>
-        <ul>{li(red_flags)}</ul>
+
+      <div class="grid">
+        <div class="card">
+          <div class="k">Metadata</div>
+          <ul>
+            <li><span class="mono">request_id</span>: <span class="mono">{html.escape(request_id)}</span></li>
+            <li>created_at: <span class="mono">{html.escape(created_at)}</span></li>
+            <li>pipeline_version: <span class="mono">{html.escape(str(result_payload.get('pipeline_version') or ''))}</span></li>
+            <li>reasoning_backend: <span class="mono">{html.escape(str(reasoning.get('reasoning_backend') or ''))}</span></li>
+            <li>reasoning_model: <span class="mono">{html.escape(str(reasoning.get('reasoning_backend_model') or ''))}</span></li>
+            <li>reasoning_prompt_version: <span class="mono">{html.escape(str(reasoning.get('reasoning_prompt_version') or ''))}</span></li>
+            <li>policy_pack_sha256: <span class="mono">{html.escape(str(evidence.get('policy_pack_sha256') or ''))}</span></li>
+          </ul>
+          <div class="small" style="margin-top: 8px;">
+            DISCLAIMER: Decision support only. Not a diagnosis. Clinician confirmation required.
+          </div>
+        </div>
+        <div class="card">
+          <div class="k">Triage</div>
+          <ul>
+            <li>risk_tier: <b>{html.escape(tier)}</b></li>
+            <li>escalation_required: <b>{html.escape(str(escalation))}</b></li>
+            <li>rationale: {html.escape(str(safety.get('risk_tier_rationale') or ''))}</li>
+            {f'<li>risk_scores: <span class="mono">{html.escape(risk_scores)}</span></li>' if risk_scores else ''}
+            <li>confidence (proxy): <span class="mono">{html.escape(str(confidence))}</span></li>
+          </ul>
+        </div>
       </div>
-      <div class="card">
-        <div class="k">Differential (top)</div>
-        <ul>{li(differential)}</ul>
+
+      <div style="height:14px"></div>
+
+      <div class="grid">
+        <div class="card">
+          <div class="k">Intake (demo)</div>
+          <ul>
+            <li>chief_complaint: {html.escape(str(intake_payload.get('chief_complaint') or ''))}</li>
+            <li>history: {html.escape(str(intake_payload.get('history') or ''))}</li>
+            <li>vitals: <span class="mono">{html.escape(', '.join(vitals_bits))}</span></li>
+            {f"<li>images: <span class='mono'>{html.escape(str(len(intake_payload.get('images') or [])))}</span></li>" if intake_payload.get("images") else ""}
+          </ul>
+        </div>
+        <div class="card">
+          <div class="k">Red flags</div>
+          <ul>{li(red_flags)}</ul>
+        </div>
+        <div class="card">
+          <div class="k">Differential (top)</div>
+          <ul>{li(differential)}</ul>
+        </div>
+        <div class="card">
+          <div class="k">Uncertainty</div>
+          <ul>{li(uncertainty)}</ul>
+        </div>
       </div>
+
+      <div style="height:14px"></div>
+
       <div class="card">
-        <div class="k">Uncertainty</div>
-        <ul>{li(uncertainty)}</ul>
+        <div class="k">Next actions (checklist)</div>
+        <div class="small">progress: <span class="mono">{done}/{total}</span></div>
+        {('<div class="small" style="margin-top: 6px;">Tags: <span class="tag safety">SAFETY</span> = deterministic rules; <span class="tag policy">POLICY</span> = policy pack / evidence agent</div>' if safety_set else '')}
+        <ul style="margin-top: 8px;">{action_li}</ul>
       </div>
-    </div>
 
-    <div style="height:14px"></div>
+      <div style="height:14px"></div>
 
-    <div class="card">
-      <div class="k">Next actions (checklist)</div>
-      <div class="sub">progress: <span class="mono">{done}/{total}</span></div>
-      <ul>{action_li}</ul>
-    </div>
+      <div class="grid">
+        <div class="card">
+          <div class="k">Agent workflow (audit trace)</div>
+          <div class="tablewrap" style="overflow:auto; border: 1px solid var(--border); border-radius: 12px;">
+            <table>
+              <thead><tr><th>Agent</th><th>Latency</th><th>Error</th></tr></thead>
+              <tbody>{workflow_rows or '<tr><td colspan=\"3\">(none)</td></tr>'}</tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <div class="k">Protocol citations (demo policy pack)</div>
+          <div class="small">policy_pack_sha256: <span class="mono">{html.escape(str(evidence.get('policy_pack_sha256') or ''))}</span></div>
+          <div class="tablewrap" style="overflow:auto; border: 1px solid var(--border); border-radius: 12px; margin-top: 8px;">
+            <table>
+              <thead><tr><th>Policy</th><th>Title</th><th>Citation</th><th>Recommended actions</th></tr></thead>
+              <tbody>{citation_rows or '<tr><td colspan=\"4\">(none)</td></tr>'}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>
 
-    <div style="height:14px"></div>
+      <div style="height:14px"></div>
 
-    <div class="card">
-      <div class="k">Clinician handoff</div>
-      <pre>{html.escape(str(result_payload.get('clinician_handoff') or ''))}</pre>
-    </div>
+      <div class="card">
+        <div class="k">Clinician handoff</div>
+        <pre>{html.escape(str(result_payload.get('clinician_handoff') or ''))}</pre>
+      </div>
 
-    <div style="height:14px"></div>
+      <div style="height:14px"></div>
 
-    <div class="card">
-      <div class="k">Patient return precautions</div>
-      <pre>{html.escape(str(result_payload.get('patient_summary') or ''))}</pre>
-    </div>
+      <div class="card">
+        <div class="k">Patient return precautions</div>
+        <pre>{html.escape(str(result_payload.get('patient_summary') or ''))}</pre>
+      </div>
+    </main>
   </body>
 </html>
 """

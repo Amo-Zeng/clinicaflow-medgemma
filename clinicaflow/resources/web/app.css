@@ -327,6 +327,31 @@ textarea.mono { font-size: 12px; }
 .action-check input { margin-top: 2px; }
 .action-check.done { opacity: 0.75; text-decoration: line-through; }
 
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #f3f4f6;
+  color: #374151;
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: 0.2px;
+}
+
+.tag.safety {
+  background: var(--red-bg);
+  color: var(--red);
+  border-color: rgba(153, 27, 27, 0.25);
+}
+
+.tag.policy {
+  background: #eef2ff;
+  color: #3730a3;
+  border-color: rgba(55, 48, 163, 0.2);
+}
+
 .details {
   border: 1px solid var(--border);
   border-radius: 12px;

@@ -115,6 +115,7 @@ const state = {
   lastResult: null,
   lastRequestId: null,
   lastActionChecklist: null,
+  lastSafetyActions: null,
   lastBench: null,
   lastBenchSet: null,
   lastSynthetic: null,
@@ -495,13 +496,20 @@ function updateActionsProgress(checklist) {
   if (!el) return;
   const total = (checklist || []).length;
   const done = (checklist || []).filter((x) => x && x.checked).length;
-  el.textContent = total ? `Checklist: ${done}/${total} completed (stored locally).` : "No actions.";
+  const legend =
+    state.lastSafetyActions && state.lastSafetyActions.length ? "  •  Tags: SAFETY=rules, POLICY=policy pack" : "";
+  el.textContent = total ? `Checklist: ${done}/${total} completed (stored locally).${legend}` : "No actions.";
 }
 
-function renderActionChecklist(actions, requestId) {
+function renderActionChecklist(actions, requestId, opts) {
   const root = $("actions");
   if (!root) return;
   root.innerHTML = "";
+
+  const meta = opts && typeof opts === "object" ? opts : {};
+  const safetyRaw = Array.isArray(meta.safetyActions) ? meta.safetyActions : [];
+  const safetySet = new Set(safetyRaw.map((x) => String(x || "").trim()).filter((x) => x));
+  state.lastSafetyActions = Array.from(safetySet);
 
   const saved = loadActionChecklist(requestId);
   const checklist = normalizeChecklist(actions, saved);
@@ -531,10 +539,17 @@ function renderActionChecklist(actions, requestId) {
       updateActionsProgress(checklist);
     });
 
+    const isSafety = safetySet.has(String(item.text || "").trim());
+    const tag = document.createElement("span");
+    tag.className = `tag ${isSafety ? "safety" : "policy"}`;
+    tag.textContent = isSafety ? "SAFETY" : "POLICY";
+    tag.title = isSafety ? "Added by deterministic safety rules" : "Suggested by evidence/policy agent";
+
     const txt = document.createElement("span");
     txt.textContent = item.text;
 
     label.appendChild(cb);
+    if (safetySet.size) label.appendChild(tag);
     label.appendChild(txt);
     li.appendChild(label);
     root.appendChild(li);
@@ -717,7 +732,9 @@ function renderResult(result, requestIdFromHeader) {
   });
   renderList($("uncertainty"), result.uncertainty_reasons, { ordered: false, emptyText: "No uncertainty flags." });
   renderList($("redFlags"), result.red_flags, { ordered: false, emptyText: "No explicit red flags detected." });
-  renderActionChecklist(result.recommended_next_actions || [], state.lastRequestId || result.request_id || "");
+  renderActionChecklist(result.recommended_next_actions || [], state.lastRequestId || result.request_id || "", {
+    safetyActions: safety.actions_added_by_safety || [],
+  });
 
   const conf = typeof result.confidence === "number" ? result.confidence : null;
   setText("confidenceVal", conf == null ? "—" : `confidence: ${(conf * 100).toFixed(0)}%`);
@@ -1146,9 +1163,37 @@ function buildReportHtml(intake, result, checklist) {
   const safety = traceOutput(result, "safety_escalation");
   const structured = traceOutput(result, "intake_structuring");
 
+  const safetyActionsRaw = Array.isArray(safety?.actions_added_by_safety) ? safety.actions_added_by_safety : [];
+  const safetyActions = safetyActionsRaw.map((x) => String(x || "").trim()).filter((x) => x);
+  const safetySet = new Set(safetyActions);
+
   const requestId = result.request_id || state.lastRequestId || "run";
   const createdAt = result.created_at || new Date().toISOString();
   const title = `ClinicaFlow — Triage Report (${requestId})`;
+
+  const tier = String(result.risk_tier || "").trim().toLowerCase();
+  let bannerTitle = `Triage: ${tier.toUpperCase()}`;
+  let bannerSubtitle = "Decision support only — clinician confirmation required.";
+  if (tier === "critical") {
+    bannerTitle = "CRITICAL — emergency evaluation now";
+    bannerSubtitle = "Escalation required. Do not delay clinician review.";
+  } else if (tier === "urgent") {
+    bannerTitle = "URGENT — same-day evaluation";
+    bannerSubtitle = "Escalation required. Ensure clinician review today.";
+  } else if (tier === "routine") {
+    bannerTitle = "ROUTINE — stable (with return precautions)";
+    bannerSubtitle = "No explicit red flags detected in provided intake.";
+  }
+
+  const topAction = Array.isArray(result.recommended_next_actions) ? String(result.recommended_next_actions[0] || "").trim() : "";
+  const bannerBits = [];
+  if (String(safety.risk_tier_rationale || "").trim()) bannerBits.push(`Why: ${String(safety.risk_tier_rationale || "").trim()}`);
+  if (Array.isArray(result.red_flags) && result.red_flags.length) {
+    const rf = result.red_flags.map((x) => String(x)).filter((x) => x.trim());
+    if (rf.length) bannerBits.push(`Red flags: ${rf.slice(0, 2).join(" • ")}${rf.length > 2 ? " • …" : ""}`);
+  }
+  if (topAction) bannerBits.push(`Top action: ${topAction}`);
+  const bannerMeta = bannerBits.length ? bannerBits.join("  |  ") : "—";
 
   const vitals = (intake || {}).vitals || {};
   const vitalsParts = [];
@@ -1168,7 +1213,9 @@ function buildReportHtml(intake, result, checklist) {
       if (!text) return "";
       const done = Boolean(a.checked);
       const mark = done ? "☑" : "☐";
-      return `<li class="${done ? "done" : ""}">${mark} ${escapeHtml(text)}</li>`;
+      const isSafety = safetySet.has(text);
+      const tag = safetySet.size ? `<span class="tag ${isSafety ? "safety" : "policy"}">${isSafety ? "SAFETY" : "POLICY"}</span> ` : "";
+      return `<li class="${done ? "done" : ""}">${mark} ${tag}${escapeHtml(text)}</li>`;
     })
     .filter((x) => x)
     .join("");
@@ -1195,11 +1242,33 @@ function buildReportHtml(intake, result, checklist) {
   const missing = Array.isArray(structured?.missing_fields) ? structured.missing_fields : [];
   const missingLis = missing.map((x) => `<li>${escapeHtml(String(x))}</li>`).join("") || "<li>(none)</li>";
 
+  const trace = Array.isArray(result.trace) ? result.trace : [];
+  const workflowRows =
+    trace
+      .map((s) => {
+        const agent = String(s.agent || "agent");
+        const latency = s.latency_ms != null ? `${Number(s.latency_ms).toFixed(2)} ms` : "";
+        const err = String(s.error || "").trim();
+        return `<tr>
+          <td class="mono">${escapeHtml(agent)}</td>
+          <td class="mono">${escapeHtml(latency)}</td>
+          <td>${escapeHtml(err)}</td>
+        </tr>`;
+      })
+      .join("") || `<tr><td colspan="3">(none)</td></tr>`;
+
   const css = `
     :root { color-scheme: light; }
     body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial, sans-serif; margin: 24px; color: #111827; }
     h1 { margin: 0 0 6px; font-size: 22px; }
     .sub { color: #6b7280; margin: 0 0 18px; font-size: 13px; }
+    .banner { border: 1px solid #e5e7eb; border-radius: 14px; padding: 12px; background: #fff; margin: 10px 0 14px; }
+    .banner-title { font-weight: 950; letter-spacing: 0.2px; }
+    .banner-subtitle { margin-top: 4px; font-size: 12px; opacity: 0.92; }
+    .banner-meta { margin-top: 8px; font-size: 12px; color: rgba(17, 24, 39, 0.72); }
+    .banner.routine { background: #ecfdf5; color: #065f46; border-color: rgba(6, 95, 70, 0.25); }
+    .banner.urgent { background: #fffbeb; color: #92400e; border-color: rgba(146, 64, 14, 0.25); }
+    .banner.critical { background: #fef2f2; color: #991b1b; border-color: rgba(153, 27, 27, 0.25); }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
     .card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 12px; background: #fff; }
     .k { font-weight: 900; font-size: 12px; color: #374151; margin-bottom: 6px; }
@@ -1211,6 +1280,10 @@ function buildReportHtml(intake, result, checklist) {
     .risk-critical { background: #fef2f2; border-color: #ef444433; color: #991b1b; }
     .risk-urgent { background: #fffbeb; border-color: #f59e0b44; color: #92400e; }
     .risk-routine { background: #ecfdf5; border-color: #10b98133; color: #065f46; }
+    .tag { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; border: 1px solid #e5e7eb; background: #f3f4f6; color: #374151; font-size: 11px; font-weight: 950; letter-spacing: 0.2px; }
+    .tag.safety { background: #fef2f2; color: #991b1b; border-color: #ef444433; }
+    .tag.policy { background: #eef2ff; color: #3730a3; border-color: rgba(55, 48, 163, 0.2); }
+    .tablewrap { overflow: auto; border: 1px solid #e5e7eb; border-radius: 12px; margin-top: 10px; }
     table { width: 100%; border-collapse: collapse; font-size: 12px; }
     th, td { border-bottom: 1px solid #e5e7eb; padding: 8px; text-align: left; vertical-align: top; }
     th { background: #f9fafb; font-weight: 900; }
@@ -1237,6 +1310,12 @@ function buildReportHtml(intake, result, checklist) {
   <body>
     <h1>${escapeHtml(title)}</h1>
     <p class="sub"><b>DISCLAIMER:</b> Decision support only. Not a diagnosis. Clinician confirmation required.</p>
+
+    <div class="banner ${escapeHtml(tier)}">
+      <div class="banner-title">${escapeHtml(bannerTitle)}</div>
+      <div class="banner-subtitle">${escapeHtml(bannerSubtitle)}</div>
+      <div class="banner-meta">${escapeHtml(bannerMeta)}</div>
+    </div>
 
     <div class="grid">
       <div class="card">
@@ -1297,10 +1376,11 @@ function buildReportHtml(intake, result, checklist) {
         <div class="k">Uncertainty</div>
         <ul>${uncLis}</ul>
       </div>
-      <div class="card">
-        <div class="k">Next actions (checklist)</div>
-        <ul>${actionLis || "<li>(none)</li>"}</ul>
-      </div>
+    <div class="card">
+      <div class="k">Next actions (checklist)</div>
+      ${safetySet.size ? `<div class="sub">Tags: <span class="tag safety">SAFETY</span> = deterministic rules; <span class="tag policy">POLICY</span> = policy pack / evidence agent</div>` : ""}
+      <ul>${actionLis || "<li>(none)</li>"}</ul>
+    </div>
     </div>
 
     <div style="height:14px"></div>
@@ -1319,17 +1399,31 @@ function buildReportHtml(intake, result, checklist) {
 
     <div style="height:14px"></div>
 
-    <div class="card">
-      <div class="k">Protocol citations (demo policy pack)</div>
-      ${
-        citationRows
-          ? `<div class="sub">policy_pack_sha256: <span class="mono">${escapeHtml(String(evidence.policy_pack_sha256 || ""))}</span></div>
-             <table>
-               <thead><tr><th>Policy</th><th>Title</th><th>Citation</th><th>Recommended actions</th></tr></thead>
-               <tbody>${citationRows}</tbody>
-             </table>`
-          : "<div class=\"sub\">No matched citations.</div>"
-      }
+    <div class="grid">
+      <div class="card">
+        <div class="k">Agent workflow (audit trace)</div>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>Agent</th><th>Latency</th><th>Error</th></tr></thead>
+            <tbody>${workflowRows}</tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="k">Protocol citations (demo policy pack)</div>
+        ${
+          citationRows
+            ? `<div class="sub">policy_pack_sha256: <span class="mono">${escapeHtml(String(evidence.policy_pack_sha256 || ""))}</span></div>
+               <div class="tablewrap">
+                 <table>
+                   <thead><tr><th>Policy</th><th>Title</th><th>Citation</th><th>Recommended actions</th></tr></thead>
+                   <tbody>${citationRows}</tbody>
+                 </table>
+               </div>`
+            : "<div class=\"sub\">No matched citations.</div>"
+        }
+      </div>
     </div>
   </body>
 </html>`;
@@ -1706,6 +1800,106 @@ function benchMarkdownTable(summary) {
     `| Over-triage rate (gold routine → predicted urgent/critical) | \`${pct(summary.over_triage_rate_baseline)}\` | \`${pct(summary.over_triage_rate_clinicaflow)}\` |`,
     "",
   ].join("\n");
+}
+
+function benchRowFlags(row) {
+  const goldTier = String(row?.gold?.risk_tier || "").trim().toLowerCase();
+  const predTier = String(row?.clinicaflow?.risk_tier || "").trim().toLowerCase();
+  const under = (goldTier === "urgent" || goldTier === "critical") && predTier === "routine";
+  const over = goldTier === "routine" && predTier !== "routine";
+  const mismatch = Boolean(goldTier && predTier && goldTier !== predTier);
+  return { goldTier, predTier, under, over, mismatch };
+}
+
+async function buildFailurePacketMarkdown() {
+  if (!state.lastBench) return "";
+  const setName = state.lastBenchSet || $("benchSet")?.value || "standard";
+  const perCase = state.lastBench.per_case || [];
+
+  const underRows = perCase.filter((r) => benchRowFlags(r).under);
+  const mismatchRows = perCase.filter((r) => benchRowFlags(r).mismatch);
+  const overRows = perCase.filter((r) => benchRowFlags(r).over);
+
+  const lines = [];
+  lines.push("# ClinicaFlow — Vignette failure analysis packet (synthetic)");
+  lines.push("");
+  lines.push("- DISCLAIMER: Decision support only. Not a diagnosis. No PHI.");
+  lines.push(`- vignette_set: \`${setName}\``);
+  lines.push(`- generated_at: \`${new Date().toISOString()}\``);
+  lines.push("");
+  lines.push("## Summary");
+  lines.push("");
+  lines.push(benchMarkdownTable(state.lastBench.summary).trim());
+  lines.push("");
+
+  async function addCaseSection(title, rows, { limit = 25 } = {}) {
+    lines.push(`## ${title}`);
+    lines.push("");
+    if (!rows.length) {
+      lines.push("- (none)");
+      lines.push("");
+      return;
+    }
+    const subset = rows.slice(0, Math.max(0, limit));
+    for (const row of subset) {
+      const id = String(row?.id || "").trim();
+      const goldTier = String(row?.gold?.risk_tier || "").trim();
+      const predTier = String(row?.clinicaflow?.risk_tier || "").trim();
+      const goldCats = (row?.gold?.categories || []).join(", ");
+      const predCats = (row?.clinicaflow?.categories || []).join(", ");
+      const redFlags = (row?.clinicaflow?.red_flags || []).join("; ");
+      const conf = row?.clinicaflow?.confidence;
+
+      let intake = null;
+      try {
+        const resp = await fetchJson(
+          `/vignettes/${encodeURIComponent(id)}?set=${encodeURIComponent(setName)}&include_labels=1`,
+        );
+        intake = resp.input || resp;
+      } catch (e) {
+        intake = null;
+      }
+
+      lines.push(`### ${id}`);
+      lines.push("");
+      lines.push(`- gold: tier=\`${goldTier}\` categories=\`${goldCats || "(none)"}\``);
+      lines.push(`- pred: tier=\`${predTier}\` categories=\`${predCats || "(none)"}\``);
+      if (typeof conf === "number") lines.push(`- confidence (proxy): \`${conf}\``);
+      if (redFlags) lines.push(`- pred_red_flags: ${redFlags}`);
+      if (intake) {
+        lines.push("");
+        lines.push("```json");
+        lines.push(JSON.stringify(intake, null, 2));
+        lines.push("```");
+      }
+      lines.push("");
+    }
+    if (rows.length > subset.length) {
+      lines.push(`- Note: truncated to first ${subset.length} cases.`);
+      lines.push("");
+    }
+  }
+
+  await addCaseSection("Under-triage (gold urgent/critical → predicted routine)", underRows, { limit: 25 });
+  await addCaseSection("Tier mismatches (gold ≠ pred)", mismatchRows, { limit: 25 });
+  await addCaseSection("Over-triage (gold routine → pred urgent/critical)", overRows, { limit: 25 });
+
+  return lines.join("\n").trim() + "\n";
+}
+
+async function downloadFailurePacketMd() {
+  if (!state.lastBench) return;
+  const status = $("benchStatus");
+  if (status) status.textContent = "Building packet…";
+  try {
+    const md = await buildFailurePacketMarkdown();
+    const setName = state.lastBenchSet || "standard";
+    downloadText(`vignette_failure_packet_${setName}.md`, md, "text/markdown; charset=utf-8");
+    setText("statusLine", "Downloaded vignette failure packet.");
+    if (status) status.textContent = "Done.";
+  } catch (e) {
+    if (status) status.textContent = `Error: ${e}`;
+  }
 }
 
 async function runSynthetic() {
@@ -2509,6 +2703,10 @@ function wireEvents() {
     if (!state.lastBench) return;
     downloadText("vignette_benchmark.md", benchMarkdownTable(state.lastBench.summary), "text/markdown; charset=utf-8");
     setText("statusLine", "Downloaded vignette_benchmark.md");
+  });
+  $("downloadFailureMd")?.addEventListener("click", () => {
+    if (!state.lastBench) return;
+    downloadFailurePacketMd();
   });
   ["filterMismatch", "filterUnder", "filterOver"].forEach((id) => {
     const el = $(id);
