@@ -624,10 +624,72 @@ function renderTraceMini(trace) {
   root.appendChild(wrap);
 }
 
+function renderDecisionBanner(result) {
+  const el = $("decisionBanner");
+  if (!el) return;
+
+  const tier = String(result?.risk_tier || "").trim().toLowerCase();
+  if (!tier) {
+    el.classList.add("hidden");
+    el.textContent = "";
+    return;
+  }
+
+  el.classList.remove("hidden", "routine", "urgent", "critical");
+  if (tier === "routine" || tier === "urgent" || tier === "critical") el.classList.add(tier);
+
+  const safety = traceOutput(result, "safety_escalation");
+  const rationale = String(safety?.risk_tier_rationale || "").trim();
+  const redFlags = Array.isArray(result?.red_flags) ? result.red_flags.map((x) => String(x)).filter((x) => x.trim()) : [];
+  const actions = Array.isArray(result?.recommended_next_actions)
+    ? result.recommended_next_actions.map((x) => String(x)).filter((x) => x.trim())
+    : [];
+
+  let title = `Triage: ${tier.toUpperCase()}`;
+  let subtitle = "Decision support only — clinician confirmation required.";
+  if (tier === "critical") {
+    title = "CRITICAL — emergency evaluation now";
+    subtitle = "Escalation required. Do not delay clinician review.";
+  } else if (tier === "urgent") {
+    title = "URGENT — same-day evaluation";
+    subtitle = "Escalation required. Ensure clinician review today.";
+  } else if (tier === "routine") {
+    title = "ROUTINE — stable (with return precautions)";
+    subtitle = "No explicit red flags detected in provided intake.";
+  }
+
+  el.innerHTML = "";
+
+  const t = document.createElement("div");
+  t.className = "banner-title";
+  t.textContent = title;
+
+  const s = document.createElement("div");
+  s.className = "banner-subtitle";
+  s.textContent = subtitle;
+
+  el.appendChild(t);
+  el.appendChild(s);
+
+  const meta = document.createElement("div");
+  meta.className = "banner-meta";
+
+  const topAction = actions.length ? actions[0] : "";
+  const topFlags = redFlags.slice(0, 2).join(" • ");
+  const bits = [];
+  if (rationale) bits.push(`Why: ${rationale}`);
+  if (topFlags) bits.push(`Red flags: ${topFlags}${redFlags.length > 2 ? " • …" : ""}`);
+  if (topAction) bits.push(`Top action: ${topAction}`);
+  meta.textContent = bits.length ? bits.join("  |  ") : "—";
+
+  el.appendChild(meta);
+}
+
 function renderResult(result, requestIdFromHeader) {
   state.lastResult = result;
   state.lastRequestId = requestIdFromHeader || result.request_id || null;
 
+  renderDecisionBanner(result);
   setRiskTier(result.risk_tier);
   setText("careSetting", careSettingFromTier(result.risk_tier));
   renderVitalsSummary(state.lastIntake);
