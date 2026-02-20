@@ -19,6 +19,46 @@ function fmtJson(obj) {
   return JSON.stringify(obj, null, 2);
 }
 
+// ------------------------------------------------------------
+// Lightweight PHI/PII warning (demo only; best-effort heuristics)
+// ------------------------------------------------------------
+
+const PHI_PATTERNS = [
+  { name: "email", re: /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i },
+  // Very rough US-centric phone heuristic; intentionally permissive for a warning banner.
+  { name: "phone", re: /\b(?:\+?1[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]?\d{3}[\s.-]?\d{4}\b/ },
+  { name: "ssn", re: /\b\d{3}-\d{2}-\d{4}\b/ },
+];
+
+function detectPhiHits(intake) {
+  const hits = [];
+  if (!intake || typeof intake !== "object") return hits;
+
+  const fields = [
+    { name: "chief_complaint", value: intake.chief_complaint },
+    { name: "history", value: intake.history },
+    { name: "prior_notes", value: (intake.prior_notes || []).join("\n") },
+    { name: "image_descriptions", value: (intake.image_descriptions || []).join("\n") },
+  ];
+
+  fields.forEach((f) => {
+    const text = String(f.value || "");
+    if (!text.trim()) return;
+    PHI_PATTERNS.forEach((p) => {
+      if (p.re.test(text)) hits.push(`${f.name}:${p.name}`);
+    });
+  });
+
+  // Dedupe but keep stable ordering.
+  return [...new Set(hits)];
+}
+
+function updatePhiWarning(intake) {
+  const hits = detectPhiHits(intake);
+  show("phiWarn", hits.length > 0);
+  setText("phiWarnDetail", hits.length ? `Detected: ${hits.join(", ")}` : "");
+}
+
 function parseLines(value) {
   return String(value || "")
     .split(/\r?\n/g)
@@ -562,9 +602,10 @@ function renderResult(result, requestIdFromHeader) {
   setText("careSetting", careSettingFromTier(result.risk_tier));
   renderVitalsSummary(state.lastIntake);
   const backend = extractBackend(result);
+  const commBackend = extractCommBackend(result);
   setText(
     "metaLine",
-    `request_id: ${state.lastRequestId || "—"} • latency: ${result.total_latency_ms ?? "—"} ms • backend: ${backend}`,
+    `request_id: ${state.lastRequestId || "—"} • latency: ${result.total_latency_ms ?? "—"} ms • reasoning: ${backend} • comm: ${commBackend}`,
   );
 
   const escalation = result.escalation_required ? "required" : "not required";
@@ -603,6 +644,8 @@ function renderResult(result, requestIdFromHeader) {
   if (reasoning.reasoning_backend) reasoningBits.push(`backend=${reasoning.reasoning_backend}`);
   if (model) reasoningBits.push(`model=${model}`);
   if (pv) reasoningBits.push(`prompt=${pv}`);
+  if (reasoning.images_present != null) reasoningBits.push(`images=${reasoning.images_sent ?? 0}/${reasoning.images_present}`);
+  if (reasoning.reasoning_backend_error) reasoningBits.push(`error=${String(reasoning.reasoning_backend_error).slice(0, 80)}`);
   setText("reasoningInfo", reasoningBits.length ? reasoningBits.join(" • ") : "—");
   setText("rationale", reasoning.reasoning_rationale || "—");
 
@@ -611,6 +654,14 @@ function renderResult(result, requestIdFromHeader) {
 
   $("handoff").textContent = result.clinician_handoff || "—";
   $("patientSummary").textContent = result.patient_summary || "—";
+
+  const comm = traceOutput(result, "communication");
+  const commBits = [];
+  if (comm.communication_backend) commBits.push(`backend=${comm.communication_backend}`);
+  if (comm.communication_backend_model) commBits.push(`model=${comm.communication_backend_model}`);
+  if (comm.communication_prompt_version) commBits.push(`prompt=${comm.communication_prompt_version}`);
+  if (comm.communication_backend_error) commBits.push(`error=${String(comm.communication_backend_error).slice(0, 80)}`);
+  setText("commInfo", commBits.length ? `Communication: ${commBits.join(" • ")}` : "Communication: —");
 
   renderTrace(result.trace || []);
 
@@ -702,11 +753,20 @@ async function loadDoctor() {
     const fullLabel = status ? `${label} • ${status}` : label;
     setText("backendBadge", `backend: ${fullLabel}`);
 
+    const commBackend = (d.communication_backend || {}).backend || "deterministic";
+    const commModel = (d.communication_backend || {}).model || "";
+    const commOk = (d.communication_backend || {}).connectivity_ok;
+    const commStatus = commOk === true ? "ok" : commOk === false ? "unreachable" : "";
+    const commLabel = commModel ? `${commBackend} • ${commModel}` : commBackend;
+    const commFullLabel = commStatus ? `${commLabel} • ${commStatus}` : commLabel;
+    setText("commBadge", `comm: ${commFullLabel}`);
+
     const policy = (d.policy_pack || {}).sha256 || "";
     setText("policyBadge", policy ? `policy: ${policy.slice(0, 10)}…` : "policy: (none)");
     renderImagePreview();
   } catch (e) {
     setText("backendBadge", "backend: unknown");
+    setText("commBadge", "comm: unknown");
     setText("policyBadge", "policy: unknown");
   }
 }
@@ -780,6 +840,7 @@ async function loadPreset() {
   state.lastIntake = intake;
   fillFormFromIntake(intake);
   $("intakeJson").value = fmtJson(intakeForJsonView(intake));
+  updatePhiWarning(intake);
   setText("statusLine", `Loaded preset: ${id}`);
 }
 
@@ -808,6 +869,7 @@ async function runTriage() {
     return;
   }
 
+  updatePhiWarning(intake);
   intake = attachImagesToIntake(intake);
   state.lastIntake = intake;
   $("intakeJson").value = fmtJson(intakeForJsonView(intake));
@@ -829,6 +891,20 @@ function extractBackend(result) {
     for (const s of steps) {
       if (s.agent === "multimodal_reasoning") {
         return (s.output || {}).reasoning_backend || "deterministic";
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+  return "deterministic";
+}
+
+function extractCommBackend(result) {
+  try {
+    const steps = result.trace || [];
+    for (const s of steps) {
+      if (s.agent === "communication") {
+        return (s.output || {}).communication_backend || "deterministic";
       }
     }
   } catch (e) {
@@ -1283,7 +1359,122 @@ async function downloadFhirBundle() {
   }
 }
 
-function renderBenchSummary(summary) {
+const BENCH_TIERS = ["routine", "urgent", "critical"];
+
+function benchTierConfusion(perCase, key) {
+  const m = {};
+  BENCH_TIERS.forEach((g) => {
+    m[g] = {};
+    BENCH_TIERS.forEach((p) => (m[g][p] = 0));
+  });
+
+  (perCase || []).forEach((row) => {
+    const gold = String(row?.gold?.risk_tier || "").trim().toLowerCase();
+    const pred = String(row?.[key]?.risk_tier || "").trim().toLowerCase();
+    if (!BENCH_TIERS.includes(gold) || !BENCH_TIERS.includes(pred)) return;
+    m[gold][pred] += 1;
+  });
+
+  let correct = 0;
+  let total = 0;
+  BENCH_TIERS.forEach((g) => {
+    BENCH_TIERS.forEach((p) => {
+      const v = m[g][p] || 0;
+      total += v;
+      if (g === p) correct += v;
+    });
+  });
+  const acc = total ? (100.0 * correct) / total : 0.0;
+  return { matrix: m, total, acc: Number(acc.toFixed(1)) };
+}
+
+function benchConfusionTable(conf, label) {
+  const wrap = document.createElement("div");
+  wrap.className = "callout";
+  wrap.innerHTML = `<div class="k">${escapeHtml(label)}</div><div class="small muted">Gold rows × predicted columns • accuracy=${conf.acc}%</div>`;
+
+  const tw = document.createElement("div");
+  tw.className = "tablewrap";
+  const table = document.createElement("table");
+  const thead = document.createElement("thead");
+  thead.innerHTML = `<tr><th>gold \\ pred</th>${BENCH_TIERS.map((t) => `<th>${t}</th>`).join("")}</tr>`;
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  BENCH_TIERS.forEach((g) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td class="mono">${g}</td>${BENCH_TIERS.map((p) => `<td class="mono">${conf.matrix[g][p] || 0}</td>`).join("")}`;
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  tw.appendChild(table);
+  wrap.appendChild(tw);
+  return wrap;
+}
+
+function benchCategoryStats(perCase) {
+  const stats = {};
+  (perCase || []).forEach((row) => {
+    const gold = row?.gold?.categories || [];
+    const base = row?.baseline?.categories || [];
+    const cf = row?.clinicaflow?.categories || [];
+
+    (gold || []).forEach((cat) => {
+      const c = String(cat || "").trim();
+      if (!c) return;
+      if (!stats[c]) stats[c] = { denom: 0, base_hit: 0, cf_hit: 0 };
+      stats[c].denom += 1;
+      if ((base || []).includes(c)) stats[c].base_hit += 1;
+      if ((cf || []).includes(c)) stats[c].cf_hit += 1;
+    });
+  });
+  return stats;
+}
+
+function renderBenchCategoryRecall(perCase) {
+  const stats = benchCategoryStats(perCase);
+  const cats = Object.keys(stats).sort();
+  if (!cats.length) return null;
+
+  const wrap = document.createElement("div");
+  wrap.className = "callout";
+  wrap.innerHTML = `<div class="k">Category recall (by red-flag category)</div><div class="small muted">Among cases with category present in gold labels.</div>`;
+
+  const tw = document.createElement("div");
+  tw.className = "tablewrap";
+  const table = document.createElement("table");
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>Category</th>
+        <th>n</th>
+        <th>Baseline</th>
+        <th>ClinicaFlow</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${cats
+        .map((c) => {
+          const s = stats[c];
+          const denom = Math.max(1, Number(s.denom || 0));
+          const base = (100.0 * Number(s.base_hit || 0)) / denom;
+          const cf = (100.0 * Number(s.cf_hit || 0)) / denom;
+          return `<tr>
+            <td class="mono">${escapeHtml(c)}</td>
+            <td class="mono">${denom}</td>
+            <td class="mono">${base.toFixed(1)}%</td>
+            <td class="mono"><b>${cf.toFixed(1)}%</b></td>
+          </tr>`;
+        })
+        .join("")}
+    </tbody>
+  `;
+  tw.appendChild(table);
+  wrap.appendChild(tw);
+  return wrap;
+}
+
+function renderBenchSummary(summary, perCase) {
   const root = $("benchSummary");
   root.innerHTML = "";
   if (!summary) return;
@@ -1300,6 +1491,15 @@ function renderBenchSummary(summary) {
     </div>
   `;
   root.appendChild(tbl);
+
+  if (perCase && perCase.length) {
+    const baseConf = benchTierConfusion(perCase, "baseline");
+    const cfConf = benchTierConfusion(perCase, "clinicaflow");
+    root.appendChild(benchConfusionTable(baseConf, "Tier confusion (baseline)"));
+    root.appendChild(benchConfusionTable(cfConf, "Tier confusion (ClinicaFlow)"));
+    const catTable = renderBenchCategoryRecall(perCase);
+    if (catTable) root.appendChild(catTable);
+  }
 }
 
 function renderBenchCases(perCase) {
@@ -1379,7 +1579,7 @@ async function runBench() {
     const payload = await fetchJson(`/bench/vignettes?set=${encodeURIComponent(setName)}`);
     state.lastBench = payload;
     state.lastBenchSet = payload.set || setName;
-    renderBenchSummary(payload.summary);
+    renderBenchSummary(payload.summary, payload.per_case);
     renderBenchCases(payload.per_case);
     $("benchStatus").textContent = "Done.";
   } catch (e) {
@@ -2157,6 +2357,7 @@ function wireEvents() {
       if (!("image_data_urls" in (intake || {})) && !("images" in (intake || {}))) {
         setImages(beforeImages);
       }
+      updatePhiWarning(intake);
       setText("statusLine", "Applied JSON to form.");
       setError("intakeError", "");
     } catch (e) {
@@ -2168,6 +2369,7 @@ function wireEvents() {
     try {
       const intake = buildIntakeFromForm();
       $("intakeJson").value = fmtJson(intakeForJsonView(intake));
+      updatePhiWarning(intake);
       setText("statusLine", "Updated JSON from form.");
       setError("intakeError", "");
     } catch (e) {

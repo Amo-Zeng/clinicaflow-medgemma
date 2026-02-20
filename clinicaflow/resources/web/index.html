@@ -14,6 +14,7 @@
       </div>
       <div class="top-actions">
         <span id="backendBadge" class="pill">backend: loading…</span>
+        <span id="commBadge" class="pill subtle">comm: loading…</span>
         <span id="policyBadge" class="pill subtle">policy: loading…</span>
         <a class="btn subtle" href="/openapi.json" target="_blank" rel="noreferrer">OpenAPI</a>
         <a class="btn subtle" href="/metrics" target="_blank" rel="noreferrer">Metrics</a>
@@ -138,6 +139,13 @@
             </div>
 
             <div id="intakeError" class="alert hidden"></div>
+            <div id="phiWarn" class="callout hidden">
+              <div class="row" style="margin-top: 0;">
+                <span class="chip warn">PHI warning</span>
+                <div class="small muted">Potential identifiers detected (phone/email/SSN). Use synthetic data only.</div>
+              </div>
+              <div id="phiWarnDetail" class="small muted mono" style="margin-top: 8px;"></div>
+            </div>
             <div class="hint">
               Tip: For a “judge-friendly” demo, load a vignette, run triage, then expand <b>Agent trace</b> and download
               an <b>audit bundle</b>.
@@ -200,6 +208,7 @@
             <details class="details" open>
               <summary>Clinician handoff</summary>
               <div id="handoff" class="prewrap muted">—</div>
+              <div id="commInfo" class="small muted" style="margin-top: 8px;">—</div>
             </details>
 
             <details class="details">

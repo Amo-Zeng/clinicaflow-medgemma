@@ -93,7 +93,10 @@ def build_audit_bundle_files(
         "redacted": redact,
         "file_hashes_sha256": file_hashes,
         "policy_pack_sha256": _extract_policy_pack_sha256(result.to_dict()),
+        "policy_pack_source": _extract_policy_pack_source(result.to_dict()),
+        "safety_rules_version": _extract_safety_rules_version(result.to_dict()),
         "reasoning": _extract_reasoning_meta(result.to_dict()),
+        "communication": _extract_communication_meta(result.to_dict()),
     }
     manifest_bytes = _json_bytes(manifest)
 
@@ -188,6 +191,30 @@ def _extract_policy_pack_sha256(result_payload: dict) -> str:
     return ""
 
 
+def _extract_policy_pack_source(result_payload: dict) -> str:
+    try:
+        for step in result_payload.get("trace", []):
+            if step.get("agent") == "evidence_policy":
+                output = step.get("output") or {}
+                value = output.get("policy_pack_source")
+                return str(value or "")
+    except Exception:  # noqa: BLE001
+        return ""
+    return ""
+
+
+def _extract_safety_rules_version(result_payload: dict) -> str:
+    try:
+        for step in result_payload.get("trace", []):
+            if step.get("agent") == "safety_escalation":
+                output = step.get("output") or {}
+                value = output.get("safety_rules_version")
+                return str(value or "")
+    except Exception:  # noqa: BLE001
+        return ""
+    return ""
+
+
 def _extract_reasoning_meta(result_payload: dict) -> dict[str, Any]:
     try:
         for step in result_payload.get("trace", []):
@@ -198,6 +225,22 @@ def _extract_reasoning_meta(result_payload: dict) -> dict[str, Any]:
                     "model": str(output.get("reasoning_backend_model") or ""),
                     "prompt_version": str(output.get("reasoning_prompt_version") or ""),
                     "error": str(output.get("reasoning_backend_error") or ""),
+                }
+    except Exception:  # noqa: BLE001
+        return {}
+    return {}
+
+
+def _extract_communication_meta(result_payload: dict) -> dict[str, Any]:
+    try:
+        for step in result_payload.get("trace", []):
+            if step.get("agent") == "communication":
+                output = step.get("output") or {}
+                return {
+                    "backend": str(output.get("communication_backend") or ""),
+                    "model": str(output.get("communication_backend_model") or ""),
+                    "prompt_version": str(output.get("communication_prompt_version") or ""),
+                    "error": str(output.get("communication_backend_error") or ""),
                 }
     except Exception:  # noqa: BLE001
         return {}
