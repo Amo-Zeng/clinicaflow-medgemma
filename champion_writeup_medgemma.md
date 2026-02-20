@@ -51,6 +51,7 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
   - request IDs end-to-end (`X-Request-ID`),
   - probes (`GET /health`, `GET /ready`, `GET /live`),
   - OpenAPI spec + metrics endpoint (JSON + Prometheus),
+  - packaged-resource validation (`clinicaflow validate`) to prevent broken policy packs / vignette sets,
   - policy-pack introspection endpoint (`GET /policy_pack`) with sha256 + policy IDs (governance-ready),
   - optional JSON logs (`CLINICAFLOW_JSON_LOGS=true`) for log pipelines,
   - optional API-key protection for `POST /triage` (`CLINICAFLOW_API_KEY`),

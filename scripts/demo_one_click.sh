@@ -15,6 +15,7 @@ MEDGEMMA_VLLM_ARGS="${MEDGEMMA_VLLM_ARGS:-}"
 MEDGEMMA_SERVED_MODEL_NAME="${MEDGEMMA_SERVED_MODEL_NAME:-}"
 
 RUN_BENCHMARKS="${RUN_BENCHMARKS:-0}"
+OPEN_BROWSER="${OPEN_BROWSER:-0}"
 
 VLLM_PID=""
 SERVER_PID=""
@@ -117,12 +118,24 @@ maybe_start_medgemma_vllm() {
     return 0
   fi
 
+  vllm_extra_args=()
+  if [[ -n "${MEDGEMMA_SERVED_MODEL_NAME:-}" ]]; then
+    if python -m vllm.entrypoints.openai.api_server --help 2>&1 | grep -q -- "--served-model-name"; then
+      vllm_extra_args+=(--served-model-name "$MEDGEMMA_SERVED_MODEL_NAME")
+    else
+      echo "[demo] WARNING: MEDGEMMA_SERVED_MODEL_NAME is set but this vLLM build has no --served-model-name flag."
+      echo "       Ignoring MEDGEMMA_SERVED_MODEL_NAME; model will be served as: ${MEDGEMMA_MODEL}"
+    fi
+  fi
+
   echo "[demo] Starting MedGemma vLLM OpenAI-compatible server..."
   set -x
+  # shellcheck disable=SC2086
   python -m vllm.entrypoints.openai.api_server \
     --model "$MEDGEMMA_MODEL" \
     --host "$MEDGEMMA_HOST" \
     --port "$MEDGEMMA_PORT" \
+    "${vllm_extra_args[@]}" \
     $MEDGEMMA_VLLM_ARGS &
   set +x
   VLLM_PID="$!"
@@ -239,5 +252,12 @@ echo "       UI:      http://127.0.0.1:${CLINICAFLOW_PORT}/"
 echo "       OpenAPI: http://127.0.0.1:${CLINICAFLOW_PORT}/openapi.json"
 echo "       Metrics: http://127.0.0.1:${CLINICAFLOW_PORT}/metrics"
 echo ""
+
+if [[ "${OPEN_BROWSER}" == "1" ]]; then
+  python - <<PY
+import webbrowser
+webbrowser.open("http://127.0.0.1:${CLINICAFLOW_PORT}/")
+PY
+fi
 
 wait "$SERVER_PID"

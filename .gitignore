@@ -10,6 +10,8 @@ venv/
 .env
 .DS_Store
 tmp/
+reviews/clinician_review_packet.md
+reviews/clinician_reviews.json
 *.zip
 *.png
 kaggle.json

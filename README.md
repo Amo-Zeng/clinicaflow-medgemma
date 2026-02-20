@@ -59,6 +59,12 @@ Run tests:
 python -m unittest discover -s tests
 ```
 
+Validate packaged resources (policy pack + vignettes):
+
+```bash
+clinicaflow validate --pretty
+```
+
 ## Audit Bundle (QA / Compliance)
 
 Write an auditable run bundle (input + output + runtime diagnostics + manifest with hashes):

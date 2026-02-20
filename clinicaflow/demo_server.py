@@ -40,81 +40,316 @@ DEMO_HTML = """<!doctype html>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>ClinicaFlow Demo (Legacy UI)</title>
+    <title>ClinicaFlow Console (Fallback UI)</title>
     <style>
-      :root { color-scheme: light; }
-      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 24px; max-width: 1100px; }
-      h1 { margin: 0 0 6px; font-size: 22px; }
-      .sub { color: #555; margin: 0 0 18px; }
-      .warn { background: #fffbeb; border: 1px solid #f59e0b44; border-radius: 10px; padding: 10px; margin: 14px 0; color: #92400e; }
-      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-      textarea { width: 100%; height: 520px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; padding: 10px; border: 1px solid #ccc; border-radius: 8px; }
-      pre { height: 520px; overflow: auto; padding: 10px; border: 1px solid #ccc; border-radius: 8px; background: #fafafa; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; margin: 0; }
-      .row { display: flex; gap: 10px; align-items: center; margin: 10px 0 14px; }
-      button { border: 1px solid #222; background: #222; color: #fff; padding: 8px 10px; border-radius: 10px; cursor: pointer; }
-      button.secondary { background: #fff; color: #222; }
-      .hint { color: #666; font-size: 12px; }
-      .badge { display:inline-block; padding: 3px 8px; border-radius: 999px; background:#eef; color:#223; font-size: 12px; }
+      :root {
+        color-scheme: light;
+        --bg: #f6f7f9;
+        --panel: #ffffff;
+        --text: #111827;
+        --muted: #6b7280;
+        --border: #e5e7eb;
+        --shadow: 0 1px 2px rgba(16, 24, 40, 0.08), 0 8px 28px rgba(16, 24, 40, 0.06);
+        --radius: 14px;
+        --green-bg: #ecfdf5;
+        --green: #065f46;
+        --amber-bg: #fffbeb;
+        --amber: #92400e;
+        --red-bg: #fef2f2;
+        --red: #991b1b;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--text); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+      code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: 12px; }
+      header { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--border); background: rgba(255,255,255,0.7); backdrop-filter: blur(8px); position: sticky; top: 0; z-index: 5; }
+      .brand-title { font-size: 18px; font-weight: 900; }
+      .brand-subtitle { font-size: 12px; color: var(--muted); margin-top: 2px; }
+      .top-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+      .pill { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border); background: #fff; color: #374151; font-weight: 800; }
+      .btn { border: 1px solid var(--border); background: #fff; color: #111827; padding: 9px 10px; border-radius: 12px; cursor: pointer; font-weight: 800; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+      .btn.primary { border-color: #111827; background: #111827; color: #fff; }
+      .container { max-width: 1200px; margin: 0 auto; padding: 18px; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+      @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
+      .panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; box-shadow: var(--shadow); }
+      h2 { margin: 0; font-size: 16px; }
+      .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+      .small { font-size: 12px; color: var(--muted); }
+      .warn { margin-top: 10px; border: 1px solid rgba(146, 64, 14, 0.25); background: var(--amber-bg); color: var(--amber); border-radius: 12px; padding: 10px; font-size: 12px; font-weight: 700; }
+      .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+      .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+      .field { display: flex; flex-direction: column; gap: 6px; }
+      .field.span-2 { grid-column: span 2; }
+      label { font-size: 12px; font-weight: 800; color: #374151; }
+      textarea, input, select { border: 1px solid var(--border); border-radius: 12px; padding: 10px; font-size: 13px; background: #fff; }
+      textarea { resize: vertical; }
+      .risk { display: inline-flex; padding: 6px 10px; border-radius: 999px; font-weight: 900; letter-spacing: 0.2px; border: 1px solid var(--border); background: #fff; }
+      .risk.routine { background: var(--green-bg); color: var(--green); border-color: rgba(6, 95, 70, 0.25); }
+      .risk.urgent { background: var(--amber-bg); color: var(--amber); border-color: rgba(146, 64, 14, 0.25); }
+      .risk.critical { background: var(--red-bg); color: var(--red); border-color: rgba(153, 27, 27, 0.25); }
+      .card { border: 1px solid var(--border); border-radius: 12px; padding: 10px; background: #fff; margin-top: 10px; }
+      .k { font-size: 12px; font-weight: 900; color: #374151; margin-bottom: 6px; }
+      ul, ol { margin: 0; padding-left: 18px; }
+      li { margin: 4px 0; }
+      pre { margin: 10px 0 0; border: 1px solid var(--border); border-radius: 12px; padding: 10px; background: #0b1020; color: #e5e7eb; overflow: auto; max-height: 420px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: 12px; }
+      details { border: 1px solid var(--border); border-radius: 12px; padding: 10px; margin-top: 10px; background: #fff; }
+      details summary { cursor: pointer; font-weight: 800; color: #111827; }
     </style>
   </head>
   <body>
-    <h1>ClinicaFlow Demo <span class="badge">local</span></h1>
-    <p class="sub">Agentic triage workflow scaffold with an auditable 5-step trace.</p>
-
-    <div class="warn">
-      <b>Note:</b> You are seeing the <b>legacy fallback UI</b>. The full “ClinicaFlow Console” UI is served from bundled
-      web assets under <code>/static/</code>. If this page looks too minimal, restart the server after reinstalling
-      (e.g. <code>pip install -e .</code>), or run <code>bash scripts/demo_one_click.sh</code>.
-    </div>
-
-    <div class="row">
-      <button id="load">Load sample</button>
-      <button class="secondary" id="run">Run triage</button>
-      <span class="hint">Endpoints: <code>GET /health</code>, <code>GET /openapi.json</code>, <code>GET /metrics</code>, <code>POST /triage</code></span>
-    </div>
-
-    <div class="grid">
+    <header>
       <div>
-        <div class="hint" style="margin: 0 0 6px;">Input JSON</div>
-        <textarea id="input"></textarea>
+        <div class="brand-title">ClinicaFlow Console</div>
+        <div class="brand-subtitle">Fallback UI (assets missing) - still demo-friendly</div>
       </div>
-      <div>
-        <div class="hint" style="margin: 0 0 6px;">Output</div>
-        <pre id="output">{}</pre>
+      <div class="top-actions">
+        <span id="backendBadge" class="pill">backend: loading...</span>
+        <a class="btn" href="/openapi.json" target="_blank" rel="noreferrer">OpenAPI</a>
+        <a class="btn" href="/metrics" target="_blank" rel="noreferrer">Metrics</a>
+        <a class="btn" href="/doctor" target="_blank" rel="noreferrer">Doctor</a>
+        <a class="btn" href="/policy_pack" target="_blank" rel="noreferrer">Policy pack</a>
       </div>
-    </div>
+    </header>
+
+    <main class="container">
+      <div class="warn">
+        <b>Note:</b> This is the <b>fallback UI</b> served when bundled web assets under <code>/static/</code> are unavailable.
+        For the full Console UI (tabs, regression, review, workspace), reinstall and restart:
+        <code>pip install -e .</code> or <code>bash scripts/demo_one_click.sh</code>.
+      </div>
+
+      <div class="grid" style="margin-top: 14px;">
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Patient intake</h2>
+            <div class="small">Decision support only - use synthetic data (no PHI).</div>
+          </div>
+
+          <div class="form-grid">
+            <div class="field span-2">
+              <label for="chief">Chief complaint</label>
+              <textarea id="chief" rows="3" placeholder="e.g., Chest pain for 20 minutes"></textarea>
+            </div>
+            <div class="field span-2">
+              <label for="history">History (brief)</label>
+              <textarea id="history" rows="3" placeholder="PMH, onset, progression, key negatives..."></textarea>
+            </div>
+            <div class="field">
+              <label for="age">Age</label>
+              <input id="age" type="number" min="0" step="1" placeholder="61" />
+            </div>
+            <div class="field">
+              <label for="sex">Sex</label>
+              <select id="sex">
+                <option value="">-</option>
+                <option value="female">female</option>
+                <option value="male">male</option>
+                <option value="other">other</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="hr">Heart rate</label>
+              <input id="hr" type="number" min="0" step="1" placeholder="128" />
+            </div>
+            <div class="field">
+              <label for="sbp">Systolic BP</label>
+              <input id="sbp" type="number" min="0" step="1" placeholder="92" />
+            </div>
+            <div class="field">
+              <label for="temp">Temp (C)</label>
+              <input id="temp" type="number" step="0.1" placeholder="37.9" />
+            </div>
+            <div class="field">
+              <label for="spo2">SpO2 (%)</label>
+              <input id="spo2" type="number" min="0" max="100" step="1" placeholder="93" />
+            </div>
+            <div class="field span-2">
+              <label for="notes">Prior notes (1 per line)</label>
+              <textarea id="notes" rows="3" placeholder="Prior episode of exertional chest tightness last week"></textarea>
+            </div>
+          </div>
+
+          <div class="row">
+            <button id="load" class="btn">Load sample</button>
+            <button id="run" class="btn primary">Run triage</button>
+            <span id="status" class="small"></span>
+          </div>
+
+          <details>
+            <summary>Advanced: Intake JSON</summary>
+            <div class="small">Edit JSON directly if you prefer. This will override the form inputs.</div>
+            <textarea id="intakeJson" rows="14" placeholder="{}"></textarea>
+          </details>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Output</h2>
+            <div class="small">Summary + raw JSON</div>
+          </div>
+
+          <div class="card">
+            <div class="k">Risk tier</div>
+            <div class="row" style="margin-top: 0;">
+              <div id="riskTier" class="risk">-</div>
+              <span id="escalation" class="pill">escalation: -</span>
+            </div>
+            <div id="meta" class="small">request_id: -</div>
+          </div>
+
+          <div class="card">
+            <div class="k">Red flags</div>
+            <ul id="redFlags"></ul>
+          </div>
+
+          <div class="card">
+            <div class="k">Next actions</div>
+            <ol id="actions"></ol>
+          </div>
+
+          <details open>
+            <summary>Clinician handoff</summary>
+            <pre id="handoff"></pre>
+          </details>
+
+          <details>
+            <summary>Patient return precautions</summary>
+            <pre id="patient"></pre>
+          </details>
+
+          <details>
+            <summary>Raw triage JSON</summary>
+            <pre id="output">{}</pre>
+          </details>
+        </section>
+      </div>
+    </main>
 
     <script>
-      const $input = document.getElementById('input');
-      const $output = document.getElementById('output');
+      const $ = (id) => document.getElementById(id);
       const pretty = (obj) => JSON.stringify(obj, null, 2);
 
+      function setRiskTier(tier) {
+        const el = $("riskTier");
+        el.classList.remove("routine","urgent","critical");
+        const t = String(tier || "").toLowerCase();
+        if (t) el.classList.add(t);
+        el.textContent = tier || "-";
+      }
+
+      function renderList(root, items, emptyText) {
+        root.innerHTML = "";
+        (items || []).forEach((x) => {
+          const li = document.createElement("li");
+          li.textContent = String(x);
+          root.appendChild(li);
+        });
+        if (!(items || []).length) {
+          const li = document.createElement("li");
+          li.textContent = emptyText || "-";
+          root.appendChild(li);
+        }
+      }
+
+      function buildIntakeFromForm() {
+        const demographics = {};
+        const age = Number($("age").value);
+        const sex = String($("sex").value || "").trim();
+        if (!Number.isNaN(age) && $("age").value !== "") demographics.age = age;
+        if (sex) demographics.sex = sex;
+
+        const vitals = {};
+        const addNum = (key, el) => {
+          const v = Number($(el).value);
+          if (!Number.isNaN(v) && $(el).value !== "") vitals[key] = v;
+        };
+        addNum("heart_rate", "hr");
+        addNum("systolic_bp", "sbp");
+        addNum("temperature_c", "temp");
+        addNum("spo2", "spo2");
+
+        const notes = String($("notes").value || "").split(/\\r?\\n/g).map(s => s.trim()).filter(Boolean);
+
+        return {
+          chief_complaint: String($("chief").value || "").trim(),
+          history: String($("history").value || "").trim(),
+          demographics,
+          vitals,
+          prior_notes: notes,
+        };
+      }
+
+      function fillForm(intake) {
+        intake = intake || {};
+        $("chief").value = intake.chief_complaint || "";
+        $("history").value = intake.history || "";
+        const demo = intake.demographics || {};
+        $("age").value = demo.age ?? "";
+        $("sex").value = demo.sex ?? "";
+        const vitals = intake.vitals || {};
+        $("hr").value = vitals.heart_rate ?? "";
+        $("sbp").value = vitals.systolic_bp ?? "";
+        $("temp").value = vitals.temperature_c ?? "";
+        $("spo2").value = vitals.spo2 ?? "";
+        $("notes").value = (intake.prior_notes || []).join("\\n");
+      }
+
+      async function loadDoctor() {
+        try {
+          const resp = await fetch("/doctor");
+          const d = await resp.json();
+          const backend = (d.reasoning_backend || {}).backend || "deterministic";
+          const model = (d.reasoning_backend || {}).model || "";
+          const ok = (d.reasoning_backend || {}).connectivity_ok;
+          const status = ok === true ? "ok" : ok === false ? "unreachable" : "";
+          const label = model ? `${backend} • ${model}` : backend;
+          const full = status ? `${label} • ${status}` : label;
+          $("backendBadge").textContent = `backend: ${full}`;
+        } catch (e) {
+          $("backendBadge").textContent = "backend: unknown";
+        }
+      }
+
       async function loadSample() {
-        const resp = await fetch('/example');
+        $("status").textContent = "Loading sample...";
+        const resp = await fetch("/example");
         const data = await resp.json();
-        $input.value = pretty(data);
+        fillForm(data);
+        $("intakeJson").value = pretty(data);
+        $("status").textContent = "Loaded sample.";
       }
 
       async function runTriage() {
-        let payload;
+        $("status").textContent = "Running triage...";
+        let payload = buildIntakeFromForm();
+        // If the JSON panel looks edited (not just {}), prefer it.
         try {
-          payload = JSON.parse($input.value);
+          const jsonText = String($("intakeJson").value || "").trim();
+          if (jsonText && jsonText !== "{}") payload = JSON.parse(jsonText);
         } catch (e) {
-          $output.textContent = 'Invalid JSON: ' + e;
+          // ignore and use form payload
+        }
+        if (!String(payload.chief_complaint || "").trim()) {
+          $("status").textContent = "Chief complaint is required.";
           return;
         }
-        $output.textContent = 'Running...';
-        const resp = await fetch('/triage', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
+        const resp = await fetch("/triage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
         const data = await resp.json();
-        $output.textContent = pretty(data);
+        setRiskTier(data.risk_tier);
+        $("escalation").textContent = `escalation: ${data.escalation_required ? "required" : "not required"}`;
+        $("meta").textContent = `request_id: ${data.request_id || "-"} • latency: ${data.total_latency_ms ?? "-"} ms`;
+        renderList($("redFlags"), data.red_flags, "No explicit red flags.");
+        renderList($("actions"), data.recommended_next_actions, "No suggested actions.");
+        $("handoff").textContent = (data.clinician_handoff || "-");
+        $("patient").textContent = (data.patient_summary || "-");
+        $("output").textContent = pretty(data);
+        $("status").textContent = "Done.";
       }
 
-      document.getElementById('load').addEventListener('click', loadSample);
-      document.getElementById('run').addEventListener('click', runTriage);
+      $("load").addEventListener("click", loadSample);
+      $("run").addEventListener("click", runTriage);
+
+      loadDoctor();
       loadSample();
     </script>
   </body>
@@ -173,6 +408,8 @@ def _load_web_assets() -> dict[str, tuple[bytes, str]]:
 
 
 WEB_ASSETS = _load_web_assets()
+REQUIRED_WEB_ASSETS = {"index.html", "app.css", "app.js"}
+HAS_CONSOLE_UI = all(name in WEB_ASSETS for name in REQUIRED_WEB_ASSETS)
 
 VIGNETTE_CACHE: dict[str, list[dict]] = {}
 
@@ -317,8 +554,12 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
             query = parse_qs(parsed.query)
 
             if path in {"/", "/demo"}:
-                data, content_type = WEB_ASSETS.get("index.html", (DEMO_HTML.encode("utf-8"), "text/html; charset=utf-8"))
-                ui = "console" if "index.html" in WEB_ASSETS else "legacy"
+                if HAS_CONSOLE_UI:
+                    data, content_type = WEB_ASSETS["index.html"]
+                    ui = "console"
+                else:
+                    data, content_type = (DEMO_HTML.encode("utf-8"), "text/html; charset=utf-8")
+                    ui = "legacy"
                 self._write_bytes(
                     data,
                     content_type=content_type,

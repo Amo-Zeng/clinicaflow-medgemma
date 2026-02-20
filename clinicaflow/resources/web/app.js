@@ -594,6 +594,36 @@ function renderTrace(trace) {
   }
 }
 
+function renderTraceMini(trace) {
+  const root = $("traceMini");
+  if (!root) return;
+
+  const steps = Array.isArray(trace) ? trace : [];
+  if (!steps.length) {
+    root.textContent = "—";
+    return;
+  }
+
+  const wrap = document.createElement("div");
+  wrap.className = "trace-mini";
+
+  steps.forEach((step) => {
+    const agent = document.createElement("div");
+    agent.className = "agent";
+    agent.textContent = String(step.agent || "agent");
+
+    const lat = document.createElement("div");
+    lat.className = "lat mono";
+    lat.textContent = step.latency_ms != null ? `${step.latency_ms} ms` : "";
+
+    wrap.appendChild(agent);
+    wrap.appendChild(lat);
+  });
+
+  root.innerHTML = "";
+  root.appendChild(wrap);
+}
+
 function renderResult(result, requestIdFromHeader) {
   state.lastResult = result;
   state.lastRequestId = requestIdFromHeader || result.request_id || null;
@@ -663,6 +693,7 @@ function renderResult(result, requestIdFromHeader) {
   if (comm.communication_backend_error) commBits.push(`error=${String(comm.communication_backend_error).slice(0, 80)}`);
   setText("commInfo", commBits.length ? `Communication: ${commBits.join(" • ")}` : "Communication: —");
 
+  renderTraceMini(result.trace || []);
   renderTrace(result.trace || []);
 
   $("rawResult").textContent = fmtJson(result);

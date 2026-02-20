@@ -21,6 +21,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] in {"validate", "check"}:
+        validate_parser = argparse.ArgumentParser(description="Validate packaged ClinicaFlow resources (policy pack, vignettes).")
+        validate_parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON output")
+        args = validate_parser.parse_args(sys.argv[2:])
+
+        from clinicaflow.validators import validate_all
+
+        report = validate_all().to_dict()
+        print(json.dumps(report, indent=2 if args.pretty else None, ensure_ascii=False))
+        raise SystemExit(0 if report.get("ok") else 2)
+
     if len(sys.argv) > 1 and sys.argv[1] in {"serve", "server"}:
         serve_parser = argparse.ArgumentParser(description="Run ClinicaFlow demo HTTP server.")
         serve_parser.add_argument("--host", default="0.0.0.0")

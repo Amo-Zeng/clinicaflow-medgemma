@@ -345,6 +345,22 @@ textarea.mono { font-size: 12px; }
 }
 .trace summary { cursor: pointer; font-weight: 800; }
 
+.trace-mini {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 10px;
+  align-items: baseline;
+}
+
+.trace-mini .agent {
+  font-weight: 900;
+  color: #111827;
+}
+
+.trace-mini .lat {
+  color: var(--muted);
+}
+
 .pre {
   margin: 10px 0 0;
   border: 1px solid var(--border);
