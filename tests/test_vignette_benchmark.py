@@ -13,7 +13,7 @@ from clinicaflow.benchmarks.vignettes import (
 
 class VignetteBenchmarkTests(unittest.TestCase):
     def test_vignette_regression_metrics_match_writeup(self) -> None:
-        summary, _ = run_benchmark(load_default_vignette_path())
+        summary, per_case = run_benchmark(load_default_vignette_path())
 
         self.assertEqual(summary.n_cases, 30)
         self.assertEqual(summary.red_flag_recall_baseline, 87.5)
@@ -22,6 +22,14 @@ class VignetteBenchmarkTests(unittest.TestCase):
         self.assertEqual(summary.under_triage_rate_clinicaflow, 0.0)
         self.assertEqual(summary.over_triage_rate_baseline, 50.0)
         self.assertEqual(summary.over_triage_rate_clinicaflow, 0.0)
+
+        self.assertTrue(per_case)
+        cf = per_case[0]["clinicaflow"]
+        self.assertIn("safety_triggers", cf)
+        self.assertIn("actions_added_by_safety", cf)
+        self.assertIn("recommended_next_actions", cf)
+        self.assertIn("action_provenance", cf)
+        self.assertIn("workflow", cf)
 
     def test_vignette_extended_metrics_match_writeup(self) -> None:
         rows = []

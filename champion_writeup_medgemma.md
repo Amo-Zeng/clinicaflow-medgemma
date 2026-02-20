@@ -49,6 +49,7 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
 
 - **Runnable everywhere**: the open-source scaffold runs without GPUs and includes a local demo server.
 - **Reproducible evaluation**: we ship a synthetic benchmark + baseline so improvements are measurable and repeatable.
+- **Safety governance gate**: `clinicaflow benchmark governance --set mega --gate` generates an exportable governance report + failure packet and fails CI if under-triage regresses.
 - **Auditability**: every run records a 5-step trace that can be logged and inspected.
 - **Production-ready scaffolding**:
   - request IDs end-to-end (`X-Request-ID`),

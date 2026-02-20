@@ -114,6 +114,11 @@ def main() -> None:
 
             argv = sys.argv[3:]
             module = "clinicaflow.benchmarks.vignettes"
+        elif explicit_sub and sub in {"governance", "gate"}:
+            from clinicaflow.benchmarks.governance import main as bench_main
+
+            argv = sys.argv[3:]
+            module = "clinicaflow.benchmarks.governance"
         elif explicit_sub and sub in {"review_packet", "review-packet", "review"}:
             from clinicaflow.benchmarks.review_packet import main as bench_main
 
@@ -126,7 +131,7 @@ def main() -> None:
             module = "clinicaflow.benchmarks.review_summary"
         elif explicit_sub:
             raise SystemExit(
-                f"Unknown benchmark subcommand: {sub} (expected: synthetic|vignettes|review_packet|review_summary)"
+                f"Unknown benchmark subcommand: {sub} (expected: synthetic|vignettes|governance|review_packet|review_summary)"
             )
         else:
             from clinicaflow.benchmarks.synthetic import main as bench_main

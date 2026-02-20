@@ -137,6 +137,12 @@ One-command writeup assets (all benchmark tables + `doctor.json` snapshot):
 bash scripts/reproduce_writeup.sh
 ```
 
+Safety governance gate + failure packet (mega set):
+
+```bash
+clinicaflow benchmark governance --set mega --gate
+```
+
 Prepare a Kaggle-friendly submission pack (writeup + tables + docs + cover images):
 
 ```bash

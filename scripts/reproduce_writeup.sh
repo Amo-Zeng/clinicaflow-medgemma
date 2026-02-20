@@ -49,6 +49,13 @@ echo "[writeup] Vignettes combined (mega)"
 python -m clinicaflow.benchmarks.vignettes --set mega --print-markdown | tee "$OUT_DIR/vignettes_mega.md"
 echo ""
 
+echo "[writeup] Safety governance report + failure packet (mega)"
+clinicaflow benchmark governance --set mega --gate \
+  --bench-out "$OUT_DIR/governance_mega.json" \
+  --failure-out "$OUT_DIR/vignette_failure_packet_mega.md" \
+  | tee "$OUT_DIR/governance_mega.md"
+echo ""
+
 echo "[writeup] Diagnostics snapshot (no secrets)"
 clinicaflow doctor | tee "$OUT_DIR/doctor.json" >/dev/null
 

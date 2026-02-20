@@ -26,4 +26,9 @@ jobs:
       - name: Run tests
         run: |
           python -m unittest discover -s tests
-
+      - name: Validate packaged resources
+        run: |
+          clinicaflow validate --pretty
+      - name: Safety governance gate (mega)
+        run: |
+          clinicaflow benchmark governance --set mega --gate
