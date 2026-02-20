@@ -28,6 +28,7 @@
         <button class="tab" data-tab="demo" type="button">Demo</button>
         <button class="tab" data-tab="workspace" type="button">Workspace</button>
         <button class="tab" data-tab="regression" type="button">Regression</button>
+        <button class="tab" data-tab="governance" type="button">Governance</button>
         <button class="tab" data-tab="review" type="button">Review</button>
         <button class="tab" data-tab="about" type="button">About</button>
       </nav>
@@ -320,6 +321,15 @@
                 </div>
               </li>
               <li>
+                <div class="k">Governance dashboard (safety gate)</div>
+                <div class="small muted">Show the “under-triage=0” hard gate + trigger coverage.</div>
+                <div class="row">
+                  <button id="demoGoGovernance" class="btn subtle" type="button">Open Governance tab</button>
+                  <button id="demoGovMega" class="btn primary" type="button">Run mega governance</button>
+                  <button id="demoGovDownload" class="btn subtle" type="button">Download governance report</button>
+                </div>
+              </li>
+              <li>
                 <div class="k">Adversarial robustness (safety)</div>
                 <div class="small muted">Abbreviations + negation + prompt-injection strings.</div>
                 <div class="row">
@@ -486,6 +496,59 @@
             </table>
           </div>
         </section>
+      </section>
+
+      <section id="tab-governance" class="tabpanel">
+        <div class="grid">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Safety governance</h2>
+              <div class="small">A “post-deployment” view driven by synthetic vignettes (no PHI).</div>
+            </div>
+
+            <div class="row">
+              <select id="govBenchSet" class="select">
+                <option value="standard">standard</option>
+                <option value="adversarial">adversarial</option>
+                <option value="extended">extended</option>
+                <option value="all">all</option>
+                <option value="mega">mega</option>
+              </select>
+              <button id="govRunBench" class="btn primary" type="button">Run governance benchmark</button>
+              <button id="govDownloadMd" class="btn subtle" type="button">Download governance report</button>
+              <button id="govDownloadBench" class="btn subtle" type="button">Download benchmark JSON</button>
+              <button id="govDownloadFailure" class="btn subtle" type="button">Download failure packet</button>
+              <span id="govStatus" class="small"></span>
+            </div>
+
+            <div id="govGate" class="callout"></div>
+            <div id="govCards" class="summary"></div>
+
+            <div class="callout">
+              <div class="k">Monitoring checklist (real deployment)</div>
+              <ul class="list">
+                <li><b>Under-triage</b> must stay near zero (hard gate).</li>
+                <li><b>Red-flag recall</b> by category (watch drift).</li>
+                <li><b>Safety rules version</b> + <b>policy pack sha256</b> (change control).</li>
+                <li><b>Latency & failures</b> per agent (ops).</li>
+              </ul>
+              <div class="small muted" style="margin-top: 6px;">
+                Use <code>/metrics</code> + redacted <code>audit bundle</code> packets for QA reviews.
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Drill-down</h2>
+              <div class="small">Top safety triggers, provenance, and any gate failures.</div>
+            </div>
+
+            <div id="govProvenance" class="callout"></div>
+            <div id="govTriggers" class="callout"></div>
+            <div id="govUnder" class="callout"></div>
+          </section>
+        </div>
       </section>
 
       <section id="tab-review" class="tabpanel">

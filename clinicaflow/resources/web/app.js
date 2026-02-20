@@ -1814,6 +1814,347 @@ function renderBenchSummary(summary, perCase) {
   }
 }
 
+// ---------------------------
+// Governance dashboard (UI)
+// ---------------------------
+
+function computeGovernanceGate(summary) {
+  const under = Number(summary?.under_triage_rate_clinicaflow);
+  const over = Number(summary?.over_triage_rate_clinicaflow);
+  const recall = Number(summary?.red_flag_recall_clinicaflow);
+  const okUnder = Number.isFinite(under) && under === 0;
+  const okOver = Number.isFinite(over) && over === 0;
+  const okRecall = Number.isFinite(recall) && recall >= 99.9;
+  return { under, over, recall, okUnder, okOver, okRecall, ok: okUnder && okRecall };
+}
+
+function computeActionProvenanceCounts(perCase) {
+  let safety = 0;
+  let policy = 0;
+  let total = 0;
+  let casesWithActions = 0;
+
+  (perCase || []).forEach((row) => {
+    const rec = row?.clinicaflow?.recommended_next_actions || [];
+    const added = row?.clinicaflow?.actions_added_by_safety || [];
+    if (!Array.isArray(rec) || !rec.length) return;
+    casesWithActions += 1;
+
+    const safetySet = new Set(
+      Array.isArray(added)
+        ? added
+            .map((x) => String(x || "").trim())
+            .filter((x) => x)
+        : [],
+    );
+
+    rec.forEach((a) => {
+      const text = String(a || "").trim();
+      if (!text) return;
+      total += 1;
+      if (safetySet.has(text)) safety += 1;
+      else policy += 1;
+    });
+  });
+
+  return { safety, policy, total, casesWithActions };
+}
+
+function computeSafetyTriggerIndex(perCase) {
+  const out = {};
+  (perCase || []).forEach((row) => {
+    const triggers = row?.clinicaflow?.safety_triggers;
+    if (!Array.isArray(triggers) || !triggers.length) return;
+
+    const seen = new Set();
+    triggers.forEach((t) => {
+      if (!t || typeof t !== "object") return;
+      const id = String(t.id || t.label || "").trim();
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+
+      if (!out[id]) {
+        out[id] = {
+          id,
+          label: String(t.label || id).trim() || id,
+          severity: String(t.severity || "").trim().toLowerCase() || "info",
+          n_cases: 0,
+          sample_cases: [],
+        };
+      }
+      out[id].n_cases += 1;
+      const cid = String(row?.id || "").trim();
+      if (cid && out[id].sample_cases.length < 3) out[id].sample_cases.push(cid);
+    });
+  });
+
+  const arr = Object.values(out);
+  arr.sort((a, b) => (b.n_cases || 0) - (a.n_cases || 0));
+  return arr;
+}
+
+function renderGovernance(summary, perCase) {
+  const gate = $("govGate");
+  const cards = $("govCards");
+  const prov = $("govProvenance");
+  const triggers = $("govTriggers");
+  const under = $("govUnder");
+  if (!gate && !cards && !prov && !triggers && !under) return;
+
+  function fmtPct(v) {
+    const n = Number(v);
+    return Number.isFinite(n) ? `${n.toFixed(1)}%` : "—";
+  }
+
+  if (!summary) {
+    if (gate) {
+      gate.innerHTML = "";
+      const k = document.createElement("div");
+      k.className = "k";
+      k.textContent = "Safety gate";
+      const small = document.createElement("div");
+      small.className = "small muted";
+      small.textContent = "Run a benchmark to populate governance metrics.";
+      gate.appendChild(k);
+      gate.appendChild(small);
+    }
+    if (cards) cards.innerHTML = "";
+    if (prov) prov.innerHTML = "";
+    if (triggers) triggers.innerHTML = "";
+    if (under) under.innerHTML = "";
+    return;
+  }
+
+  const gateStats = computeGovernanceGate(summary);
+  const setName = state.lastBenchSet || "standard";
+
+  if (gate) {
+    gate.innerHTML = "";
+    const k = document.createElement("div");
+    k.className = "k";
+    k.textContent = "Safety gate (hard stop for under-triage)";
+    gate.appendChild(k);
+
+    const row = document.createElement("div");
+    row.className = "row";
+    row.style.marginTop = "0";
+    const chip = document.createElement("span");
+    chip.className = `chip ${gateStats.ok ? "ok" : "bad"}`;
+    chip.textContent = gateStats.ok ? "PASS" : "FAIL";
+    row.appendChild(chip);
+    gate.appendChild(row);
+
+    const meta = document.createElement("div");
+    meta.className = "small muted";
+    meta.textContent = `set=${setName} • under-triage=${fmtPct(gateStats.under)} • red-flag recall=${fmtPct(
+      gateStats.recall,
+    )} • over-triage=${fmtPct(gateStats.over)}`;
+    gate.appendChild(meta);
+  }
+
+  if (cards) {
+    cards.innerHTML = "";
+
+    function addCard(title, line1, line2) {
+      const c = document.createElement("div");
+      c.className = "card";
+      const k = document.createElement("div");
+      k.className = "k";
+      k.textContent = title;
+      const v = document.createElement("div");
+      v.className = "mono";
+      v.textContent = line1;
+      c.appendChild(k);
+      c.appendChild(v);
+      if (line2) {
+        const s = document.createElement("div");
+        s.className = "small muted";
+        s.textContent = line2;
+        c.appendChild(s);
+      }
+      cards.appendChild(c);
+    }
+
+    addCard("Cases", `${summary.n_cases} total`, `${summary.n_gold_urgent_critical} gold urgent/critical`);
+    addCard(
+      "Under-triage gate",
+      fmtPct(gateStats.under),
+      gateStats.okUnder ? "PASS (urgent/critical never predicted routine)" : "FAIL (immediate review required)",
+    );
+    addCard(
+      "Red-flag recall",
+      fmtPct(gateStats.recall),
+      gateStats.okRecall ? "PASS (category-level recall target ≥ 99.9%)" : "WARN (possible drift)",
+    );
+    addCard(
+      "Over-triage",
+      fmtPct(gateStats.over),
+      gateStats.okOver ? "OK (routine cases not escalated)" : "WARN (ops load increase)",
+    );
+  }
+
+  if (prov) {
+    prov.innerHTML = "";
+    const k = document.createElement("div");
+    k.className = "k";
+    k.textContent = "Action provenance (SAFETY vs POLICY)";
+    prov.appendChild(k);
+
+    const stats = computeActionProvenanceCounts(perCase);
+    const small = document.createElement("div");
+    small.className = "small muted";
+    if (!stats.total) {
+      small.textContent = "No action provenance available in this benchmark output.";
+      prov.appendChild(small);
+    } else {
+      const pct = (n) => (stats.total ? (100.0 * n) / stats.total : 0.0);
+      small.textContent = `${stats.total} actions across ${stats.casesWithActions} cases`;
+      prov.appendChild(small);
+
+      function barRow(label, value, klass) {
+        const row = document.createElement("div");
+        row.className = "bar-row";
+        const left = document.createElement("div");
+        left.className = "bar-label mono";
+        left.textContent = label;
+        const bar = document.createElement("div");
+        bar.className = "bar";
+        const fill = document.createElement("div");
+        fill.className = `bar-fill ${klass || ""}`;
+        fill.style.width = `${Math.min(100, Math.max(0, pct(value)))}%`;
+        bar.appendChild(fill);
+        const right = document.createElement("div");
+        right.className = "bar-val mono";
+        right.textContent = `${pct(value).toFixed(1)}%`;
+        row.appendChild(left);
+        row.appendChild(bar);
+        row.appendChild(right);
+        prov.appendChild(row);
+      }
+
+      barRow("SAFETY", stats.safety, "safety");
+      barRow("POLICY", stats.policy, "policy");
+    }
+  }
+
+  const triggerIndex = computeSafetyTriggerIndex(perCase);
+
+  if (triggers) {
+    triggers.innerHTML = "";
+    const k = document.createElement("div");
+    k.className = "k";
+    k.textContent = "Top safety triggers (case coverage)";
+    triggers.appendChild(k);
+
+    const small = document.createElement("div");
+    small.className = "small muted";
+    small.textContent = "Count = number of cases where trigger fired (deduped per case). Click a row to load a sample case.";
+    triggers.appendChild(small);
+
+    if (!triggerIndex.length) {
+      const empty = document.createElement("div");
+      empty.className = "small muted";
+      empty.style.marginTop = "8px";
+      empty.textContent = "(no safety trigger data in benchmark output)";
+      triggers.appendChild(empty);
+    } else {
+      const tw = document.createElement("div");
+      tw.className = "tablewrap";
+      const table = document.createElement("table");
+      table.innerHTML = `
+        <thead>
+          <tr>
+            <th>Trigger</th>
+            <th>Severity</th>
+            <th>Cases</th>
+            <th>Samples</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      `;
+      const tbody = table.querySelector("tbody");
+      triggerIndex.slice(0, 14).forEach((t) => {
+        const tr = document.createElement("tr");
+        tr.style.cursor = "pointer";
+
+        const sev = String(t.severity || "").toLowerCase();
+        const sevPill = document.createElement("span");
+        const riskClass = sev === "critical" ? "critical" : sev === "urgent" ? "urgent" : "routine";
+        sevPill.className = `risk ${riskClass}`;
+        sevPill.textContent = sev || "info";
+
+        const label = `${t.label}${t.id && t.id !== t.label ? ` (${t.id})` : ""}`.trim();
+        const samples = (t.sample_cases || []).join(", ");
+
+        tr.innerHTML = `
+          <td>${escapeHtml(label)}</td>
+          <td class="sev"></td>
+          <td class="mono">${escapeHtml(String(t.n_cases || 0))}</td>
+          <td class="mono">${escapeHtml(samples)}</td>
+        `;
+        tr.querySelector(".sev").appendChild(sevPill);
+
+        const sample = String((t.sample_cases || [])[0] || "").trim();
+        if (sample) {
+          tr.addEventListener("click", () => loadVignetteById(sample, { set: setName }));
+        }
+        tbody.appendChild(tr);
+      });
+      tw.appendChild(table);
+      triggers.appendChild(tw);
+    }
+  }
+
+  if (under) {
+    under.innerHTML = "";
+    const k = document.createElement("div");
+    k.className = "k";
+    k.textContent = "Under-triage drill-down (should be empty)";
+    under.appendChild(k);
+
+    const underRows = (perCase || []).filter((r) => benchRowFlags(r).under);
+    if (!underRows.length) {
+      const ok = document.createElement("div");
+      ok.className = "small muted";
+      ok.textContent = "PASS — no under-triage cases detected.";
+      under.appendChild(ok);
+    } else {
+      const tw = document.createElement("div");
+      tw.className = "tablewrap";
+      const table = document.createElement("table");
+      table.innerHTML = `
+        <thead>
+          <tr>
+            <th>Case</th>
+            <th>Gold tier</th>
+            <th>Pred tier</th>
+            <th>Gold categories</th>
+            <th>Pred categories</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      `;
+      const tbody = table.querySelector("tbody");
+      underRows.forEach((row) => {
+        const tr = document.createElement("tr");
+        tr.className = "row-bad";
+        tr.style.cursor = "pointer";
+        tr.innerHTML = `
+          <td class="mono">${escapeHtml(String(row.id || ""))}</td>
+          <td>${escapeHtml(String(row?.gold?.risk_tier || ""))}</td>
+          <td><b>${escapeHtml(String(row?.clinicaflow?.risk_tier || ""))}</b></td>
+          <td class="mono">${escapeHtml((row?.gold?.categories || []).join(", "))}</td>
+          <td class="mono">${escapeHtml((row?.clinicaflow?.categories || []).join(", "))}</td>
+        `;
+        tr.addEventListener("click", () => loadVignetteById(row.id, { set: setName }));
+        tbody.appendChild(tr);
+      });
+      tw.appendChild(table);
+      under.appendChild(tw);
+    }
+  }
+}
+
 function renderBenchCases(perCase) {
   const body = $("benchBody");
   body.innerHTML = "";
@@ -1885,17 +2226,26 @@ async function loadVignetteById(caseId, opts) {
 }
 
 async function runBench() {
-  $("benchStatus").textContent = "Running…";
+  await runBenchSet($("benchSet")?.value || "standard", $("benchStatus"));
+}
+
+async function runBenchSet(setName, statusEl) {
+  if (statusEl) statusEl.textContent = "Running…";
   try {
-    const setName = $("benchSet")?.value || "standard";
     const payload = await fetchJson(`/bench/vignettes?set=${encodeURIComponent(setName)}`);
     state.lastBench = payload;
     state.lastBenchSet = payload.set || setName;
+
+    if ($("benchSet")) $("benchSet").value = state.lastBenchSet;
+    if ($("govBenchSet")) $("govBenchSet").value = state.lastBenchSet;
+
     renderBenchSummary(payload.summary, payload.per_case);
     renderBenchCases(payload.per_case);
-    $("benchStatus").textContent = "Done.";
+    renderGovernance(payload.summary, payload.per_case);
+
+    if (statusEl) statusEl.textContent = "Done.";
   } catch (e) {
-    $("benchStatus").textContent = `Error: ${e}`;
+    if (statusEl) statusEl.textContent = `Error: ${e}`;
   }
 }
 
@@ -1974,6 +2324,11 @@ async function buildFailurePacketMarkdown() {
       const predCats = (row?.clinicaflow?.categories || []).join(", ");
       const redFlags = (row?.clinicaflow?.red_flags || []).join("; ");
       const conf = row?.clinicaflow?.confidence;
+      const rationale = String(row?.clinicaflow?.risk_tier_rationale || "").trim();
+      const missing = Array.isArray(row?.clinicaflow?.missing_fields) ? row.clinicaflow.missing_fields : [];
+      const safetyRulesVersion = String(row?.clinicaflow?.safety_rules_version || "").trim();
+      const policySha = String(row?.clinicaflow?.policy_pack_sha256 || "").trim();
+      const riskScores = row?.clinicaflow?.risk_scores || {};
 
       let intake = null;
       try {
@@ -1991,6 +2346,72 @@ async function buildFailurePacketMarkdown() {
       lines.push(`- pred: tier=\`${predTier}\` categories=\`${predCats || "(none)"}\``);
       if (typeof conf === "number") lines.push(`- confidence (proxy): \`${conf}\``);
       if (redFlags) lines.push(`- pred_red_flags: ${redFlags}`);
+      if (rationale) lines.push(`- rationale: ${rationale}`);
+      if (missing.length) lines.push(`- missing_fields: \`${missing.join(", ")}\``);
+      if (safetyRulesVersion) lines.push(`- safety_rules_version: \`${safetyRulesVersion}\``);
+      if (policySha) lines.push(`- policy_pack_sha256: \`${policySha.slice(0, 12)}…\``);
+
+      try {
+        const parts = [];
+        if (typeof riskScores.shock_index === "number") {
+          const hi = riskScores.shock_index_high ? " (high)" : "";
+          parts.push(`shock_index=${riskScores.shock_index}${hi}`);
+        }
+        if (typeof riskScores.qsofa === "number") {
+          const hi = riskScores.qsofa_high_risk ? " (≥2)" : "";
+          parts.push(`qSOFA=${riskScores.qsofa}${hi}`);
+        }
+        if (parts.length) lines.push(`- risk_scores: \`${parts.join(" • ")}\``);
+      } catch (e) {
+        // ignore
+      }
+
+      const triggers = Array.isArray(row?.clinicaflow?.safety_triggers) ? row.clinicaflow.safety_triggers : [];
+      if (triggers.length) {
+        lines.push("- safety_triggers:");
+        triggers.slice(0, 10).forEach((t) => {
+          if (!t || typeof t !== "object") return;
+          const label = String(t.label || t.id || "").trim();
+          if (!label) return;
+          const sev = String(t.severity || "").trim().toLowerCase();
+          const detail = String(t.detail || "").trim();
+          const tail = detail ? ` — ${detail}` : "";
+          lines.push(`  - [${sev || "info"}] ${label}${tail}`);
+        });
+        if (triggers.length > 10) lines.push(`  - … (${triggers.length - 10} more)`);
+      }
+
+      const recActions = Array.isArray(row?.clinicaflow?.recommended_next_actions)
+        ? row.clinicaflow.recommended_next_actions
+        : [];
+      const safetyActionsRaw = Array.isArray(row?.clinicaflow?.actions_added_by_safety) ? row.clinicaflow.actions_added_by_safety : [];
+      const safetySet = new Set(safetyActionsRaw.map((x) => String(x || "").trim()).filter((x) => x));
+      if (recActions.length) {
+        lines.push("- recommended_next_actions (tagged):");
+        recActions.slice(0, 10).forEach((a) => {
+          const text = String(a || "").trim();
+          if (!text) return;
+          const tag = safetySet.has(text) ? "SAFETY" : "POLICY";
+          lines.push(`  - [${tag}] ${text}`);
+        });
+        if (recActions.length > 10) lines.push(`  - … (${recActions.length - 10} more)`);
+      }
+
+      const workflow = Array.isArray(row?.clinicaflow?.workflow) ? row.clinicaflow.workflow : [];
+      if (workflow.length) {
+        const parts = workflow
+          .filter((s) => s && typeof s === "object")
+          .map((s) => {
+            const agent = String(s.agent || "").trim();
+            const lat = typeof s.latency_ms === "number" ? `${s.latency_ms.toFixed(2)}ms` : "—";
+            const err = String(s.error || "").trim();
+            const mark = err ? "(!)" : "";
+            return agent ? `${agent}=${lat}${mark}` : "";
+          })
+          .filter((x) => x);
+        if (parts.length) lines.push(`- workflow: \`${parts.join(" • ")}\``);
+      }
+
       if (intake) {
         lines.push("");
         lines.push("```json");
@@ -2014,14 +2435,110 @@ async function buildFailurePacketMarkdown() {
 
 async function downloadFailurePacketMd() {
   if (!state.lastBench) return;
-  const status = $("benchStatus");
-  if (status) status.textContent = "Building packet…";
+  const statuses = [$("benchStatus"), $("govStatus")].filter(Boolean);
+  statuses.forEach((s) => {
+    s.textContent = "Building packet…";
+  });
   try {
     const md = await buildFailurePacketMarkdown();
     const setName = state.lastBenchSet || "standard";
     downloadText(`vignette_failure_packet_${setName}.md`, md, "text/markdown; charset=utf-8");
     setText("statusLine", "Downloaded vignette failure packet.");
+    statuses.forEach((s) => {
+      s.textContent = "Done.";
+    });
+  } catch (e) {
+    statuses.forEach((s) => {
+      s.textContent = `Error: ${e}`;
+    });
+  }
+}
+
+function governanceTriggerMarkdownTable(items) {
+  const lines = ["| Trigger | Severity | Cases | Samples |", "|---|---:|---:|---|"];
+  (items || []).forEach((t) => {
+    const label = String(t.label || t.id || "").trim() || "(unknown)";
+    const sev = String(t.severity || "").trim().toLowerCase() || "info";
+    const n = Number(t.n_cases || 0);
+    const samples = (t.sample_cases || []).slice(0, 3).join(", ");
+    lines.push(`| \`${label}\` | \`${sev}\` | \`${n}\` | \`${samples}\` |`);
+  });
+  return lines.join("\n");
+}
+
+async function buildGovernanceReportMarkdown() {
+  if (!state.lastBench) return "";
+  const setName = state.lastBenchSet || "standard";
+  const summary = state.lastBench.summary || {};
+  const perCase = state.lastBench.per_case || [];
+  const gate = computeGovernanceGate(summary);
+  const prov = computeActionProvenanceCounts(perCase);
+  const triggers = computeSafetyTriggerIndex(perCase).slice(0, 20);
+
+  const pct = (v) => `${Number(v).toFixed(1)}%`;
+  const pct2 = (n, d) => (d ? `${((100.0 * n) / d).toFixed(1)}%` : "—");
+
+  const lines = [];
+  lines.push("# ClinicaFlow — Safety governance report (synthetic)");
+  lines.push("");
+  lines.push("- DISCLAIMER: Decision support only. Not a diagnosis. No PHI.");
+  lines.push(`- vignette_set: \`${setName}\``);
+  lines.push(`- generated_at: \`${new Date().toISOString()}\``);
+  lines.push("");
+
+  lines.push("## Safety gate");
+  lines.push("");
+  lines.push(`- gate_status: \`${gate.ok ? "PASS" : "FAIL"}\``);
+  lines.push(`- under-triage (ClinicaFlow): \`${pct(gate.under)}\``);
+  lines.push(`- red-flag recall (ClinicaFlow): \`${pct(gate.recall)}\``);
+  lines.push(`- over-triage (ClinicaFlow): \`${pct(gate.over)}\``);
+  lines.push("");
+
+  lines.push("## Benchmark summary");
+  lines.push("");
+  lines.push(benchMarkdownTable(summary).trim());
+  lines.push("");
+
+  lines.push("## Action provenance");
+  lines.push("");
+  lines.push(`- total_actions: \`${prov.total}\``);
+  lines.push(`- safety_actions: \`${prov.safety}\` (${pct2(prov.safety, prov.total)})`);
+  lines.push(`- policy_actions: \`${prov.policy}\` (${pct2(prov.policy, prov.total)})`);
+  lines.push("");
+
+  lines.push("## Top safety triggers (case coverage)");
+  lines.push("");
+  if (!triggers.length) {
+    lines.push("- (no safety trigger data in benchmark output)");
+  } else {
+    lines.push(governanceTriggerMarkdownTable(triggers));
+  }
+  lines.push("");
+
+  const underRows = perCase.filter((r) => benchRowFlags(r).under);
+  lines.push("## Under-triage cases (should be empty)");
+  lines.push("");
+  if (!underRows.length) {
+    lines.push("- PASS — no under-triage cases detected.");
+  } else {
+    underRows.slice(0, 50).forEach((row) => {
+      lines.push(`- ${row.id} gold=${row?.gold?.risk_tier} pred=${row?.clinicaflow?.risk_tier}`);
+    });
+  }
+  lines.push("");
+
+  return lines.join("\n").trim() + "\n";
+}
+
+async function downloadGovernanceMd() {
+  const status = $("govStatus");
+  if (status) status.textContent = "Building report…";
+  try {
+    const md = await buildGovernanceReportMarkdown();
+    const setName = state.lastBenchSet || "standard";
+    downloadText(`governance_report_${setName}.md`, md, "text/markdown; charset=utf-8");
     if (status) status.textContent = "Done.";
+    setText("statusLine", "Downloaded governance report.");
   } catch (e) {
     if (status) status.textContent = `Error: ${e}`;
   }
@@ -2842,6 +3359,15 @@ function wireEvents() {
     });
   });
 
+  // Governance tab
+  $("govRunBench")?.addEventListener("click", () => runBenchSet($("govBenchSet")?.value || "mega", $("govStatus")));
+  $("govDownloadBench")?.addEventListener("click", () => downloadBench());
+  $("govDownloadFailure")?.addEventListener("click", () => {
+    if (!state.lastBench) return;
+    downloadFailurePacketMd();
+  });
+  $("govDownloadMd")?.addEventListener("click", () => downloadGovernanceMd());
+
   // Review tab (optional; UI-local storage)
   const reviewLoad = $("reviewLoadCase");
   if (reviewLoad) reviewLoad.addEventListener("click", () => reviewLoadCase());
@@ -3115,6 +3641,16 @@ function wireEvents() {
     setTab("regression");
     await runBench();
   });
+  $("demoGoGovernance")?.addEventListener("click", () => setTab("governance"));
+  $("demoGovMega")?.addEventListener("click", async () => {
+    setTab("governance");
+    if ($("govBenchSet")) $("govBenchSet").value = "mega";
+    await runBenchSet("mega", $("govStatus"));
+  });
+  $("demoGovDownload")?.addEventListener("click", async () => {
+    setTab("governance");
+    await downloadGovernanceMd();
+  });
   $("demoAdversarial")?.addEventListener("click", () => demoLoadAndRun("a01_cp_abbrev_hypotension", { set: "adversarial" }));
   $("demoGoReview")?.addEventListener("click", () => setTab("review"));
   $("demoGoWorkspace")?.addEventListener("click", () => setTab("workspace"));
@@ -3131,6 +3667,8 @@ function wireEvents() {
 async function init() {
   wireEvents();
   setMode("form");
+  if ($("govBenchSet")) $("govBenchSet").value = "mega";
+  renderGovernance(null, null);
   await loadDoctor();
   await loadPresets();
   await loadPreset();

@@ -61,6 +61,8 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
   - `clinicaflow doctor` for quick runtime/policy-pack sanity checks,
   - minimal FHIR bundle export (`POST /fhir_bundle`) for demo interoperability (includes `Task`s for the next-action checklist),
   - printable triage report export (`report.html`) + action checklist (local-only storage),
+  - governance dashboard tab (safety gate + trigger coverage + action provenance) with exportable markdown reports,
+  - failure analysis packet export (includes safety triggers + provenance + workflow mini for clinician QA),
   - Docker image (non-root runtime + healthcheck) + CI.
 - **Multimodal path (practical):**
   - demo UI supports image uploads (`image_data_urls`),
@@ -85,9 +87,9 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
 
 - CLI: `python -m clinicaflow --input examples/sample_case.json --pretty`
 - Local demo (one-click): `bash scripts/demo_one_click.sh`
-  - UI: ClinicaFlow Console at `/` (triage + checklist with action provenance tags + printable report + workspace + regression + failure packet export + clinician review + audit bundle download)
+  - UI: ClinicaFlow Console at `/` (triage + checklist with action provenance tags + printable report + workspace + regression + governance + failure packet export + clinician review + audit bundle download)
   - API: `POST /triage`, `POST /audit_bundle`, `GET /doctor`, `GET /policy_pack`, `GET /bench/vignettes`
-  - With real MedGemma via vLLM (GPU machine): `MEDGEMMA_MODEL='<HF_ID_OR_LOCAL_PATH>' bash scripts/demo_one_click.sh`
+  - With real MedGemma via vLLM (GPU machine): `REQUIRE_MEDGEMMA=1 MEDGEMMA_MODEL='<HF_ID_OR_LOCAL_PATH>' bash scripts/demo_one_click.sh`
 
 ### Results (internal synthetic proxy benchmark, n=220)
 

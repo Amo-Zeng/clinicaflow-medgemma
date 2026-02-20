@@ -19,8 +19,9 @@ In the UI, open the **Demo** tab and click through:
 3. Neuro red-flag case (urgent)
 4. Routine case
 5. Benchmarks (synthetic proxy + vignette regression; try `standard` or `mega`)
-6. Adversarial vignette (abbrev/negation/injection-like strings)
-7. Clinician review tooling (export local review JSON/markdown)
+6. Governance tab (safety gate + trigger coverage + export report)
+7. Adversarial vignette (abbrev/negation/injection-like strings)
+8. Clinician review tooling (export local review JSON/markdown)
 
 ## 3) Reproduce writeup numbers (one command)
 

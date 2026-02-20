@@ -208,6 +208,28 @@ def run_benchmark_rows(rows: list[dict[str, Any]]) -> tuple[VignetteBenchmarkSum
         cf_tier = cf.risk_tier
         cf_cats = categories_from_red_flags(cf.red_flags)
 
+        safety_out: dict[str, Any] = {}
+        policy_out: dict[str, Any] = {}
+        structured_out: dict[str, Any] = {}
+        for step in cf.trace:
+            if step.agent == "safety_escalation":
+                safety_out = dict(step.output or {})
+            elif step.agent == "evidence_policy":
+                policy_out = dict(step.output or {})
+            elif step.agent == "intake_structuring":
+                structured_out = dict(step.output or {})
+
+        safety_actions = [str(x).strip() for x in (safety_out.get("actions_added_by_safety") or []) if str(x).strip()]
+        safety_set = set(safety_actions)
+        rec_actions = [str(x).strip() for x in (cf.recommended_next_actions or []) if str(x).strip()]
+        action_provenance = [{"text": a, "source": ("SAFETY" if a in safety_set else "POLICY")} for a in rec_actions]
+
+        workflow = [
+            {"agent": step.agent, "latency_ms": step.latency_ms, "error": step.error or ""}
+            for step in cf.trace
+            if step.agent
+        ]
+
         # Red-flag recall (category-level).
         if gold_cats:
             gold_has_flags += 1
@@ -237,6 +259,20 @@ def run_benchmark_rows(rows: list[dict[str, Any]]) -> tuple[VignetteBenchmarkSum
                     "red_flags": cf.red_flags,
                     "escalation_required": cf.escalation_required,
                     "confidence": cf.confidence,
+                    "risk_tier_rationale": str(safety_out.get("risk_tier_rationale") or "").strip(),
+                    "safety_triggers": safety_out.get("safety_triggers") or [],
+                    "risk_scores": safety_out.get("risk_scores") or {},
+                    "missing_fields": safety_out.get("missing_fields") or structured_out.get("missing_fields") or [],
+                    "recommended_next_actions": rec_actions,
+                    "actions_added_by_safety": safety_actions,
+                    "action_provenance": action_provenance,
+                    "safety_rules_version": str(safety_out.get("safety_rules_version") or "").strip(),
+                    "policy_pack_sha256": str(policy_out.get("policy_pack_sha256") or "").strip(),
+                    "structured_signals": {
+                        "symptoms": structured_out.get("symptoms") or [],
+                        "risk_factors": structured_out.get("risk_factors") or [],
+                    },
+                    "workflow": workflow,
                 },
             }
         )

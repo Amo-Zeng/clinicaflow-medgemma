@@ -41,6 +41,12 @@ One-click demo (starts the demo server; optionally starts a local MedGemma vLLM 
 bash scripts/demo_one_click.sh
 ```
 
+Require a real MedGemma backend (fails fast if not reachable):
+
+```bash
+REQUIRE_MEDGEMMA=1 MEDGEMMA_MODEL='<HF_ID_OR_LOCAL_PATH>' bash scripts/demo_one_click.sh
+```
+
 Run pipeline on sample case:
 
 ```bash
@@ -201,6 +207,8 @@ Console features:
 - Downloadable minimal FHIR bundle JSON (redacted)
 - Vignette regression tab + JSON export
 - Vignette regression tab + markdown table export (copy/download)
+- Governance tab (safety gate dashboard + trigger coverage + action provenance + markdown export)
+- Failure analysis packet export (includes safety triggers + provenance + workflow mini)
 - Clinician review tab (local-only storage + JSON/Markdown export for writeup)
 
 API spec & metrics:
