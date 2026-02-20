@@ -261,6 +261,7 @@
                   <a class="btn subtle" href="/doctor" target="_blank" rel="noreferrer">Open /doctor</a>
                   <a class="btn subtle" href="/metrics" target="_blank" rel="noreferrer">Open /metrics</a>
                   <a class="btn subtle" href="/openapi.json" target="_blank" rel="noreferrer">OpenAPI</a>
+                  <a class="btn subtle" href="/policy_pack" target="_blank" rel="noreferrer">Open /policy_pack</a>
                 </div>
               </li>
               <li>
@@ -291,6 +292,7 @@
               <li>
                 <div class="k">Regression benchmark (reproducibility)</div>
                 <div class="row">
+                  <button id="demoSynthetic" class="btn subtle" type="button">Run synthetic proxy</button>
                   <button id="demoRegression" class="btn primary" type="button">Run vignette benchmark</button>
                 </div>
               </li>
@@ -329,6 +331,7 @@
               <li>Say “decision support, not diagnosis”.</li>
               <li>Show deterministic safety escalation + rationale.</li>
               <li>Show audit bundle download (redacted).</li>
+              <li>Show synthetic proxy benchmark (reproducible writeup numbers).</li>
               <li>Show regression benchmark tab + summary.</li>
               <li>Show clinician review export (no PHI).</li>
             </ul>
@@ -406,6 +409,18 @@
               Built-in synthetic vignette regression sets:
               standard (n=30), adversarial (n=20), extended (n=100). See <code>docs/VIGNETTE_REGRESSION.md</code>.
             </div>
+          </div>
+
+          <div class="callout">
+            <div class="k">Synthetic proxy benchmark (writeup)</div>
+            <div class="small muted">Reproducible proxy metrics (seed=17, n=220). Runs locally on this demo server.</div>
+            <div class="row" style="margin-top: 10px;">
+              <button id="runSynthetic" class="btn subtle" type="button">Run synthetic</button>
+              <button id="copySyntheticMd" class="btn subtle" type="button">Copy markdown</button>
+              <button id="downloadSyntheticMd" class="btn subtle" type="button">Download markdown</button>
+              <span id="syntheticStatus" class="small"></span>
+            </div>
+            <pre id="syntheticMd" class="pre mono" style="margin-top: 10px;"></pre>
           </div>
 
           <div class="row">

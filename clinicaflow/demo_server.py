@@ -477,6 +477,30 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                 status_code = HTTPStatus.OK
                 return
 
+            if path == "/bench/synthetic":
+                from clinicaflow.benchmarks.synthetic import run_benchmark
+
+                seed_raw = str(query.get("seed", ["17"])[0]).strip()
+                n_raw = str(query.get("n", ["220"])[0]).strip()
+                try:
+                    seed = int(seed_raw or "17")
+                except ValueError:
+                    seed = 17
+                try:
+                    n_cases = int(n_raw or "220")
+                except ValueError:
+                    n_cases = 220
+                # Keep runtime bounded for a demo server.
+                n_cases = max(1, min(n_cases, 800))
+
+                summary = run_benchmark(seed=seed, n_cases=n_cases)
+                self._write_json(
+                    {"seed": seed, "n_cases": n_cases, "summary": summary.to_dict(), "markdown": summary.to_markdown_table()},
+                    request_id=request_id,
+                )
+                status_code = HTTPStatus.OK
+                return
+
             self._write_json({"error": {"code": "not_found"}}, code=HTTPStatus.NOT_FOUND, request_id=request_id)
             status_code = HTTPStatus.NOT_FOUND
         except Exception:  # noqa: BLE001
@@ -755,6 +779,7 @@ def _openapi_spec() -> dict:
             "/vignettes": {"get": {"responses": {"200": {"description": "list vignettes"}}}},
             "/vignettes/{id}": {"get": {"responses": {"200": {"description": "get vignette input"}}}},
             "/bench/vignettes": {"get": {"responses": {"200": {"description": "run vignette benchmark"}}}},
+            "/bench/synthetic": {"get": {"responses": {"200": {"description": "run synthetic proxy benchmark"}}}},
             "/triage": {"post": {"responses": {"200": {"description": "triage result"}}}},
             "/audit_bundle": {"post": {"responses": {"200": {"description": "audit bundle zip"}}}},
             "/fhir_bundle": {"post": {"responses": {"200": {"description": "FHIR bundle JSON"}}}},

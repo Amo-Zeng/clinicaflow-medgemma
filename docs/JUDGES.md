@@ -18,7 +18,7 @@ In the UI, open the **Demo** tab and click through:
 2. High-acuity case (critical) + download a **redacted** audit bundle
 3. Neuro red-flag case (urgent)
 4. Routine case
-5. Regression benchmark (reproducibility; try `standard` or `mega`)
+5. Benchmarks (synthetic proxy + vignette regression; try `standard` or `mega`)
 6. Adversarial vignette (abbrev/negation/injection-like strings)
 7. Clinician review tooling (export local review JSON/markdown)
 

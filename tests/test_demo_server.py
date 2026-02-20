@@ -97,6 +97,30 @@ class DemoServerTests(unittest.TestCase):
         finally:
             _stop_server(server, thread)
 
+    def test_synthetic_benchmark_endpoint(self) -> None:
+        settings = Settings(
+            debug=False,
+            log_level="INFO",
+            json_logs=False,
+            max_request_bytes=262144,
+            policy_top_k=2,
+            policy_pack_path="",
+            cors_allow_origin="*",
+            api_key="",
+        )
+        server, thread, base_url = _start_server(settings=settings)
+        try:
+            status, _, raw = _http("GET", base_url + "/bench/synthetic?seed=17&n=25")
+            self.assertEqual(status, 200)
+            payload = json.loads(raw.decode("utf-8"))
+            self.assertEqual(payload.get("seed"), 17)
+            self.assertEqual(payload.get("n_cases"), 25)
+            self.assertIn("summary", payload)
+            self.assertIn("markdown", payload)
+            self.assertIn("| Metric | Baseline | ClinicaFlow |", str(payload.get("markdown") or ""))
+        finally:
+            _stop_server(server, thread)
+
     def test_head_supported_for_ui_and_static(self) -> None:
         settings = Settings(
             debug=False,

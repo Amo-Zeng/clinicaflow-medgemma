@@ -77,6 +77,7 @@ const state = {
   lastActionChecklist: null,
   lastBench: null,
   lastBenchSet: null,
+  lastSynthetic: null,
   review: {
     lastCaseId: null,
     lastIntake: null,
@@ -1414,6 +1415,23 @@ function benchMarkdownTable(summary) {
   ].join("\n");
 }
 
+async function runSynthetic() {
+  const status = $("syntheticStatus");
+  if (status) status.textContent = "Running…";
+  const out = $("syntheticMd");
+  if (out) out.textContent = "";
+
+  try {
+    const payload = await fetchJson("/bench/synthetic?seed=17&n=220");
+    state.lastSynthetic = payload;
+    if (out) out.textContent = String(payload.markdown || "").trim();
+    if (status) status.textContent = "Done.";
+  } catch (e) {
+    state.lastSynthetic = null;
+    if (status) status.textContent = `Error: ${e}`;
+  }
+}
+
 // ---------------------------
 // Workspace (UI-local)
 // ---------------------------
@@ -2173,6 +2191,19 @@ function wireEvents() {
     }
   });
 
+  $("runSynthetic")?.addEventListener("click", () => runSynthetic());
+  $("copySyntheticMd")?.addEventListener("click", () => {
+    const md = String(state.lastSynthetic?.markdown || $("syntheticMd")?.textContent || "").trim();
+    if (!md) return;
+    copyText(md, "Copied synthetic benchmark markdown.");
+  });
+  $("downloadSyntheticMd")?.addEventListener("click", () => {
+    const md = String(state.lastSynthetic?.markdown || $("syntheticMd")?.textContent || "").trim();
+    if (!md) return;
+    downloadText("synthetic_proxy_benchmark.md", md + "\n", "text/markdown; charset=utf-8");
+    setText("statusLine", "Downloaded synthetic_proxy_benchmark.md");
+  });
+
   $("runBench").addEventListener("click", () => runBench());
   $("downloadBench").addEventListener("click", () => downloadBench());
   $("copyBenchMd")?.addEventListener("click", () => {
@@ -2458,6 +2489,10 @@ function wireEvents() {
   $("demoCritical")?.addEventListener("click", () => demoLoadAndRun("v01_chest_pain_hypotension"));
   $("demoNeuro")?.addEventListener("click", () => demoLoadAndRun("v05_slurred_speech_weakness"));
   $("demoRoutine")?.addEventListener("click", () => demoLoadAndRun("v21_sore_throat_routine"));
+  $("demoSynthetic")?.addEventListener("click", async () => {
+    setTab("regression");
+    await runSynthetic();
+  });
   $("demoRegression")?.addEventListener("click", async () => {
     setTab("regression");
     await runBench();

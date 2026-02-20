@@ -192,6 +192,7 @@ API spec & metrics:
   - Prometheus: http://127.0.0.1:8000/metrics?format=prometheus
 - Doctor (no secrets): http://127.0.0.1:8000/doctor
 - Policy pack: http://127.0.0.1:8000/policy_pack
+- Benchmarks: http://127.0.0.1:8000/bench/synthetic , http://127.0.0.1:8000/bench/vignettes
 
 Health check:
 
