@@ -202,8 +202,10 @@ class SafetyEscalationAgent:
         confidence, uncertainty_reasons = estimate_confidence(risk_tier, red_flags, structured.missing_fields)
 
         escalation_required = risk_tier in {"critical", "urgent"}
-        if escalation_required and "Urgent clinician review" not in recommended_actions:
-            recommended_actions = ["Urgent clinician review", *recommended_actions]
+        safety_actions = _safety_actions_for(risk_tier=risk_tier, red_flags=red_flags, vitals=vitals)
+
+        evidence_actions = [str(x) for x in (recommended_actions or []) if str(x).strip()]
+        full_actions = _dedupe([*safety_actions, *evidence_actions])
 
         return {
             "risk_tier": risk_tier,
@@ -215,7 +217,9 @@ class SafetyEscalationAgent:
             "uncertainty_reasons": uncertainty_reasons,
             "safety_rules_version": SAFETY_RULES_VERSION,
             "missing_fields": structured.missing_fields,
-            "recommended_next_actions": _dedupe(recommended_actions),
+            # Keep deterministic safety actions first for "product feel" and operational clarity.
+            "recommended_next_actions": full_actions[:10],
+            "actions_added_by_safety": _dedupe(safety_actions),
         }
 
 
@@ -232,33 +236,48 @@ class CommunicationAgent:
         uncertainty = [str(x) for x in (safety.get("uncertainty_reasons") or []) if str(x).strip()]
         missing_fields = [str(x) for x in (safety.get("missing_fields") or []) if str(x).strip()]
 
-        clinician_lines: list[str] = []
-        clinician_lines.append("Clinician handoff (draft):")
-        clinician_lines.append(f"- Chief complaint: {intake.chief_complaint or '(missing)'}")
-        if intake.history:
-            clinician_lines.append(f"- History: {intake.history}")
         vitals_line = _format_vitals(intake.vitals)
+
+        clinician_lines: list[str] = []
+        clinician_lines.append("Clinician handoff (SBAR draft):")
+        clinician_lines.append("")
+        clinician_lines.append("S) Situation")
+        clinician_lines.append(f"- Chief complaint: {intake.chief_complaint or '(missing)'}")
         if vitals_line:
             clinician_lines.append(f"- Vitals: {vitals_line}")
+
+        clinician_lines.append("")
+        clinician_lines.append("B) Background")
+        if intake.history:
+            clinician_lines.append(f"- History: {intake.history}")
+        else:
+            clinician_lines.append("- History: (not provided)")
+
+        clinician_lines.append("")
+        clinician_lines.append("A) Assessment (decision support; not a diagnosis)")
         clinician_lines.append(f"- Risk tier: {risk_tier} (escalation_required={bool(safety.get('escalation_required'))})")
         if rationale:
-            clinician_lines.append(f"  - Rationale: {rationale}")
+            clinician_lines.append(f"- Rationale: {rationale}")
         if red_flags:
             clinician_lines.append(f"- Red flags: {', '.join(red_flags)}")
         else:
             clinician_lines.append("- Red flags: (none detected)")
         if differential:
             clinician_lines.append(f"- Differential (top): {', '.join(differential)}")
-        if actions:
-            clinician_lines.append("- Recommended next actions:")
-            for item in actions[:8]:
-                clinician_lines.append(f"  - {item}")
         if isinstance(confidence, (int, float)):
             clinician_lines.append(f"- Confidence (proxy): {float(confidence):.2f}")
         if missing_fields:
             clinician_lines.append(f"- Missing critical fields: {', '.join(missing_fields)}")
         if uncertainty:
             clinician_lines.append(f"- Uncertainty notes: {', '.join(uncertainty)}")
+
+        clinician_lines.append("")
+        clinician_lines.append("R) Recommendation")
+        if actions:
+            for item in actions[:10]:
+                clinician_lines.append(f"- {item}")
+        else:
+            clinician_lines.append("- (no actions suggested)")
 
         patient_lines: list[str] = []
         patient_lines.append("Decision support only — this is not a diagnosis.")
@@ -298,6 +317,62 @@ class CommunicationAgent:
             "communication_backend": "deterministic",
             "communication_backend_error": backend_error,
         }
+
+
+def _safety_actions_for(*, risk_tier: str, red_flags: list[str], vitals: Vitals) -> list[str]:
+    """Deterministic safety-first action suggestions.
+
+    Purpose:
+    - Make the output feel "product-ready" even when the policy pack is minimal.
+    - Ensure high-acuity cases always include an explicit escalation/disposition action.
+
+    Important: This is decision support and must be adapted to local protocols.
+    """
+
+    tier = str(risk_tier or "").strip().lower()
+    flags = [str(x) for x in (red_flags or []) if str(x).strip()]
+
+    actions: list[str] = []
+
+    # Disposition / escalation (put first).
+    if tier == "critical":
+        actions.append("Emergency evaluation now (ED / call local emergency services).")
+        actions.append("Urgent clinician review")
+    elif tier == "urgent":
+        actions.append("Urgent clinician review")
+        actions.append("Arrange same-day clinician evaluation (urgent care / ED if worsening).")
+
+    # Red-flag specific nudges (kept intentionally broad).
+    if any("Potential acute coronary syndrome" in f for f in flags):
+        actions.append("Obtain 12-lead ECG within 10 minutes (per protocol).")
+
+    if any("Possible stroke" in f for f in flags):
+        actions.append("Activate stroke pathway per local protocol; document last-known-well time.")
+
+    if any("Respiratory compromise risk" in f for f in flags) or any("Low oxygen saturation" in f for f in flags):
+        actions.append("Pulse oximetry monitoring; follow local oxygenation protocol if indicated.")
+
+    if any("Hypotension" in f for f in flags) or any("Severe tachycardia" in f for f in flags):
+        actions.append("Repeat full set of vitals immediately; consider placing on monitor per protocol.")
+
+    if any("gastrointestinal bleed" in f.lower() or "gi bleed" in f.lower() for f in flags):
+        actions.append("Assess hemodynamic stability and ongoing bleeding; follow local GI bleed pathway.")
+
+    if any("obstetric" in f.lower() for f in flags):
+        actions.append("Escalate to obstetric-capable evaluation per local protocol.")
+
+    if any("High fever" in f for f in flags):
+        actions.append("Perform sepsis screen per local protocol; reassess mental status and perfusion.")
+
+    # Vitals-only safety prompts (in case symptom parsing missed something).
+    if vitals.spo2 is not None and vitals.spo2 < 92:
+        actions.append("Confirm low SpO₂ with repeat measurement; assess work of breathing.")
+    if vitals.systolic_bp is not None and vitals.systolic_bp < 90:
+        actions.append("Confirm hypotension with repeat BP; assess perfusion and mental status.")
+    if vitals.heart_rate is not None and vitals.heart_rate > 130:
+        actions.append("Recheck tachycardia; assess pain, fever, dehydration, or bleeding per protocol.")
+
+    return _dedupe(actions)
 
 
 def _format_vitals(vitals: Vitals) -> str:

@@ -33,11 +33,13 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
 3. **Evidence & Policy Agent**: translates reasoning into concrete next actions and attaches lightweight protocol-style citations (demo policy pack; replace with site protocols).
 4. **Safety & Escalation Agent**: applies deterministic red-flag rules + uncertainty thresholds to prevent under-triage.
 5. **Communication Agent**: produces a clinician handoff summary and patient-facing return precautions in plain language (optionally rewritten by MedGemma for clarity; rewrite-only, no new facts).
+   - Clinician handoff is formatted as an SBAR-style draft for faster review.
 
 **Safety-first behaviors**
 
 - Deterministic red-flag triggers from symptoms + vitals (hard to “prompt-jailbreak”).
 - Mandatory escalation when urgent/critical criteria are met.
+- Deterministic, tier-specific disposition actions (so “critical” outputs always read like a real triage workflow).
 - Lightweight interpretable risk scores (demo): shock index + qSOFA (for clinician situational awareness).
 - Uncertainty reasons are surfaced for clinician review.
 - Clear “decision support, not diagnosis” posture.
