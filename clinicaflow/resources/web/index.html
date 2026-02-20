@@ -641,6 +641,7 @@
 
             <div class="row">
               <button id="opsRefresh" class="btn primary" type="button">Refresh</button>
+              <button id="opsSmoke" class="btn subtle" type="button">Smoke check</button>
               <label class="check"><input id="opsAuto" type="checkbox" /> Auto refresh (5s)</label>
               <button id="opsDownloadMd" class="btn subtle" type="button">Download ops report</button>
               <a class="btn subtle" href="/metrics?format=prometheus" target="_blank" rel="noreferrer">Prometheus</a>
@@ -650,6 +651,7 @@
             <div id="opsStatus" class="small"></div>
             <div id="opsSummary" class="summary"></div>
 
+            <div id="opsSmokeOut" class="callout"></div>
             <div id="opsAlerts" class="callout"></div>
 
             <div class="callout">

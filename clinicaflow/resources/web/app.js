@@ -1232,6 +1232,62 @@ async function refreshOps() {
   }
 }
 
+function renderOpsSmokePlaceholder(text) {
+  const out = $("opsSmokeOut");
+  if (!out) return;
+  out.innerHTML = `<div class="k">Smoke check</div><div class="small muted">${escapeHtml(text || "Not run.")}</div>`;
+}
+
+async function runOpsSmokeCheck() {
+  const out = $("opsSmokeOut");
+  if (!out) return;
+  out.innerHTML = `<div class="k">Smoke check</div><div class="small muted">Running…</div>`;
+
+  const checks = [
+    { name: "/health", fn: () => fetchJson("/health") },
+    { name: "/ready", fn: () => fetchJson("/ready") },
+    { name: "/live", fn: () => fetchJson("/live") },
+    { name: "/openapi.json", fn: () => fetchJson("/openapi.json") },
+    { name: "/doctor", fn: () => fetchJson("/doctor") },
+    { name: "/policy_pack", fn: () => fetchJson("/policy_pack?limit=1") },
+    { name: "/safety_rules", fn: () => fetchJson("/safety_rules") },
+    { name: "/metrics", fn: () => fetchJson("/metrics") },
+  ];
+
+  const results = [];
+  for (const c of checks) {
+    try {
+      await c.fn();
+      results.push({ name: c.name, ok: true });
+    } catch (e) {
+      results.push({ name: c.name, ok: false, err: String(e) });
+    }
+  }
+
+  const ok = results.every((r) => r.ok);
+  out.innerHTML = "";
+  const k = document.createElement("div");
+  k.className = "k";
+  k.textContent = `Smoke check: ${ok ? "PASS" : "FAIL"}`;
+  out.appendChild(k);
+
+  const ul = document.createElement("ul");
+  ul.className = "list";
+  results.forEach((r) => {
+    const li = document.createElement("li");
+    const chip = document.createElement("span");
+    chip.className = `chip ${r.ok ? "ok" : "bad"}`;
+    chip.textContent = r.ok ? "OK" : "FAIL";
+    li.appendChild(chip);
+    const text = document.createElement("span");
+    text.textContent = ` ${r.name}${r.ok ? "" : ` (${r.err})`}`;
+    li.appendChild(text);
+    ul.appendChild(li);
+  });
+  out.appendChild(ul);
+  setText("statusLine", ok ? "Ops smoke check: PASS" : "Ops smoke check: FAIL");
+}
+
 function buildOpsReportMarkdown() {
   const m = state.metrics || {};
   const d = state.doctor || {};
@@ -3970,6 +4026,7 @@ function wireEvents() {
 
   // Ops tab
   $("opsRefresh")?.addEventListener("click", () => refreshOps());
+  $("opsSmoke")?.addEventListener("click", () => runOpsSmokeCheck());
   $("opsDownloadMd")?.addEventListener("click", () => downloadOpsReportMd());
   const opsAuto = $("opsAuto");
   if (opsAuto) {
@@ -4322,6 +4379,7 @@ async function init() {
   updateAuthBadge();
   renderGovernance(null, null);
   renderRulesTab();
+  renderOpsSmokePlaceholder("Not run.");
   await refreshOps();
   await loadPresets();
   await loadPreset();
