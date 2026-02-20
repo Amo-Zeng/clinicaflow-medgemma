@@ -14,7 +14,7 @@ Open the printed UI URL (it may auto-select a free port).
 
 In the UI, open the **Demo** tab and click through:
 
-1. Ops readiness (`/doctor`, `/metrics`, `/openapi.json`)
+1. Ops readiness (`/doctor`, `/metrics`, `/openapi.json`, `/policy_pack`)
 2. High-acuity case (critical) + download a **redacted** audit bundle
 3. Neuro red-flag case (urgent)
 4. Routine case

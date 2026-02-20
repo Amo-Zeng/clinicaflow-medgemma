@@ -17,6 +17,7 @@
         <span id="policyBadge" class="pill subtle">policy: loading…</span>
         <a class="btn subtle" href="/openapi.json" target="_blank" rel="noreferrer">OpenAPI</a>
         <a class="btn subtle" href="/metrics" target="_blank" rel="noreferrer">Metrics</a>
+        <a class="btn subtle" href="/policy_pack" target="_blank" rel="noreferrer">Policy pack</a>
       </div>
     </header>
 
@@ -633,6 +634,16 @@
           <div class="callout">
             <div class="k">Clinician review (qualitative; do not fabricate)</div>
             <div class="mono">clinicaflow benchmark review_packet --set standard --out reviews/clinician_review_packet.md --include-gold</div>
+          </div>
+
+          <div class="callout">
+            <div class="k">Policy pack viewer (demo; replace with site protocols)</div>
+            <div class="small muted">Shows the currently loaded policy pack (IDs, triggers, recommended actions) and its sha256 for governance.</div>
+            <div class="row" style="margin-top: 10px;">
+              <button id="loadPolicyPack" class="btn subtle" type="button">Load</button>
+              <button id="copyPolicyPack" class="btn subtle" type="button">Copy JSON</button>
+            </div>
+            <pre id="policyPackJson" class="pre mono" style="margin-top: 10px;">{}</pre>
           </div>
         </section>
       </section>

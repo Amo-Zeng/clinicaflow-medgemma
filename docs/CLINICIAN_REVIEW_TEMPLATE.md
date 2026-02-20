@@ -12,7 +12,7 @@ Guidelines:
 ## How to generate a review packet
 
 ```bash
-python -m clinicaflow.benchmarks.review_packet --out reviews/clinician_review_packet.md --include-gold
+python -m clinicaflow.benchmarks.review_packet --set standard --out reviews/clinician_review_packet.md --include-gold
 ```
 
 Share `reviews/clinician_review_packet.md` with the reviewer.

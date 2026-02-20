@@ -104,6 +104,39 @@ def summarize_reviews(reviews: list[dict[str, Any]]) -> tuple[ReviewSummary, lis
     return summary, quotes
 
 
+def group_reviews_by_set(reviews: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for r in reviews:
+        raw = str(r.get("vignette_set") or "").strip().lower()
+        set_name = raw or "standard"
+        groups.setdefault(set_name, []).append(r)
+    return groups
+
+
+def render_by_set(groups: dict[str, list[dict[str, Any]]]) -> str:
+    if len(groups) <= 1:
+        return ""
+
+    lines: list[str] = []
+    lines.append("")
+    lines.append("## Breakdown by vignette set")
+    lines.append("")
+    for set_name in sorted(groups):
+        summary, _ = summarize_reviews(groups[set_name])
+        lines.append(f"### `{set_name}`")
+        lines.append("")
+        lines.append(f"- Reviews: **{summary.n_reviews}** (cases: **{summary.n_cases}**)")
+        if summary.safety_counts:
+            parts = [f"{k}={v}" for k, v in sorted(summary.safety_counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+            lines.append(f"- Risk-tier safety: {', '.join(parts)}")
+        if summary.avg_actionability is not None:
+            lines.append(f"- Avg actionability: **{summary.avg_actionability:.2f}/5**")
+        if summary.avg_handoff is not None:
+            lines.append(f"- Avg handoff quality: **{summary.avg_handoff:.2f}/5**")
+        lines.append("")
+    return "\n".join(lines).strip() + "\n"
+
+
 def render_quotes(quotes: list[str], *, limit: int) -> str:
     q = [x for x in quotes if x][: max(0, limit)]
     if not q:
@@ -125,6 +158,7 @@ def main() -> None:
 
     md = summary.to_markdown()
     md += render_quotes(quotes, limit=args.max_quotes)
+    md += render_by_set(group_reviews_by_set(reviews))
 
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
@@ -136,4 +170,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

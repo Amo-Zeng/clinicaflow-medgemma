@@ -51,6 +51,7 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
   - request IDs end-to-end (`X-Request-ID`),
   - probes (`GET /health`, `GET /ready`, `GET /live`),
   - OpenAPI spec + metrics endpoint (JSON + Prometheus),
+  - policy-pack introspection endpoint (`GET /policy_pack`) with sha256 + policy IDs (governance-ready),
   - optional JSON logs (`CLINICAFLOW_JSON_LOGS=true`) for log pipelines,
   - optional API-key protection for `POST /triage` (`CLINICAFLOW_API_KEY`),
   - `clinicaflow doctor` for quick runtime/policy-pack sanity checks,
@@ -80,7 +81,7 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
 - CLI: `python -m clinicaflow --input examples/sample_case.json --pretty`
 - Local demo (one-click): `bash scripts/demo_one_click.sh`
   - UI: ClinicaFlow Console at `/` (triage + checklist + printable report + workspace + regression + clinician review + audit bundle download)
-  - API: `POST /triage`, `POST /audit_bundle`, `GET /doctor`, `GET /bench/vignettes`
+  - API: `POST /triage`, `POST /audit_bundle`, `GET /doctor`, `GET /policy_pack`, `GET /bench/vignettes`
   - With real MedGemma via vLLM (GPU machine): `MEDGEMMA_MODEL='<HF_ID_OR_LOCAL_PATH>' bash scripts/demo_one_click.sh`
 
 ### Results (internal synthetic proxy benchmark, n=220)

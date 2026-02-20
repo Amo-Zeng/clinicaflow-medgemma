@@ -72,6 +72,31 @@ class DemoServerTests(unittest.TestCase):
         finally:
             _stop_server(server, thread)
 
+    def test_policy_pack_endpoint(self) -> None:
+        settings = Settings(
+            debug=False,
+            log_level="INFO",
+            json_logs=False,
+            max_request_bytes=262144,
+            policy_top_k=2,
+            policy_pack_path="",
+            cors_allow_origin="*",
+            api_key="",
+        )
+        server, thread, base_url = _start_server(settings=settings)
+        try:
+            status, headers, raw = _http("GET", base_url + "/policy_pack", headers={"X-Request-ID": "pol1"})
+            self.assertEqual(status, 200)
+            self.assertEqual(headers.get("X-Request-ID"), "pol1")
+            payload = json.loads(raw.decode("utf-8"))
+            self.assertIn("sha256", payload)
+            self.assertIn("source", payload)
+            self.assertIn("n_policies", payload)
+            self.assertIsInstance(payload.get("policies"), list)
+            self.assertGreater(int(payload.get("n_policies") or 0), 0)
+        finally:
+            _stop_server(server, thread)
+
     def test_head_supported_for_ui_and_static(self) -> None:
         settings = Settings(
             debug=False,

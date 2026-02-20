@@ -52,6 +52,22 @@ echo ""
 echo "[writeup] Diagnostics snapshot (no secrets)"
 clinicaflow doctor | tee "$OUT_DIR/doctor.json" >/dev/null
 
+REVIEWS_PATH="${CLINICIAN_REVIEWS_PATH:-}"
+if [[ -z "${REVIEWS_PATH}" ]]; then
+  for p in "clinician_reviews.json" "reviews/clinician_reviews.json" "tmp/clinician_reviews.json"; do
+    if [[ -f "$p" ]]; then
+      REVIEWS_PATH="$p"
+      break
+    fi
+  done
+fi
+
+if [[ -n "${REVIEWS_PATH:-}" && -f "${REVIEWS_PATH}" ]]; then
+  echo ""
+  echo "[writeup] Clinician review summary (${REVIEWS_PATH})"
+  clinicaflow benchmark review_summary --in "${REVIEWS_PATH}" --print-markdown | tee "$OUT_DIR/clinician_review_summary.md"
+fi
+
 echo ""
 echo "[writeup] Done."
 echo "         - Markdown tables: $OUT_DIR/*.md"

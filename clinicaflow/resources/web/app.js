@@ -69,6 +69,7 @@ async function postJson(url, payload, extraHeaders) {
 const state = {
   mode: "form",
   doctor: null,
+  policyPack: null,
   imageDataUrls: [],
   lastIntake: null,
   lastResult: null,
@@ -709,6 +710,21 @@ async function loadDoctor() {
   }
 }
 
+async function loadPolicyPack() {
+  const out = $("policyPackJson");
+  if (out) out.textContent = "Loading…";
+  try {
+    const payload = await fetchJson("/policy_pack");
+    state.policyPack = payload;
+    if (out) out.textContent = fmtJson(payload);
+    setText("statusLine", "Loaded policy pack.");
+  } catch (e) {
+    state.policyPack = null;
+    if (out) out.textContent = "{}";
+    setText("statusLine", "Failed to load policy pack.");
+  }
+}
+
 async function loadPresets() {
   const select = $("presetSelect");
   select.innerHTML = "";
@@ -724,7 +740,7 @@ async function loadPresets() {
       const vignettes = payload.vignettes || [];
       if (!vignettes.length) return;
       const group = document.createElement("optgroup");
-      group.label = label;
+      group.label = `${label} (n=${vignettes.length})`;
       vignettes.forEach((v) => {
         const opt = document.createElement("option");
         opt.value = `vignette:${setName}:${v.id}`;
@@ -1873,6 +1889,10 @@ async function loadReviewCases() {
   try {
     const payload = await fetchJson(`/vignettes?set=${encodeURIComponent(setName)}`);
     const vignettes = payload.vignettes || [];
+    const header = document.createElement("option");
+    header.value = "";
+    header.textContent = `— select a case (${setName}, n=${vignettes.length}) —`;
+    select.appendChild(header);
     vignettes.forEach((v) => {
       const opt = document.createElement("option");
       opt.value = v.id;
@@ -1880,6 +1900,7 @@ async function loadReviewCases() {
       opt.textContent = `${v.id} — ${cc}`;
       select.appendChild(opt);
     });
+    select.value = "";
   } catch (e) {
     const opt = document.createElement("option");
     opt.value = "";
@@ -2424,6 +2445,13 @@ function wireEvents() {
       return;
     }
     workspaceDownloadNote(item);
+  });
+
+  // About tab
+  $("loadPolicyPack")?.addEventListener("click", () => loadPolicyPack());
+  $("copyPolicyPack")?.addEventListener("click", () => {
+    if (!state.policyPack) return;
+    copyText(fmtJson(state.policyPack), "Copied policy pack JSON.");
   });
 
   // Demo runbook

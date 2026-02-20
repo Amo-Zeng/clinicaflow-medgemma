@@ -362,6 +362,39 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                 status_code = HTTPStatus.OK
                 return
 
+            if path == "/policy_pack":
+                from importlib.resources import files
+
+                from clinicaflow.policy_pack import load_policy_pack, policy_pack_sha256
+
+                limit_raw = str(query.get("limit", ["0"])[0]).strip()
+                try:
+                    limit = int(limit_raw or "0")
+                except ValueError:
+                    limit = 0
+
+                if self.server.settings.policy_pack_path:
+                    source = self.server.settings.policy_pack_path
+                    pack_path: object = self.server.settings.policy_pack_path
+                else:
+                    source = "package:clinicaflow.resources/policy_pack.json"
+                    pack_path = files("clinicaflow.resources").joinpath("policy_pack.json")
+
+                policies = load_policy_pack(pack_path)
+                n_total = len(policies)
+                if limit > 0:
+                    policies = policies[:limit]
+
+                payload = {
+                    "source": source,
+                    "sha256": policy_pack_sha256(pack_path),
+                    "n_policies": n_total,
+                    "policies": [p.to_dict() for p in policies],
+                }
+                self._write_json(payload, request_id=request_id)
+                status_code = HTTPStatus.OK
+                return
+
             if path == "/metrics":
                 uptime_s = int(time.time() - self.server.start_time)
                 count = int(self.server.stats.get("triage_latency_ms_count") or 0)
@@ -716,6 +749,7 @@ def _openapi_spec() -> dict:
             "/live": {"get": {"responses": {"200": {"description": "ok"}}}},
             "/version": {"get": {"responses": {"200": {"description": "version"}}}},
             "/doctor": {"get": {"responses": {"200": {"description": "diagnostics (no secrets)"}}}},
+            "/policy_pack": {"get": {"responses": {"200": {"description": "policy pack (demo/site protocols)"}}}},
             "/metrics": {"get": {"responses": {"200": {"description": "metrics"}}}},
             "/example": {"get": {"responses": {"200": {"description": "sample intake"}}}},
             "/vignettes": {"get": {"responses": {"200": {"description": "list vignettes"}}}},
