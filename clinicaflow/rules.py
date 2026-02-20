@@ -214,3 +214,70 @@ def _dedupe(items: list[str]) -> list[str]:
             seen.add(item)
             result.append(item)
     return result
+
+
+def safety_rules_catalog() -> dict[str, Any]:
+    """Return a static, explainable catalog of deterministic safety rules.
+
+    This is intended for governance transparency and UI "rulebook" views. It is
+    not a clinical guideline and must be replaced/validated against site
+    protocols before any deployment.
+    """
+
+    vitals_red_flags = [
+        {"id": "spo2_lt_92", "label": "Low oxygen saturation (<92%)", "condition": "spo2 < 92"},
+        {"id": "sbp_lt_90", "label": "Hypotension (SBP < 90)", "condition": "systolic_bp < 90"},
+        {"id": "hr_gt_130", "label": "Severe tachycardia (HR > 130)", "condition": "heart_rate > 130"},
+        {"id": "temp_gte_39_5", "label": "High fever (>= 39.5°C)", "condition": "temperature_c >= 39.5"},
+    ]
+
+    trigger_catalog = [
+        {
+            "id": "hemodynamic_instability",
+            "severity": "critical",
+            "label": "Hemodynamic instability",
+            "detail": "Hypotension (SBP < 90) or severe tachycardia (HR > 130).",
+        },
+        {
+            "id": "hypoxemia_with_cardiopulmonary",
+            "severity": "critical",
+            "label": "Hypoxemia + cardiopulmonary complaint",
+            "detail": "SpO₂ < 92% with a cardiopulmonary red-flag pattern.",
+        },
+        {
+            "id": "multiple_red_flags",
+            "severity": "critical",
+            "label": "Multiple red flags",
+            "detail": "2+ red flags detected in the same intake.",
+        },
+        {
+            "id": "red_flags_present",
+            "severity": "urgent",
+            "label": "Red flags present",
+            "detail": "1+ red flags detected in the intake.",
+        },
+        {
+            "id": "vital_concern",
+            "severity": "urgent",
+            "label": "Vital-sign concern",
+            "detail": "HR ≥110, Temp ≥38.5°C, or SpO₂ <95%.",
+        },
+        {
+            "id": "insufficient_intake_fields",
+            "severity": "urgent",
+            "label": "Insufficient intake fields",
+            "detail": "3+ critical fields missing.",
+        },
+    ]
+
+    return {
+        "safety_rules_version": SAFETY_RULES_VERSION,
+        "red_flag_keywords": dict(RED_FLAG_KEYWORDS),
+        "risk_factor_keywords": sorted(RISK_FACTORS),
+        "vitals_red_flags": vitals_red_flags,
+        "safety_trigger_catalog": trigger_catalog,
+        "notes": [
+            "Decision support only. Not a diagnosis.",
+            "This catalog is a demo rulebook for transparency; replace with site protocols.",
+        ],
+    }

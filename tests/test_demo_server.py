@@ -97,6 +97,31 @@ class DemoServerTests(unittest.TestCase):
         finally:
             _stop_server(server, thread)
 
+    def test_safety_rules_endpoint(self) -> None:
+        settings = Settings(
+            debug=False,
+            log_level="INFO",
+            json_logs=False,
+            max_request_bytes=262144,
+            policy_top_k=2,
+            policy_pack_path="",
+            cors_allow_origin="*",
+            api_key="",
+        )
+        server, thread, base_url = _start_server(settings=settings)
+        try:
+            status, headers, raw = _http("GET", base_url + "/safety_rules", headers={"X-Request-ID": "rules1"})
+            self.assertEqual(status, 200)
+            self.assertEqual(headers.get("X-Request-ID"), "rules1")
+            payload = json.loads(raw.decode("utf-8"))
+            self.assertIn("safety_rules_version", payload)
+            self.assertIn("red_flag_keywords", payload)
+            self.assertIn("safety_trigger_catalog", payload)
+            self.assertIsInstance(payload.get("safety_trigger_catalog"), list)
+            self.assertGreater(len(payload.get("safety_trigger_catalog") or []), 0)
+        finally:
+            _stop_server(server, thread)
+
     def test_synthetic_benchmark_endpoint(self) -> None:
         settings = Settings(
             debug=False,

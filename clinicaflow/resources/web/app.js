@@ -111,6 +111,7 @@ const state = {
   doctor: null,
   metrics: null,
   policyPack: null,
+  safetyRules: null,
   imageDataUrls: [],
   lastIntake: null,
   lastResult: null,
@@ -1272,6 +1273,125 @@ async function loadPolicyPack() {
     if (out) out.textContent = "{}";
     setText("statusLine", "Failed to load policy pack.");
   }
+}
+
+async function loadSafetyRules() {
+  const status = $("rulesStatus");
+  if (status) status.textContent = "Loading…";
+  try {
+    const payload = await fetchJson("/safety_rules");
+    state.safetyRules = payload;
+    renderRulesTab();
+    if (status) status.textContent = "Loaded.";
+    setText("statusLine", "Loaded safety rules.");
+  } catch (e) {
+    state.safetyRules = null;
+    renderRulesTab();
+    if (status) status.textContent = `Error: ${e}`;
+    setText("statusLine", "Failed to load safety rules.");
+  }
+}
+
+function renderRulesTab() {
+  const meta = $("rulesMeta");
+  const triggerBody = $("rulesTriggerBody");
+  const keywordBody = $("rulesKeywordBody");
+  const pre = $("rulesJson");
+  if (!meta && !triggerBody && !keywordBody && !pre) return;
+
+  const payload = state.safetyRules;
+  const filter = String($("rulesFilter")?.value || "")
+    .trim()
+    .toLowerCase();
+
+  if (pre) pre.textContent = fmtJson(payload || {});
+
+  if (meta) {
+    meta.innerHTML = "";
+    const k = document.createElement("div");
+    k.className = "k";
+    k.textContent = "Metadata";
+    meta.appendChild(k);
+
+    const lines = [];
+    if (payload?.safety_rules_version) lines.push(`safety_rules_version=${payload.safety_rules_version}`);
+    const nKeys = payload?.red_flag_keywords ? Object.keys(payload.red_flag_keywords).length : 0;
+    const nTriggers = Array.isArray(payload?.safety_trigger_catalog) ? payload.safety_trigger_catalog.length : 0;
+    lines.push(`keywords=${nKeys}`);
+    lines.push(`triggers=${nTriggers}`);
+    const small = document.createElement("div");
+    small.className = "small muted";
+    small.textContent = payload ? lines.join(" • ") : "Click Load to fetch /safety_rules.";
+    meta.appendChild(small);
+  }
+
+  if (triggerBody) {
+    triggerBody.innerHTML = "";
+    const triggers = Array.isArray(payload?.safety_trigger_catalog) ? payload.safety_trigger_catalog : [];
+    const rows = triggers.filter((t) => {
+      if (!filter) return true;
+      const s = `${t?.id || ""} ${t?.label || ""} ${t?.severity || ""} ${t?.detail || ""}`.toLowerCase();
+      return s.includes(filter);
+    });
+    if (!rows.length) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td class="muted" colspan="3">${payload ? "(no matching rules)" : "Click Load to fetch rules."}</td>`;
+      triggerBody.appendChild(tr);
+    } else {
+      rows.forEach((t) => {
+        const id = String(t?.id || "").trim();
+        const label = String(t?.label || "").trim();
+        const sev = String(t?.severity || "").trim().toLowerCase();
+        const detail = String(t?.detail || "").trim();
+
+        const tr = document.createElement("tr");
+        const sevPill = document.createElement("span");
+        const riskClass = sev === "critical" ? "critical" : sev === "urgent" ? "urgent" : "routine";
+        sevPill.className = `risk ${riskClass}`;
+        sevPill.textContent = sev || "info";
+
+        tr.innerHTML = `
+          <td class="mono">${escapeHtml(label || id || "(rule)")}${id && label && id !== label ? ` <span class="muted">(${escapeHtml(id)})</span>` : ""}</td>
+          <td class="sev"></td>
+          <td class="small">${escapeHtml(detail || "—")}</td>
+        `;
+        tr.querySelector(".sev")?.appendChild(sevPill);
+        triggerBody.appendChild(tr);
+      });
+    }
+  }
+
+  if (keywordBody) {
+    keywordBody.innerHTML = "";
+    const keywords = payload?.red_flag_keywords || {};
+    const entries = Object.entries(keywords || {})
+      .map(([k, v]) => [String(k), String(v)])
+      .filter(([k, v]) => k.trim() && v.trim())
+      .filter(([k, v]) => {
+        if (!filter) return true;
+        return `${k} ${v}`.toLowerCase().includes(filter);
+      })
+      .sort((a, b) => a[0].localeCompare(b[0]));
+
+    if (!entries.length) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td class="muted" colspan="2">${payload ? "(no matching keywords)" : "Click Load to fetch rules."}</td>`;
+      keywordBody.appendChild(tr);
+    } else {
+      entries.forEach(([pattern, redFlag]) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td class="mono">${escapeHtml(pattern)}</td><td>${escapeHtml(redFlag)}</td>`;
+        keywordBody.appendChild(tr);
+      });
+    }
+  }
+}
+
+function downloadSafetyRulesJson() {
+  if (!state.safetyRules) return;
+  const version = String(state.safetyRules.safety_rules_version || "demo").trim() || "demo";
+  downloadText(`safety_rules_${version}.json`, fmtJson(state.safetyRules), "application/json; charset=utf-8");
+  setText("statusLine", "Downloaded safety_rules.json");
 }
 
 async function loadPresets() {
@@ -3773,6 +3893,15 @@ function wireEvents() {
   });
   $("govDownloadMd")?.addEventListener("click", () => downloadGovernanceMd());
 
+  // Rules tab
+  $("rulesRefresh")?.addEventListener("click", () => loadSafetyRules());
+  $("rulesDownloadJson")?.addEventListener("click", () => downloadSafetyRulesJson());
+  const rulesFilter = $("rulesFilter");
+  if (rulesFilter) {
+    rulesFilter.addEventListener("input", () => renderRulesTab());
+    rulesFilter.addEventListener("change", () => renderRulesTab());
+  }
+
   // Ops tab
   $("opsRefresh")?.addEventListener("click", () => refreshOps());
   $("opsDownloadMd")?.addEventListener("click", () => downloadOpsReportMd());
@@ -4109,6 +4238,7 @@ async function init() {
   if ($("govBenchSet")) $("govBenchSet").value = "mega";
   if ($("opsAuto")) $("opsAuto").checked = false;
   renderGovernance(null, null);
+  renderRulesTab();
   await refreshOps();
   await loadPresets();
   await loadPreset();

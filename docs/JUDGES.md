@@ -20,9 +20,10 @@ In the UI, open the **Demo** tab and click through:
 4. Routine case
 5. Benchmarks (synthetic proxy + vignette regression; try `standard` or `mega`)
 6. Governance tab (safety gate + trigger coverage + export report)
-7. Ops tab (live metrics + per-agent latency/errors)
-8. Adversarial vignette (abbrev/negation/injection-like strings)
-9. Clinician review tooling (export local review JSON/markdown)
+7. Rules tab (deterministic safety rulebook)
+8. Ops tab (live metrics + per-agent latency/errors)
+9. Adversarial vignette (abbrev/negation/injection-like strings)
+10. Clinician review tooling (export local review JSON/markdown)
 
 ## 3) Reproduce writeup numbers (one command)
 

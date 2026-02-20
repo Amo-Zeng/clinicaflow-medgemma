@@ -214,6 +214,7 @@ Console features:
 - Vignette regression tab + JSON export
 - Vignette regression tab + markdown table export (copy/download)
 - Governance tab (safety gate dashboard + trigger coverage + action provenance + markdown export)
+- Rules tab (deterministic safety rulebook via `/safety_rules`)
 - Ops tab (live `/metrics` + per-agent latency/errors + markdown export)
 - Failure analysis packet export (includes safety triggers + provenance + workflow mini)
 - Clinician review tab (local-only storage + JSON/Markdown export for writeup)

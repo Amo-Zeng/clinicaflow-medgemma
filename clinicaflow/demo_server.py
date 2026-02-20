@@ -646,6 +646,13 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                 status_code = HTTPStatus.OK
                 return
 
+            if path == "/safety_rules":
+                from clinicaflow.rules import safety_rules_catalog
+
+                self._write_json(safety_rules_catalog(), request_id=request_id)
+                status_code = HTTPStatus.OK
+                return
+
             if path == "/metrics":
                 uptime_s = int(time.time() - self.server.start_time)
                 count = int(self.server.stats.get("triage_latency_ms_count") or 0)
@@ -1049,6 +1056,7 @@ def _openapi_spec() -> dict:
             "/version": {"get": {"responses": {"200": {"description": "version"}}}},
             "/doctor": {"get": {"responses": {"200": {"description": "diagnostics (no secrets)"}}}},
             "/policy_pack": {"get": {"responses": {"200": {"description": "policy pack (demo/site protocols)"}}}},
+            "/safety_rules": {"get": {"responses": {"200": {"description": "deterministic safety rulebook (demo)"}}}},
             "/metrics": {"get": {"responses": {"200": {"description": "metrics"}}}},
             "/example": {"get": {"responses": {"200": {"description": "sample intake"}}}},
             "/vignettes": {"get": {"responses": {"200": {"description": "list vignettes"}}}},

@@ -29,6 +29,7 @@
         <button class="tab" data-tab="workspace" type="button">Workspace</button>
         <button class="tab" data-tab="regression" type="button">Regression</button>
         <button class="tab" data-tab="governance" type="button">Governance</button>
+        <button class="tab" data-tab="rules" type="button">Rules</button>
         <button class="tab" data-tab="ops" type="button">Ops</button>
         <button class="tab" data-tab="review" type="button">Review</button>
         <button class="tab" data-tab="about" type="button">About</button>
@@ -561,6 +562,70 @@
             <div id="govProvenance" class="callout"></div>
             <div id="govTriggers" class="callout"></div>
             <div id="govUnder" class="callout"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="tab-rules" class="tabpanel">
+        <div class="grid">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Safety rulebook (deterministic)</h2>
+              <div class="small">Explainable governance primitives used by the Safety agent.</div>
+            </div>
+
+            <div class="row">
+              <button id="rulesRefresh" class="btn primary" type="button">Load</button>
+              <button id="rulesDownloadJson" class="btn subtle" type="button">Download JSON</button>
+              <input id="rulesFilter" type="text" placeholder="Filter (id/label/severity)…" style="min-width: 280px;" />
+              <span id="rulesStatus" class="small"></span>
+            </div>
+
+            <div id="rulesMeta" class="callout"></div>
+
+            <div class="tablewrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Trigger</th>
+                    <th>Severity</th>
+                    <th>Detail</th>
+                  </tr>
+                </thead>
+                <tbody id="rulesTriggerBody"></tbody>
+              </table>
+            </div>
+
+            <details class="details">
+              <summary>Raw JSON (for audit/governance)</summary>
+              <pre id="rulesJson" class="pre mono">{}</pre>
+            </details>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Red-flag keywords (demo)</h2>
+              <div class="small">Text patterns used by deterministic red-flag detection.</div>
+            </div>
+
+            <div class="tablewrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Pattern</th>
+                    <th>Red flag</th>
+                  </tr>
+                </thead>
+                <tbody id="rulesKeywordBody"></tbody>
+              </table>
+            </div>
+
+            <div class="callout">
+              <div class="k">Notes</div>
+              <div class="small muted">
+                This rulebook is a demo artifact for transparency. Replace with site protocols and validate with clinicians.
+              </div>
+            </div>
           </section>
         </div>
       </section>

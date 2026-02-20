@@ -43,6 +43,7 @@ Explain the 5-agent pipeline:
 5. Communication → clinician + patient outputs
 
 Callout: “We separate probabilistic reasoning from deterministic safety governance.”
+Optional: briefly open the **Rules** tab to show the deterministic safety trigger catalog (explainability).
 
 ## 1:30–2:15 — Safety behaviors (what judges care about)
 
