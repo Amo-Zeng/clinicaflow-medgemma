@@ -29,6 +29,7 @@
         <button class="tab" data-tab="workspace" type="button">Workspace</button>
         <button class="tab" data-tab="regression" type="button">Regression</button>
         <button class="tab" data-tab="governance" type="button">Governance</button>
+        <button class="tab" data-tab="ops" type="button">Ops</button>
         <button class="tab" data-tab="review" type="button">Review</button>
         <button class="tab" data-tab="about" type="button">About</button>
       </nav>
@@ -286,6 +287,7 @@
                   <a class="btn subtle" href="/metrics" target="_blank" rel="noreferrer">Open /metrics</a>
                   <a class="btn subtle" href="/openapi.json" target="_blank" rel="noreferrer">OpenAPI</a>
                   <a class="btn subtle" href="/policy_pack" target="_blank" rel="noreferrer">Open /policy_pack</a>
+                  <button id="demoGoOps" class="btn subtle" type="button">Open Ops tab</button>
                 </div>
               </li>
               <li>
@@ -404,6 +406,7 @@
                 <thead>
                   <tr>
                     <th>Saved</th>
+                    <th>Status</th>
                     <th>Chief complaint</th>
                     <th>Risk tier</th>
                     <th>Backend</th>
@@ -419,6 +422,17 @@
             <div class="panel-head">
               <h2>Selected item</h2>
               <div class="small">Load into Triage tab for full trace.</div>
+            </div>
+
+            <div class="row" style="margin-top: 0;">
+              <select id="wsStatusSelect" class="select" style="min-width: 180px;">
+                <option value="new">status: new</option>
+                <option value="triaged">status: triaged</option>
+                <option value="needs_review">status: needs_review</option>
+                <option value="closed">status: closed</option>
+              </select>
+              <button id="wsUpdateStatus" class="btn subtle" type="button">Update</button>
+              <button id="wsRunTriage" class="btn subtle" type="button">Run triage</button>
             </div>
 
             <pre id="wsSelected" class="pre mono">{}</pre>
@@ -547,6 +561,65 @@
             <div id="govProvenance" class="callout"></div>
             <div id="govTriggers" class="callout"></div>
             <div id="govUnder" class="callout"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="tab-ops" class="tabpanel">
+        <div class="grid">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Ops dashboard</h2>
+              <div class="small">Live runtime + reliability view (no secrets).</div>
+            </div>
+
+            <div class="row">
+              <button id="opsRefresh" class="btn primary" type="button">Refresh</button>
+              <label class="check"><input id="opsAuto" type="checkbox" /> Auto refresh (5s)</label>
+              <button id="opsDownloadMd" class="btn subtle" type="button">Download ops report</button>
+              <a class="btn subtle" href="/metrics?format=prometheus" target="_blank" rel="noreferrer">Prometheus</a>
+              <a class="btn subtle" href="/doctor" target="_blank" rel="noreferrer">Doctor</a>
+            </div>
+
+            <div id="opsStatus" class="small"></div>
+            <div id="opsSummary" class="summary"></div>
+
+            <div id="opsAlerts" class="callout"></div>
+
+            <div class="callout">
+              <div class="k">Production notes</div>
+              <ul class="list">
+                <li>Use <b>under-triage gate</b> in CI for safety regressions.</li>
+                <li>Track per-agent latency/error metrics for incident triage.</li>
+                <li>Prefer redacted audit bundles for QA reviews (no PHI).</li>
+              </ul>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Performance breakdown</h2>
+              <div class="small">Per-agent averages since server start.</div>
+            </div>
+
+            <div class="tablewrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Agent</th>
+                    <th>Avg latency (ms)</th>
+                    <th>Calls</th>
+                    <th>Errors</th>
+                  </tr>
+                </thead>
+                <tbody id="opsAgentBody"></tbody>
+              </table>
+            </div>
+
+            <div class="callout">
+              <div class="k">Distributions</div>
+              <div id="opsDistributions" class="small muted">—</div>
+            </div>
           </section>
         </div>
       </section>

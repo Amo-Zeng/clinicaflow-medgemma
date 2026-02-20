@@ -109,6 +109,7 @@ async function postJson(url, payload, extraHeaders) {
 const state = {
   mode: "form",
   doctor: null,
+  metrics: null,
   policyPack: null,
   imageDataUrls: [],
   lastIntake: null,
@@ -127,6 +128,11 @@ const state = {
   },
   workspace: {
     selectedId: null,
+  },
+  ops: {
+    intervalId: null,
+    autoSeconds: 5,
+    lastRefreshedAt: null,
   },
 };
 
@@ -955,6 +961,302 @@ async function loadDoctor() {
     setText("commBadge", "comm: unknown");
     setText("policyBadge", "policy: unknown");
   }
+}
+
+// ---------------------------
+// Ops dashboard (live metrics)
+// ---------------------------
+
+function formatUptime(uptimeSeconds) {
+  const s = Number(uptimeSeconds);
+  if (!Number.isFinite(s) || s < 0) return "—";
+  const sec = Math.floor(s % 60);
+  const m = Math.floor((s % 3600) / 60);
+  const h = Math.floor(s / 3600);
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${sec}s`;
+  return `${sec}s`;
+}
+
+function opsMetric(m, key, fallback) {
+  const v = m ? m[key] : null;
+  return v == null ? fallback : v;
+}
+
+function opsNum(v, { digits = 1 } = {}) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  return digits == null ? String(n) : n.toFixed(digits);
+}
+
+function renderOpsDashboard() {
+  const summary = $("opsSummary");
+  const alerts = $("opsAlerts");
+  const agentBody = $("opsAgentBody");
+  const dist = $("opsDistributions");
+  if (!summary && !alerts && !agentBody && !dist) return;
+
+  const m = state.metrics || null;
+  const d = state.doctor || null;
+
+  if (summary) summary.innerHTML = "";
+  if (alerts) alerts.innerHTML = "";
+  if (agentBody) agentBody.innerHTML = "";
+  if (dist) dist.textContent = "—";
+
+  if (!m) {
+    if (alerts) {
+      alerts.innerHTML = `<div class="k">Alerts</div><div class="small muted">No metrics loaded yet. Click Refresh.</div>`;
+    }
+    return;
+  }
+
+  function addCard(title, value, subtitle) {
+    if (!summary) return;
+    const c = document.createElement("div");
+    c.className = "card";
+    c.innerHTML = `<div class="k">${escapeHtml(title)}</div><div class="mono">${escapeHtml(
+      String(value ?? "—"),
+    )}</div>${subtitle ? `<div class="small muted">${escapeHtml(subtitle)}</div>` : ""}`;
+    summary.appendChild(c);
+  }
+
+  const uptime = formatUptime(opsMetric(m, "uptime_s", null));
+  const version = String(opsMetric(m, "version", "—") || "—");
+  const triageReq = Number(opsMetric(m, "triage_requests_total", 0)) || 0;
+  const triageOk = Number(opsMetric(m, "triage_success_total", 0)) || 0;
+  const triageErr = Number(opsMetric(m, "triage_errors_total", 0)) || 0;
+  const avgLatency = Number(opsMetric(m, "triage_latency_ms_avg", null));
+
+  const rb = (d || {}).reasoning_backend || {};
+  const backend = String(rb.backend || "deterministic");
+  const model = String(rb.model || "");
+  const ok = rb.connectivity_ok;
+  const backendLine = model ? `${backend} • ${model}` : backend;
+  const backendHealth = ok === true ? "ok" : ok === false ? "unreachable" : "unknown";
+
+  addCard("Uptime", uptime, `version=${version}`);
+  addCard("Triage requests", `${triageReq}`, `success=${triageOk} • errors=${triageErr}`);
+  addCard("Avg triage latency", Number.isFinite(avgLatency) ? `${opsNum(avgLatency, { digits: 2 })} ms` : "—", "from pipeline total_latency_ms");
+  addCard("Reasoning backend", backendLine, `connectivity=${backendHealth}`);
+
+  const riskTotals = m.triage_risk_tier_total || {};
+  const riskLine = Object.keys(riskTotals)
+    .sort()
+    .map((k) => `${k}=${riskTotals[k]}`)
+    .join(" • ");
+  addCard("Risk tier distribution", riskLine || "—", "since server start");
+
+  const backendTotals = m.triage_reasoning_backend_total || {};
+  const backendDist = Object.keys(backendTotals)
+    .sort()
+    .map((k) => `${k}=${backendTotals[k]}`)
+    .join(" • ");
+  addCard("Backend distribution", backendDist || "—", "deterministic vs external");
+
+  // Alerts
+  const issues = [];
+  if (ok === false) issues.push({ level: "bad", text: "Reasoning backend unreachable (demo will fall back to deterministic)." });
+  if (triageErr > 0) issues.push({ level: "bad", text: `Triage errors observed: ${triageErr}` });
+  if (Number.isFinite(avgLatency) && avgLatency > 1800) issues.push({ level: "warn", text: `High average latency: ${opsNum(avgLatency, { digits: 0 })} ms` });
+
+  const agentErrs = m.triage_agent_errors_total || {};
+  Object.keys(agentErrs || {}).forEach((a) => {
+    const n = Number(agentErrs[a]) || 0;
+    if (n > 0) issues.push({ level: "warn", text: `Agent errors: ${a}=${n}` });
+  });
+
+  if (alerts) {
+    const title = document.createElement("div");
+    title.className = "k";
+    title.textContent = "Alerts";
+    alerts.appendChild(title);
+
+    const ul = document.createElement("ul");
+    ul.className = "list";
+    if (!issues.length) {
+      const li = document.createElement("li");
+      li.textContent = "(none)";
+      ul.appendChild(li);
+    } else {
+      issues.forEach((it) => {
+        const li = document.createElement("li");
+        const chip = document.createElement("span");
+        chip.className = `chip ${it.level === "bad" ? "bad" : it.level === "warn" ? "warn" : "ok"}`;
+        chip.textContent = it.level.toUpperCase();
+        li.appendChild(chip);
+        const text = document.createElement("span");
+        text.textContent = ` ${it.text}`;
+        li.appendChild(text);
+        ul.appendChild(li);
+      });
+    }
+    alerts.appendChild(ul);
+  }
+
+  // Per-agent table
+  if (agentBody) {
+    const sums = m.triage_agent_latency_ms_sum || {};
+    const counts = m.triage_agent_latency_ms_count || {};
+    const errs = m.triage_agent_errors_total || {};
+    const allAgents = new Set([...Object.keys(sums), ...Object.keys(counts), ...Object.keys(errs)]);
+    const order = [
+      "intake_structuring",
+      "multimodal_reasoning",
+      "evidence_policy",
+      "safety_escalation",
+      "communication",
+    ];
+    function idx(a) {
+      const i = order.indexOf(a);
+      return i === -1 ? 999 : i;
+    }
+    const agents = [...allAgents].sort((a, b) => idx(a) - idx(b) || String(a).localeCompare(String(b)));
+
+    agents.forEach((a) => {
+      const sum = Number(sums[a]);
+      const cnt = Number(counts[a]) || 0;
+      const err = Number(errs[a]) || 0;
+      const avg = cnt > 0 && Number.isFinite(sum) ? sum / cnt : null;
+
+      const tr = document.createElement("tr");
+      if (err > 0) tr.className = "row-bad";
+      else if (avg != null && avg > 900) tr.className = "row-warn";
+
+      tr.innerHTML = `
+        <td class="mono">${escapeHtml(a)}</td>
+        <td class="mono">${avg == null ? "—" : escapeHtml(opsNum(avg, { digits: 2 }))}</td>
+        <td class="mono">${escapeHtml(String(cnt))}</td>
+        <td class="mono">${escapeHtml(String(err))}</td>
+      `;
+      agentBody.appendChild(tr);
+    });
+  }
+
+  if (dist) {
+    const bits = [];
+    if (riskLine) bits.push(`risk_tier_total: ${riskLine}`);
+    if (backendDist) bits.push(`reasoning_backend_total: ${backendDist}`);
+    dist.textContent = bits.length ? bits.join(" • ") : "—";
+  }
+}
+
+async function loadMetrics() {
+  try {
+    const payload = await fetchJson("/metrics");
+    state.metrics = payload;
+    return payload;
+  } catch (e) {
+    state.metrics = null;
+    throw e;
+  }
+}
+
+async function refreshOps() {
+  const status = $("opsStatus");
+  if (status) status.textContent = "Refreshing…";
+  try {
+    await Promise.all([loadDoctor(), loadMetrics()]);
+    state.ops.lastRefreshedAt = new Date().toISOString();
+    renderOpsDashboard();
+    if (status) status.textContent = `Last updated: ${state.ops.lastRefreshedAt.replace("T", " ").replace("Z", "")}`;
+  } catch (e) {
+    renderOpsDashboard();
+    if (status) status.textContent = `Error: ${e}`;
+  }
+}
+
+function buildOpsReportMarkdown() {
+  const m = state.metrics || {};
+  const d = state.doctor || {};
+  const rb = d.reasoning_backend || {};
+  const cb = d.communication_backend || {};
+  const pp = d.policy_pack || {};
+
+  const lines = [];
+  lines.push("# ClinicaFlow — Ops report (demo)");
+  lines.push("");
+  lines.push("- DISCLAIMER: Decision support only. Not a diagnosis. No PHI.");
+  lines.push(`- generated_at: \`${new Date().toISOString()}\``);
+  lines.push("");
+
+  lines.push("## Runtime");
+  lines.push("");
+  lines.push(`- uptime: \`${formatUptime(m.uptime_s)}\``);
+  lines.push(`- version: \`${String(m.version || "")}\``);
+  lines.push("");
+
+  lines.push("## Backends");
+  lines.push("");
+  lines.push(`- reasoning_backend: \`${String(rb.backend || "deterministic")}\``);
+  lines.push(`- reasoning_model: \`${String(rb.model || "")}\``);
+  lines.push(`- reasoning_connectivity_ok: \`${String(rb.connectivity_ok)}\``);
+  lines.push(`- communication_backend: \`${String(cb.backend || "deterministic")}\``);
+  lines.push(`- communication_model: \`${String(cb.model || "")}\``);
+  lines.push(`- communication_connectivity_ok: \`${String(cb.connectivity_ok)}\``);
+  lines.push(`- policy_pack_sha256: \`${String(pp.sha256 || "")}\``);
+  lines.push("");
+
+  lines.push("## Requests");
+  lines.push("");
+  lines.push(`- triage_requests_total: \`${String(m.triage_requests_total ?? "")}\``);
+  lines.push(`- triage_success_total: \`${String(m.triage_success_total ?? "")}\``);
+  lines.push(`- triage_errors_total: \`${String(m.triage_errors_total ?? "")}\``);
+  lines.push(`- audit_bundle_errors_total: \`${String(m.audit_bundle_errors_total ?? "")}\``);
+  lines.push(`- fhir_bundle_errors_total: \`${String(m.fhir_bundle_errors_total ?? "")}\``);
+  lines.push("");
+
+  lines.push("## Latency");
+  lines.push("");
+  lines.push(`- triage_latency_ms_avg: \`${opsNum(m.triage_latency_ms_avg, { digits: 2 })}\``);
+  lines.push("");
+
+  lines.push("## Per-agent averages");
+  lines.push("");
+  lines.push("| Agent | Avg latency (ms) | Calls | Errors |");
+  lines.push("|---|---:|---:|---:|");
+
+  const sums = m.triage_agent_latency_ms_sum || {};
+  const counts = m.triage_agent_latency_ms_count || {};
+  const errs = m.triage_agent_errors_total || {};
+  const allAgents = new Set([...Object.keys(sums), ...Object.keys(counts), ...Object.keys(errs)]);
+  const agents = [...allAgents].sort();
+  agents.forEach((a) => {
+    const cnt = Number(counts[a]) || 0;
+    const sum = Number(sums[a]);
+    const err = Number(errs[a]) || 0;
+    const avg = cnt > 0 && Number.isFinite(sum) ? sum / cnt : null;
+    lines.push(`| \`${a}\` | \`${avg == null ? "—" : opsNum(avg, { digits: 2 })}\` | \`${cnt}\` | \`${err}\` |`);
+  });
+  lines.push("");
+
+  lines.push("## Distributions");
+  lines.push("");
+  lines.push(`- triage_risk_tier_total: \`${fmtJson(m.triage_risk_tier_total || {})}\``);
+  lines.push(`- triage_reasoning_backend_total: \`${fmtJson(m.triage_reasoning_backend_total || {})}\``);
+  lines.push("");
+
+  return lines.join("\n").trim() + "\n";
+}
+
+async function downloadOpsReportMd() {
+  const md = buildOpsReportMarkdown();
+  downloadText("ops_report.md", md, "text/markdown; charset=utf-8");
+  setText("statusLine", "Downloaded ops_report.md");
+}
+
+function startOpsAutoRefresh() {
+  stopOpsAutoRefresh();
+  const seconds = Number(state.ops.autoSeconds) || 5;
+  state.ops.intervalId = setInterval(() => {
+    refreshOps();
+  }, Math.max(2, seconds) * 1000);
+}
+
+function stopOpsAutoRefresh() {
+  const id = state.ops.intervalId;
+  if (id) clearInterval(id);
+  state.ops.intervalId = null;
 }
 
 async function loadPolicyPack() {
@@ -2566,6 +2868,32 @@ async function runSynthetic() {
 // ---------------------------
 
 const WORKSPACE_STORAGE_KEY = "clinicaflow.workspace.v1";
+const WORKSPACE_STATUSES = ["new", "triaged", "needs_review", "closed"];
+
+function normalizeWorkspaceStatus(value, hasResult) {
+  const s = String(value || "").trim();
+  if (WORKSPACE_STATUSES.includes(s)) return s;
+  return hasResult ? "triaged" : "new";
+}
+
+function suggestStatusFromResult(result) {
+  const tier = String(result?.risk_tier || "").trim().toLowerCase();
+  if (tier === "urgent" || tier === "critical") return "needs_review";
+  if (tier) return "triaged";
+  return "triaged";
+}
+
+function workspaceStatus(item) {
+  return normalizeWorkspaceStatus(item?.status, Boolean(item?.result));
+}
+
+function workspaceStatusPill(status) {
+  const s = String(status || "").trim();
+  const span = document.createElement("span");
+  span.className = `pill status status-${s || "new"}`;
+  span.textContent = s || "new";
+  return span;
+}
 
 function newLocalId() {
   try {
@@ -2609,9 +2937,15 @@ function workspaceSelectedItem() {
 
 function renderWorkspaceSelected() {
   const pre = $("wsSelected");
-  if (!pre) return;
   const item = workspaceSelectedItem();
-  pre.textContent = fmtJson(item || {});
+  if (pre) pre.textContent = fmtJson(item || {});
+
+  const sel = $("wsStatusSelect");
+  if (sel) sel.value = workspaceStatus(item || {});
+  const btnUpdate = $("wsUpdateStatus");
+  if (btnUpdate) btnUpdate.disabled = !item;
+  const btnRun = $("wsRunTriage");
+  if (btnRun) btnRun.disabled = !item;
 }
 
 function renderWorkspaceSummary(items) {
@@ -2622,10 +2956,15 @@ function renderWorkspaceSummary(items) {
   const runs = (items || []).filter((x) => x && x.result).length;
 
   const tiers = { routine: 0, urgent: 0, critical: 0, unknown: 0 };
+  const statuses = { new: 0, triaged: 0, needs_review: 0, closed: 0, unknown: 0 };
   const backends = {};
   const latencies = [];
 
   (items || []).forEach((item) => {
+    const st = workspaceStatus(item);
+    if (st in statuses) statuses[st] += 1;
+    else statuses.unknown += 1;
+
     const result = item?.result;
     if (!result) return;
     const tier = String(result.risk_tier || "").toLowerCase();
@@ -2647,7 +2986,8 @@ function renderWorkspaceSummary(items) {
 
   const avg = latencies.length ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : null;
   const tierBits = `routine=${tiers.routine}, urgent=${tiers.urgent}, critical=${tiers.critical}`;
-  el.textContent = `items: ${total} (runs: ${runs}) • tiers: ${tierBits} • backends: ${backendBits || "—"} • avg latency: ${
+  const statusBits = `new=${statuses.new}, triaged=${statuses.triaged}, needs_review=${statuses.needs_review}, closed=${statuses.closed}`;
+  el.textContent = `items: ${total} (runs: ${runs}) • status: ${statusBits} • tiers: ${tierBits} • backends: ${backendBits || "—"} • avg latency: ${
     avg != null ? `${avg} ms` : "—"
   }`;
 }
@@ -2683,7 +3023,7 @@ function renderWorkspaceTable() {
   renderWorkspaceSummary(items);
   if (!items.length) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td class="muted" colspan="5">No saved items yet.</td>`;
+    tr.innerHTML = `<td class="muted" colspan="6">No saved items yet.</td>`;
     body.appendChild(tr);
     renderWorkspaceSelected();
     return;
@@ -2696,16 +3036,20 @@ function renderWorkspaceTable() {
       const tr = document.createElement("tr");
       const intake = item.intake || {};
       const result = item.result || null;
+      const status = workspaceStatus(item);
       const tier = result ? result.risk_tier || "" : "—";
       const backend = result ? extractBackend(result) : "—";
 
       tr.innerHTML = `
         <td class="mono">${escapeHtml(fmtShortTs(item.created_at))}</td>
+        <td class="ws-status"></td>
         <td>${escapeHtml(String(intake.chief_complaint || "").slice(0, 120))}</td>
         <td><b>${escapeHtml(String(tier))}</b></td>
         <td class="mono">${escapeHtml(String(backend))}</td>
         <td></td>
       `;
+      const statusTd = tr.querySelector("td.ws-status");
+      if (statusTd) statusTd.appendChild(workspaceStatusPill(status));
 
       tr.style.cursor = "pointer";
       tr.addEventListener("click", () => {
@@ -2719,6 +3063,16 @@ function renderWorkspaceTable() {
       const wrap = document.createElement("div");
       wrap.className = "row";
       wrap.style.margin = "0";
+
+      const btnTriage = document.createElement("button");
+      btnTriage.className = "btn subtle";
+      btnTriage.type = "button";
+      btnTriage.textContent = item.result ? "Re-run" : "Triage";
+      btnTriage.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        workspaceRunTriage(item);
+      });
+      wrap.appendChild(btnTriage);
 
       if (item.result) {
         const btnReport = document.createElement("button");
@@ -2780,12 +3134,14 @@ function workspaceAdd({ intake, result, checklist }) {
   const items = loadWorkspaceItems();
   const now = new Date().toISOString();
   const id = newLocalId();
+  const status = result ? suggestStatusFromResult(result) : "new";
   items.push({
     id,
     created_at: now,
     intake: stripImagesForWorkspace(intake || {}),
     result: result || null,
     checklist: checklist || null,
+    status,
   });
   saveWorkspaceItems(items);
   state.workspace.selectedId = id;
@@ -2804,6 +3160,48 @@ function workspaceDelete(id) {
   setText("wsStatus", "Deleted.");
 }
 
+function workspaceUpdateItem(id, patch) {
+  const items = loadWorkspaceItems();
+  const idx = items.findIndex((x) => x && x.id === id);
+  if (idx === -1) return null;
+  const next = { ...(items[idx] || {}), ...(patch || {}) };
+  next.status = normalizeWorkspaceStatus(next.status, Boolean(next.result));
+  items[idx] = next;
+  saveWorkspaceItems(items);
+  renderWorkspaceTable();
+  renderWorkspaceSelected();
+  return next;
+}
+
+async function workspaceRunTriage(item) {
+  setError("wsError", "");
+  const status = $("wsStatus");
+  if (status) status.textContent = "Running triage…";
+  try {
+    if (!item || !item.id) throw new Error("Select a workspace item first.");
+    const intake = item.intake || {};
+    if (!String(intake.chief_complaint || "").trim()) throw new Error("Saved intake is missing chief_complaint.");
+
+    const requestId = String(item?.result?.request_id || item.id || "").trim();
+    const { data, headers } = await postJson(
+      "/triage",
+      intake,
+      requestId ? { "X-Request-ID": requestId } : null,
+    );
+    const rid = headers.get("X-Request-ID") || data?.request_id || requestId || item.id;
+    const nextStatus = suggestStatusFromResult(data);
+    workspaceUpdateItem(item.id, { result: data, checklist: null, status: nextStatus });
+    setText("wsStatus", `Triaged: ${rid} • tier=${data?.risk_tier || "—"} • status=${nextStatus}`);
+    // Keep UI state in sync for quick report downloads.
+    state.lastIntake = intake;
+    state.lastResult = data;
+    state.lastRequestId = rid;
+  } catch (e) {
+    setError("wsError", e);
+    if (status) status.textContent = `Error: ${e}`;
+  }
+}
+
 async function workspaceExport() {
   const items = loadWorkspaceItems();
   downloadText("clinicaflow_workspace.json", fmtJson(items), "application/json");
@@ -2819,13 +3217,20 @@ async function workspaceImportFromFile(file) {
     if (!Array.isArray(payload)) throw new Error("Invalid file: expected a JSON array.");
     const sanitized = payload
       .filter((x) => x && typeof x === "object")
-      .map((x) => ({
-        id: String(x.id || newLocalId()),
-        created_at: String(x.created_at || new Date().toISOString()),
-        intake: stripImagesForWorkspace(x.intake || {}),
-        result: x.result || null,
-        checklist: x.checklist || null,
-      }));
+      .map((x) => {
+        const hasResult = Boolean(x.result);
+        const rawStatus = String(x.status || "").trim();
+        let status = normalizeWorkspaceStatus(rawStatus, hasResult);
+        if (!rawStatus && hasResult) status = suggestStatusFromResult(x.result);
+        return {
+          id: String(x.id || newLocalId()),
+          created_at: String(x.created_at || new Date().toISOString()),
+          intake: stripImagesForWorkspace(x.intake || {}),
+          result: x.result || null,
+          checklist: x.checklist || null,
+          status,
+        };
+      });
     saveWorkspaceItems(sanitized);
     // Best-effort: hydrate per-request checklists for later exports.
     sanitized.forEach((item) => {
@@ -3368,6 +3773,17 @@ function wireEvents() {
   });
   $("govDownloadMd")?.addEventListener("click", () => downloadGovernanceMd());
 
+  // Ops tab
+  $("opsRefresh")?.addEventListener("click", () => refreshOps());
+  $("opsDownloadMd")?.addEventListener("click", () => downloadOpsReportMd());
+  const opsAuto = $("opsAuto");
+  if (opsAuto) {
+    opsAuto.addEventListener("change", () => {
+      if (opsAuto.checked) startOpsAutoRefresh();
+      else stopOpsAutoRefresh();
+    });
+  }
+
   // Review tab (optional; UI-local storage)
   const reviewLoad = $("reviewLoadCase");
   if (reviewLoad) reviewLoad.addEventListener("click", () => reviewLoadCase());
@@ -3572,6 +3988,25 @@ function wireEvents() {
     setText("wsStatus", "Reset workspace.");
   });
 
+  $("wsUpdateStatus")?.addEventListener("click", () => {
+    setError("wsError", "");
+    const item = workspaceSelectedItem();
+    if (!item) {
+      setError("wsError", "Select an item first.");
+      return;
+    }
+    const sel = $("wsStatusSelect");
+    const nextStatus = normalizeWorkspaceStatus(sel?.value, Boolean(item.result));
+    workspaceUpdateItem(item.id, { status: nextStatus });
+    setText("wsStatus", `Updated status: ${nextStatus}`);
+  });
+
+  $("wsRunTriage")?.addEventListener("click", () => {
+    const item = workspaceSelectedItem();
+    if (!item) return;
+    workspaceRunTriage(item);
+  });
+
   $("wsLoadIntoTriage")?.addEventListener("click", () => {
     setError("wsError", "");
     const item = workspaceSelectedItem();
@@ -3641,6 +4076,10 @@ function wireEvents() {
     setTab("regression");
     await runBench();
   });
+  $("demoGoOps")?.addEventListener("click", async () => {
+    setTab("ops");
+    await refreshOps();
+  });
   $("demoGoGovernance")?.addEventListener("click", () => setTab("governance"));
   $("demoGovMega")?.addEventListener("click", async () => {
     setTab("governance");
@@ -3668,8 +4107,9 @@ async function init() {
   wireEvents();
   setMode("form");
   if ($("govBenchSet")) $("govBenchSet").value = "mega";
+  if ($("opsAuto")) $("opsAuto").checked = false;
   renderGovernance(null, null);
-  await loadDoctor();
+  await refreshOps();
   await loadPresets();
   await loadPreset();
   await loadReviewCases();
