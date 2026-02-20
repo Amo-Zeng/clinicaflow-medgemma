@@ -119,6 +119,18 @@ Write JSON summary:
 python -m clinicaflow.benchmarks.synthetic --seed 17 --n 220 --out results/synthetic_benchmark.json
 ```
 
+One-command writeup assets (all benchmark tables + `doctor.json` snapshot):
+
+```bash
+bash scripts/reproduce_writeup.sh
+```
+
+Prepare a Kaggle-friendly submission pack (writeup + tables + docs + cover images):
+
+```bash
+bash scripts/prepare_submission_pack.sh
+```
+
 ## Clinical Vignette Regression Sets (standard n=30, adversarial n=20, extended n=100)
 
 A small **synthetic vignette** regression set is included to catch under-triage regressions and verify red-flag recall.
