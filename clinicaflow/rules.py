@@ -89,6 +89,68 @@ def compute_risk_tier(red_flags: list[str], missing_fields: list[str], vitals: V
     return compute_risk_tier_with_rationale(red_flags, missing_fields, vitals)[0]
 
 
+def compute_safety_triggers(red_flags: list[str], missing_fields: list[str], vitals: Vitals) -> list[dict[str, Any]]:
+    """Return structured safety triggers that explain why a tier/escalation was chosen.
+
+    This is used for transparency in the UI and in report exports. It mirrors the
+    deterministic tier logic in `compute_risk_tier_with_rationale()` but returns
+    a structured explanation instead of a single string.
+    """
+
+    triggers: list[dict[str, Any]] = []
+
+    def add(id_: str, severity: str, label: str, detail: str) -> None:
+        triggers.append({"id": id_, "severity": severity, "label": label, "detail": detail})
+
+    # Critical triggers (highest priority).
+    if any("Hypotension" in rf or "Severe tachycardia" in rf for rf in red_flags):
+        add(
+            "hemodynamic_instability",
+            "critical",
+            "Hemodynamic instability",
+            "Hypotension (SBP < 90) or severe tachycardia (HR > 130).",
+        )
+
+    has_hypox = any("Low oxygen saturation" in rf for rf in red_flags)
+    has_cardio = any("Respiratory compromise risk" in rf or "acute coronary syndrome" in rf.lower() for rf in red_flags)
+    if has_hypox and has_cardio:
+        add(
+            "hypoxemia_with_cardiopulmonary",
+            "critical",
+            "Hypoxemia + cardiopulmonary complaint",
+            "SpO₂ < 92% with a cardiopulmonary red-flag pattern.",
+        )
+
+    if len(red_flags) >= 2:
+        add("multiple_red_flags", "critical", "Multiple red flags", "2+ red flags detected in the same intake.")
+
+    # Urgent triggers.
+    if red_flags:
+        add("red_flags_present", "urgent", "Red flags present", "1+ red flags detected in the intake.")
+
+    vital_concern = (
+        (vitals.heart_rate is not None and vitals.heart_rate >= 110)
+        or (vitals.temperature_c is not None and vitals.temperature_c >= 38.5)
+        or (vitals.spo2 is not None and vitals.spo2 < 95)
+    )
+    if vital_concern:
+        add("vital_concern", "urgent", "Vital-sign concern", "HR ≥110, Temp ≥38.5°C, or SpO₂ <95%.")
+
+    if len(missing_fields) >= 3:
+        add("insufficient_intake_fields", "urgent", "Insufficient intake fields", "3+ critical fields missing.")
+
+    # Dedupe by id while preserving ordering (severity ordering matters).
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for t in triggers:
+        tid = str(t.get("id") or "").strip()
+        if not tid or tid in seen:
+            continue
+        seen.add(tid)
+        out.append(t)
+    return out
+
+
 def compute_risk_scores(*, structured: StructuredIntake, vitals: Vitals) -> dict[str, Any]:
     """Compute lightweight, interpretable risk scores (demo only).
 

@@ -429,6 +429,80 @@ function renderVitalsSummary(intake) {
   root.appendChild(chips);
 }
 
+function renderSignalsSummary(structured) {
+  const root = $("signalsSummary");
+  if (!root) return;
+
+  const symptoms = Array.isArray(structured?.symptoms) ? structured.symptoms.map((x) => String(x)).filter((x) => x.trim()) : [];
+  const risk = Array.isArray(structured?.risk_factors) ? structured.risk_factors.map((x) => String(x)).filter((x) => x.trim()) : [];
+
+  root.innerHTML = "";
+  if (!symptoms.length && !risk.length) {
+    root.textContent = "—";
+    return;
+  }
+
+  function section(label, items) {
+    const title = document.createElement("div");
+    title.className = "small muted";
+    title.textContent = label;
+    root.appendChild(title);
+
+    const chips = document.createElement("div");
+    chips.className = "chips";
+    (items || []).forEach((text) => {
+      const span = document.createElement("span");
+      span.className = "chip";
+      span.textContent = String(text);
+      chips.appendChild(span);
+    });
+    if (!(items || []).length) {
+      const span = document.createElement("span");
+      span.className = "chip";
+      span.textContent = "(none)";
+      chips.appendChild(span);
+    }
+    root.appendChild(chips);
+  }
+
+  section("Symptoms", symptoms.slice(0, 8));
+  section("Risk factors", risk.slice(0, 8));
+}
+
+function renderSafetyTriggers(triggers) {
+  const root = $("safetyTriggers");
+  if (!root) return;
+
+  const rows = Array.isArray(triggers) ? triggers.filter((x) => x && typeof x === "object") : [];
+  root.innerHTML = "";
+  if (!rows.length) {
+    root.textContent = "None.";
+    return;
+  }
+
+  const chips = document.createElement("div");
+  chips.className = "chips";
+
+  rows.forEach((t) => {
+    const sev = String(t.severity || "").toLowerCase();
+    const label = String(t.label || t.id || "").trim();
+    const detail = String(t.detail || "").trim();
+    if (!label) return;
+    const span = document.createElement("span");
+    span.className = `chip ${sev === "critical" ? "bad" : sev === "urgent" ? "warn" : "ok"}`;
+    span.textContent = label;
+    if (detail) span.title = detail;
+    chips.appendChild(span);
+  });
+
+  if (!chips.childNodes.length) {
+    root.textContent = "—";
+    return;
+  }
+
+  root.appendChild(chips);
+}
+
 function renderList(el, items, { ordered, emptyText } = {}) {
   el.innerHTML = "";
   (items || []).forEach((x) => {
@@ -742,6 +816,7 @@ function renderResult(result, requestIdFromHeader) {
 
   const structured = traceOutput(result, "intake_structuring");
   $("structuredOut").textContent = fmtJson(structured || {});
+  renderSignalsSummary(structured || {});
   const missing = structured?.missing_fields || [];
   const missingEl = $("missingFields");
   if (missingEl) renderList(missingEl, missing, { ordered: false, emptyText: "None." });
@@ -772,6 +847,7 @@ function renderResult(result, requestIdFromHeader) {
   if (comm.communication_backend_error) commBits.push(`error=${String(comm.communication_backend_error).slice(0, 80)}`);
   setText("commInfo", commBits.length ? `Communication: ${commBits.join(" • ")}` : "Communication: —");
 
+  renderSafetyTriggers(safety?.safety_triggers || []);
   renderTraceMini(result.trace || []);
   renderTrace(result.trace || []);
 
@@ -1072,6 +1148,10 @@ function buildNoteMarkdown(intake, result, checklist) {
   const evidence = traceOutput(result, "evidence_policy");
   const safety = traceOutput(result, "safety_escalation");
 
+  const safetyActionsRaw = Array.isArray(safety?.actions_added_by_safety) ? safety.actions_added_by_safety : [];
+  const safetyActions = safetyActionsRaw.map((x) => String(x || "").trim()).filter((x) => x);
+  const safetySet = new Set(safetyActions);
+
   const vitals = (intake || {}).vitals || {};
   const vitalsParts = [];
   if (vitals.heart_rate != null) vitalsParts.push(`HR ${vitals.heart_rate}`);
@@ -1107,6 +1187,19 @@ function buildNoteMarkdown(intake, result, checklist) {
   const rs = formatRiskScores(safety.risk_scores || {});
   if (rs !== "—") lines.push(`- risk_scores: ${rs}`);
   lines.push("");
+  lines.push("## Safety triggers (deterministic)");
+  const triggers = Array.isArray(safety?.safety_triggers) ? safety.safety_triggers : [];
+  if (triggers.length) {
+    triggers.forEach((t) => {
+      const label = String(t?.label || t?.id || "").trim();
+      const detail = String(t?.detail || "").trim();
+      if (!label) return;
+      lines.push(`- ${label}${detail ? ` — ${detail}` : ""}`);
+    });
+  } else {
+    lines.push("- (none)");
+  }
+  lines.push("");
   lines.push("## Red flags");
   (result.red_flags || []).forEach((x) => lines.push(`- ${x}`));
   if (!result.red_flags || result.red_flags.length === 0) lines.push("- (none)");
@@ -1127,10 +1220,12 @@ function buildNoteMarkdown(intake, result, checklist) {
   const total = merged.length;
   const done = merged.filter((x) => x && x.checked).length;
   lines.push(`- progress: ${done}/${total}`);
+  if (safetySet.size) lines.push("- tags: SAFETY=rules, POLICY=policy pack");
   merged.forEach((x) => {
     const text = String(x?.text || "").trim();
     if (!text) return;
-    lines.push(`- [${x.checked ? "x" : " "}] ${text}`);
+    const tag = safetySet.size ? (safetySet.has(text) ? "[SAFETY] " : "[POLICY] ") : "";
+    lines.push(`- [${x.checked ? "x" : " "}] ${tag}${text}`);
   });
   lines.push("");
   lines.push("## Uncertainty");
@@ -1166,6 +1261,23 @@ function buildReportHtml(intake, result, checklist) {
   const safetyActionsRaw = Array.isArray(safety?.actions_added_by_safety) ? safety.actions_added_by_safety : [];
   const safetyActions = safetyActionsRaw.map((x) => String(x || "").trim()).filter((x) => x);
   const safetySet = new Set(safetyActions);
+
+  const safetyTriggers = Array.isArray(safety?.safety_triggers) ? safety.safety_triggers : [];
+  const triggerLis =
+    safetyTriggers
+      .map((t) => {
+        const label = String(t?.label || t?.id || "").trim();
+        const detail = String(t?.detail || "").trim();
+        const sev = String(t?.severity || "").trim().toLowerCase();
+        if (!label) return "";
+        const klass = sev === "critical" ? "risk-critical" : sev === "urgent" ? "risk-urgent" : "risk-routine";
+        return `<li><span class="pill ${klass}">${escapeHtml(label)}</span> ${detail ? escapeHtml(detail) : ""}</li>`;
+      })
+      .filter((x) => x)
+      .join("") || "<li>(none)</li>";
+
+  const symptoms = Array.isArray(structured?.symptoms) ? structured.symptoms.map((x) => String(x)) : [];
+  const riskFactors = Array.isArray(structured?.risk_factors) ? structured.risk_factors.map((x) => String(x)) : [];
 
   const requestId = result.request_id || state.lastRequestId || "run";
   const createdAt = result.created_at || new Date().toISOString();
@@ -1358,6 +1470,19 @@ function buildReportHtml(intake, result, checklist) {
       <div class="card">
         <div class="k">Missing critical fields</div>
         <ul>${missingLis}</ul>
+      </div>
+
+      <div class="card">
+        <div class="k">Extracted signals</div>
+        <div class="sub">Symptoms</div>
+        <ul>${symptoms.length ? symptoms.map((x) => `<li>${escapeHtml(String(x))}</li>`).join("") : "<li>(none)</li>"}</ul>
+        <div class="sub" style="margin-top: 10px;">Risk factors</div>
+        <ul>${riskFactors.length ? riskFactors.map((x) => `<li>${escapeHtml(String(x))}</li>`).join("") : "<li>(none)</li>"}</ul>
+      </div>
+
+      <div class="card">
+        <div class="k">Safety triggers (deterministic)</div>
+        <ul>${triggerLis}</ul>
       </div>
     </div>
 

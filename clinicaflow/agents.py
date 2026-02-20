@@ -8,6 +8,7 @@ from clinicaflow.policy_pack import PolicySnippet, load_policy_pack, match_polic
 from clinicaflow.rules import (
     RISK_FACTORS,
     SAFETY_RULES_VERSION,
+    compute_safety_triggers,
     compute_risk_tier_with_rationale,
     compute_risk_scores,
     estimate_confidence,
@@ -198,6 +199,7 @@ class SafetyEscalationAgent:
     def run(self, structured: StructuredIntake, vitals: Vitals, recommended_actions: list[str]) -> dict:
         red_flags = find_red_flags(structured, vitals)
         risk_tier, risk_tier_rationale = compute_risk_tier_with_rationale(red_flags, structured.missing_fields, vitals)
+        safety_triggers = compute_safety_triggers(red_flags, structured.missing_fields, vitals)
         risk_scores = compute_risk_scores(structured=structured, vitals=vitals)
         confidence, uncertainty_reasons = estimate_confidence(risk_tier, red_flags, structured.missing_fields)
 
@@ -210,6 +212,7 @@ class SafetyEscalationAgent:
         return {
             "risk_tier": risk_tier,
             "risk_tier_rationale": risk_tier_rationale,
+            "safety_triggers": safety_triggers,
             "risk_scores": risk_scores,
             "red_flags": red_flags,
             "escalation_required": escalation_required,

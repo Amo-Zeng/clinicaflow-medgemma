@@ -178,6 +178,11 @@ echo "[demo] Sanity check:"
 doctor_json="$(clinicaflow doctor)"
 echo "$doctor_json" | python -m json.tool
 
+echo ""
+echo "[demo] Resource validation (policy pack + vignettes):"
+clinicaflow validate --pretty | python -m json.tool >/dev/null
+echo "[demo] Resource validation: OK"
+
 if [[ "${REQUIRE_MEDGEMMA:-0}" == "1" ]]; then
   python - "$doctor_json" <<'PY'
 import json

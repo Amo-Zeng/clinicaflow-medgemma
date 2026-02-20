@@ -52,6 +52,10 @@ echo ""
 echo "[writeup] Diagnostics snapshot (no secrets)"
 clinicaflow doctor | tee "$OUT_DIR/doctor.json" >/dev/null
 
+echo ""
+echo "[writeup] Resource validation snapshot"
+python -m clinicaflow validate --pretty | tee "$OUT_DIR/validate.json" >/dev/null
+
 REVIEWS_PATH="${CLINICIAN_REVIEWS_PATH:-}"
 if [[ -z "${REVIEWS_PATH}" ]]; then
   for p in "clinician_reviews.json" "reviews/clinician_reviews.json" "tmp/clinician_reviews.json"; do

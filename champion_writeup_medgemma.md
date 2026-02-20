@@ -40,6 +40,7 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
 - Deterministic red-flag triggers from symptoms + vitals (hard to “prompt-jailbreak”).
 - Mandatory escalation when urgent/critical criteria are met.
 - Deterministic, tier-specific disposition actions (so “critical” outputs always read like a real triage workflow).
+- Structured safety triggers (`safety_triggers`) surfaced in the UI + reports for transparent governance.
 - Lightweight interpretable risk scores (demo): shock index + qSOFA (for clinician situational awareness).
 - Uncertainty reasons are surfaced for clinician review.
 - Clear “decision support, not diagnosis” posture.

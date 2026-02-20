@@ -36,6 +36,13 @@ class PipelineTests(unittest.TestCase):
         self.assertGreaterEqual(len(result.red_flags), 2)
         self.assertEqual(len(result.trace), 5)
 
+        safety = next((x.output for x in result.trace if x.agent == "safety_escalation"), {})
+        triggers = safety.get("safety_triggers") or []
+        self.assertIsInstance(triggers, list)
+        ids = {t.get("id") for t in triggers if isinstance(t, dict)}
+        self.assertIn("hemodynamic_instability", ids)
+        self.assertIn("Emergency evaluation now (ED / call local emergency services).", result.recommended_next_actions)
+
     def test_routine_case(self) -> None:
         intake = PatientIntake.from_mapping(
             {

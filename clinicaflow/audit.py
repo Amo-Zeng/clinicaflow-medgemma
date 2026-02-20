@@ -296,6 +296,7 @@ def _note_markdown_bytes(
     safety = _trace_output(result_payload, "safety_escalation")
     evidence = _trace_output(result_payload, "evidence_policy")
     reasoning = _trace_output(result_payload, "multimodal_reasoning")
+    structured = _trace_output(result_payload, "intake_structuring")
 
     lines: list[str] = []
     lines.append("# ClinicaFlow triage note (demo)")
@@ -353,6 +354,20 @@ def _note_markdown_bytes(
         lines.append("- prior_notes:")
         for item in intake_payload.get("prior_notes") or []:
             lines.append(f"  - {item}")
+    symptoms = structured.get("symptoms") or []
+    risk_factors = structured.get("risk_factors") or []
+    if isinstance(symptoms, list) and symptoms:
+        lines.append("- extracted_symptoms:")
+        for item in symptoms:
+            s = str(item).strip()
+            if s:
+                lines.append(f"  - {s}")
+    if isinstance(risk_factors, list) and risk_factors:
+        lines.append("- extracted_risk_factors:")
+        for item in risk_factors:
+            s = str(item).strip()
+            if s:
+                lines.append(f"  - {s}")
 
     lines.append("")
     lines.append("## Triage")
@@ -365,6 +380,21 @@ def _note_markdown_bytes(
         lines.append(f"- risk_scores: {rs}")
     if isinstance(confidence, (int, float)):
         lines.append(f"- confidence (proxy): {float(confidence):.2f}")
+    lines.append("")
+
+    lines.append("## Safety triggers (deterministic)")
+    triggers = safety.get("safety_triggers") or []
+    if isinstance(triggers, list) and triggers:
+        for t in triggers:
+            if not isinstance(t, dict):
+                continue
+            label = str(t.get("label") or t.get("id") or "").strip()
+            detail = str(t.get("detail") or "").strip()
+            if not label:
+                continue
+            lines.append(f"- {label}{(' — ' + detail) if detail else ''}")
+    else:
+        lines.append("- (none)")
     lines.append("")
 
     lines.append("## Red flags")
@@ -443,12 +473,44 @@ def _report_html_bytes(
     evidence = _trace_output(result_payload, "evidence_policy")
     reasoning = _trace_output(result_payload, "multimodal_reasoning")
     risk_scores = _format_risk_scores(safety)
+    structured = _trace_output(result_payload, "intake_structuring")
 
     done = sum(1 for x in checklist if x.get("checked"))
     total = len(checklist)
 
     safety_actions = [str(x) for x in (safety.get("actions_added_by_safety") or []) if str(x).strip()]
     safety_set = set(safety_actions)
+
+    triggers_raw = safety.get("safety_triggers") or []
+    trigger_li = "<li>(none)</li>"
+    if isinstance(triggers_raw, list) and triggers_raw:
+        items: list[str] = []
+        for t in triggers_raw:
+            if not isinstance(t, dict):
+                continue
+            label = str(t.get("label") or t.get("id") or "").strip()
+            detail = str(t.get("detail") or "").strip()
+            sev = str(t.get("severity") or "").strip().lower()
+            if not label:
+                continue
+            klass = "risk-routine"
+            if sev == "critical":
+                klass = "risk-critical"
+            elif sev == "urgent":
+                klass = "risk-urgent"
+            items.append(
+                f"<li><span class=\"pill {klass}\">{html.escape(label)}</span>"
+                f"{(' ' + html.escape(detail)) if detail else ''}</li>"
+            )
+        if items:
+            trigger_li = "".join(items)
+
+    symptoms = structured.get("symptoms") or []
+    if not isinstance(symptoms, list):
+        symptoms = []
+    risk_factors = structured.get("risk_factors") or []
+    if not isinstance(risk_factors, list):
+        risk_factors = []
 
     def li(items: list[str]) -> str:
         if not items:
@@ -654,6 +716,8 @@ def _report_html_bytes(
             {f'<li>risk_scores: <span class="mono">{html.escape(risk_scores)}</span></li>' if risk_scores else ''}
             <li>confidence (proxy): <span class="mono">{html.escape(str(confidence))}</span></li>
           </ul>
+          <div class="k" style="margin-top: 10px;">Safety triggers (deterministic)</div>
+          <ul>{trigger_li}</ul>
         </div>
       </div>
 
@@ -668,6 +732,13 @@ def _report_html_bytes(
             <li>vitals: <span class="mono">{html.escape(', '.join(vitals_bits))}</span></li>
             {f"<li>images: <span class='mono'>{html.escape(str(len(intake_payload.get('images') or [])))}</span></li>" if intake_payload.get("images") else ""}
           </ul>
+        </div>
+        <div class="card">
+          <div class="k">Extracted signals</div>
+          <div class="small">Symptoms</div>
+          <ul>{li([str(x) for x in symptoms if str(x).strip()])}</ul>
+          <div class="small" style="margin-top: 8px;">Risk factors</div>
+          <ul>{li([str(x) for x in risk_factors if str(x).strip()])}</ul>
         </div>
         <div class="card">
           <div class="k">Red flags</div>
