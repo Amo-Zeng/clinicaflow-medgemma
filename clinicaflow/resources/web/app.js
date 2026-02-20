@@ -86,6 +86,7 @@ async function postJson(url, payload, extraHeaders) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      ...buildAuthHeaders(),
       ...(extraHeaders || {}),
     },
     body: JSON.stringify(payload),
@@ -135,7 +136,55 @@ const state = {
     autoSeconds: 5,
     lastRefreshedAt: null,
   },
+  auth: {
+    apiKey: null,
+  },
 };
+
+// ---------------------------
+// Optional API key auth (UI)
+// ---------------------------
+
+const AUTH_API_KEY_STORAGE_KEY = "clinicaflow.auth.api_key.v1";
+
+function loadAuthFromStorage() {
+  try {
+    const v = sessionStorage.getItem(AUTH_API_KEY_STORAGE_KEY) || "";
+    state.auth.apiKey = v.trim() ? v : null;
+  } catch (e) {
+    state.auth.apiKey = null;
+  }
+}
+
+function saveAuthToStorage(value) {
+  const v = String(value || "").trim();
+  state.auth.apiKey = v ? v : null;
+  try {
+    if (state.auth.apiKey) sessionStorage.setItem(AUTH_API_KEY_STORAGE_KEY, state.auth.apiKey);
+    else sessionStorage.removeItem(AUTH_API_KEY_STORAGE_KEY);
+  } catch (e) {
+    // ignore
+  }
+  updateAuthBadge();
+}
+
+function buildAuthHeaders() {
+  const key = String(state.auth?.apiKey || "").trim();
+  return key ? { "X-API-Key": key } : {};
+}
+
+function updateAuthBadge() {
+  const badge = $("authBadge");
+  if (!badge) return;
+  const required = Boolean(state.doctor?.settings?.api_key_configured);
+  const hasKey = Boolean(state.auth?.apiKey);
+  if (!required) {
+    badge.textContent = "auth: off";
+    badge.classList.add("subtle");
+    return;
+  }
+  badge.textContent = hasKey ? "auth: set" : "auth: required";
+}
 
 function dataUrlSizeBytes(dataUrl) {
   const s = String(dataUrl || "");
@@ -956,11 +1005,19 @@ async function loadDoctor() {
 
     const policy = (d.policy_pack || {}).sha256 || "";
     setText("policyBadge", policy ? `policy: ${policy.slice(0, 10)}…` : "policy: (none)");
+    updateAuthBadge();
+    const authStatus = $("authStatus");
+    const required = Boolean(d?.settings?.api_key_configured);
+    if (authStatus) {
+      if (!required) authStatus.textContent = "Server auth disabled (no CLINICAFLOW_API_KEY).";
+      else authStatus.textContent = state.auth.apiKey ? "API key set for this tab." : "API key required for POST actions.";
+    }
     renderImagePreview();
   } catch (e) {
     setText("backendBadge", "backend: unknown");
     setText("commBadge", "comm: unknown");
     setText("policyBadge", "policy: unknown");
+    setText("authBadge", "auth: unknown");
   }
 }
 
@@ -1035,11 +1092,18 @@ function renderOpsDashboard() {
   const ok = rb.connectivity_ok;
   const backendLine = model ? `${backend} • ${model}` : backend;
   const backendHealth = ok === true ? "ok" : ok === false ? "unreachable" : "unknown";
+  const authRequired = Boolean(d?.settings?.api_key_configured);
+  const authHasKey = Boolean(state.auth?.apiKey);
 
   addCard("Uptime", uptime, `version=${version}`);
   addCard("Triage requests", `${triageReq}`, `success=${triageOk} • errors=${triageErr}`);
   addCard("Avg triage latency", Number.isFinite(avgLatency) ? `${opsNum(avgLatency, { digits: 2 })} ms` : "—", "from pipeline total_latency_ms");
   addCard("Reasoning backend", backendLine, `connectivity=${backendHealth}`);
+  addCard(
+    "API auth",
+    authRequired ? (authHasKey ? "enabled (key set)" : "enabled (key missing)") : "disabled",
+    "POST: /triage • /audit_bundle • /fhir_bundle",
+  );
 
   const riskTotals = m.triage_risk_tier_total || {};
   const riskLine = Object.keys(riskTotals)
@@ -1058,6 +1122,7 @@ function renderOpsDashboard() {
   // Alerts
   const issues = [];
   if (ok === false) issues.push({ level: "bad", text: "Reasoning backend unreachable (demo will fall back to deterministic)." });
+  if (authRequired && !authHasKey) issues.push({ level: "warn", text: "Server requires API key but none is set (POST actions will 401)." });
   if (triageErr > 0) issues.push({ level: "bad", text: `Triage errors observed: ${triageErr}` });
   if (Number.isFinite(avgLatency) && avgLatency > 1800) issues.push({ level: "warn", text: `High average latency: ${opsNum(avgLatency, { digits: 0 })} ms` });
 
@@ -2035,6 +2100,7 @@ async function downloadAuditBundle(redact) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      ...buildAuthHeaders(),
       ...(requestId ? { "X-Request-ID": requestId } : {}),
     },
     body: JSON.stringify(payload),
@@ -3912,6 +3978,21 @@ function wireEvents() {
       else stopOpsAutoRefresh();
     });
   }
+  $("authSave")?.addEventListener("click", () => {
+    const input = $("authApiKey");
+    const status = $("authStatus");
+    if (!input) return;
+    saveAuthToStorage(input.value);
+    input.value = "";
+    if (status) status.textContent = state.auth.apiKey ? "Saved for this tab session." : "Cleared.";
+  });
+  $("authClear")?.addEventListener("click", () => {
+    const input = $("authApiKey");
+    const status = $("authStatus");
+    saveAuthToStorage(null);
+    if (input) input.value = "";
+    if (status) status.textContent = "Cleared.";
+  });
 
   // Review tab (optional; UI-local storage)
   const reviewLoad = $("reviewLoadCase");
@@ -4237,6 +4318,8 @@ async function init() {
   setMode("form");
   if ($("govBenchSet")) $("govBenchSet").value = "mega";
   if ($("opsAuto")) $("opsAuto").checked = false;
+  loadAuthFromStorage();
+  updateAuthBadge();
   renderGovernance(null, null);
   renderRulesTab();
   await refreshOps();

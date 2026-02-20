@@ -16,6 +16,7 @@
         <span id="backendBadge" class="pill">backend: loading…</span>
         <span id="commBadge" class="pill subtle">comm: loading…</span>
         <span id="policyBadge" class="pill subtle">policy: loading…</span>
+        <span id="authBadge" class="pill subtle">auth: loading…</span>
         <a class="btn subtle" href="/openapi.json" target="_blank" rel="noreferrer">OpenAPI</a>
         <a class="btn subtle" href="/metrics" target="_blank" rel="noreferrer">Metrics</a>
         <a class="btn subtle" href="/policy_pack" target="_blank" rel="noreferrer">Policy pack</a>
@@ -650,6 +651,20 @@
             <div id="opsSummary" class="summary"></div>
 
             <div id="opsAlerts" class="callout"></div>
+
+            <div class="callout">
+              <div class="k">API key (optional)</div>
+              <div class="small muted">
+                If the server is started with <code>CLINICAFLOW_API_KEY</code>, enter the same value here to enable POST actions
+                (triage / audit bundle / FHIR bundle). Stored in <b>sessionStorage</b> for this tab only.
+              </div>
+              <div class="row" style="margin-top: 10px;">
+                <input id="authApiKey" type="password" placeholder="X-API-Key" style="min-width: 320px;" />
+                <button id="authSave" class="btn subtle" type="button">Save</button>
+                <button id="authClear" class="btn subtle" type="button">Clear</button>
+                <span id="authStatus" class="small"></span>
+              </div>
+            </div>
 
             <div class="callout">
               <div class="k">Production notes</div>
