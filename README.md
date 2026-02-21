@@ -25,7 +25,8 @@ It implements a deterministic, auditable 5-agent triage pipeline aligned with th
 - `examples/` — sample payloads
 - `docs/` — architecture + benchmark + safety + video script
 - `docs/JUDGES.md` — 3-minute judge quickstart
-- `champion_writeup_medgemma.md` — competition write-up draft
+- `KAGGLE_WRITEUP.md` — paste-ready Kaggle writeup (≤3 pages)
+- `champion_writeup_medgemma.md` — extended writeup draft (longer form)
 
 ## Quick Start
 
@@ -53,6 +54,11 @@ DEMO_RECORD=1 bash scripts/demo_one_click.sh
 If the UI renders as a “legacy fallback” 2-box page, you likely have a stale install. Fix with:
 
 ```bash
+## Quick fix (stale service-worker cache)
+# Open: http://127.0.0.1:8000/?reset=1
+# Or click "Clear demo data" in the top bar.
+#
+# If it still persists:
 rm -rf .venv && bash scripts/demo_one_click.sh
 ```
 

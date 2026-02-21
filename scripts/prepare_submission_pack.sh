@@ -52,6 +52,7 @@ fi
 
 echo "[pack] Copying key docs..."
 cp -f champion_writeup_medgemma.md "$OUT_DIR/champion_writeup_medgemma.md"
+if [[ -f "KAGGLE_WRITEUP.md" ]]; then cp -f KAGGLE_WRITEUP.md "$OUT_DIR/KAGGLE_WRITEUP.md"; fi
 cp -f README.md "$OUT_DIR/README.md"
 cp -f docs/JUDGES.md "$OUT_DIR/JUDGES.md"
 cp -f docs/VIDEO_SCRIPT.md "$OUT_DIR/VIDEO_SCRIPT.md"

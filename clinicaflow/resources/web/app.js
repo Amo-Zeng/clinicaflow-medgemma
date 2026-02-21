@@ -133,6 +133,7 @@ const state = {
   },
   workspace: {
     selectedId: null,
+    view: "board",
   },
   ops: {
     intervalId: null,
@@ -534,6 +535,17 @@ async function clearLocalDemoData() {
   } catch (e) {
     // ignore
   }
+
+  // Some browsers can keep serving stale JS/CSS from an old service-worker
+  // even after a backend upgrade. Unregister to force a clean install.
+  try {
+    if ("serviceWorker" in navigator && typeof navigator.serviceWorker.getRegistrations === "function") {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((r) => r.unregister()));
+    }
+  } catch (e) {
+    // ignore
+  }
 }
 
 // ---------------------------
@@ -542,12 +554,37 @@ async function clearLocalDemoData() {
 
 const WELCOME_DISMISSED_KEY = "clinicaflow.ui.welcome_dismissed.v1";
 
+let _swHadControllerAtLoad = false;
+let _swReloadedForUpdate = false;
+let _swControllerListenerAdded = false;
+
 async function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
   try {
-    await navigator.serviceWorker.register("/static/sw.js", { scope: "/" });
+    _swHadControllerAtLoad = Boolean(navigator.serviceWorker.controller);
+
+    const reg = await navigator.serviceWorker.register("/static/sw.js", { scope: "/" });
+    if (reg && typeof reg.update === "function") {
+      // Encourage an update check on each load (helps avoid stale UI assets).
+      reg.update();
+    }
   } catch (e) {
     // ignore
+  }
+
+  if (!_swControllerListenerAdded) {
+    _swControllerListenerAdded = true;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      // Only auto-reload when upgrading from an existing controller.
+      if (!_swHadControllerAtLoad) return;
+      if (_swReloadedForUpdate) return;
+      _swReloadedForUpdate = true;
+      try {
+        window.location.reload();
+      } catch (e) {
+        // ignore
+      }
+    });
   }
 }
 
@@ -1415,23 +1452,51 @@ function renderTrace(trace) {
   }
 }
 
-function renderTraceMini(trace) {
+const WORKFLOW_ORDER = [
+  "intake_structuring",
+  "multimodal_reasoning",
+  "evidence_policy",
+  "safety_escalation",
+  "communication",
+];
+
+const WORKFLOW_LABELS = {
+  intake_structuring: "Structuring",
+  multimodal_reasoning: "Reasoning",
+  evidence_policy: "Policy",
+  safety_escalation: "Safety",
+  communication: "Handoff",
+};
+
+let _runStepperTimerId = null;
+let _runStepperIndex = 0;
+
+function stopRunStepper() {
+  if (_runStepperTimerId != null) {
+    clearInterval(_runStepperTimerId);
+    _runStepperTimerId = null;
+  }
+}
+
+function startRunStepper() {
+  stopRunStepper();
+  _runStepperIndex = 0;
+  renderTraceMini([], { runningIndex: _runStepperIndex });
+  _runStepperTimerId = setInterval(() => {
+    _runStepperIndex = (_runStepperIndex + 1) % WORKFLOW_ORDER.length;
+    renderTraceMini([], { runningIndex: _runStepperIndex });
+  }, 650);
+}
+
+function renderTraceMini(trace, opts) {
   const root = $("traceMini");
   if (!root) return;
 
   const steps = Array.isArray(trace) ? trace : [];
-  if (!steps.length) {
-    root.textContent = "—";
-    return;
-  }
-
-  const LABELS = {
-    intake_structuring: "Structuring",
-    multimodal_reasoning: "Reasoning",
-    evidence_policy: "Policy",
-    safety_escalation: "Safety",
-    communication: "Handoff",
-  };
+  const meta = opts && typeof opts === "object" ? opts : {};
+  const runningIndexRaw = meta.runningIndex;
+  const runningIndex =
+    typeof runningIndexRaw === "number" && Number.isFinite(runningIndexRaw) ? Math.max(0, runningIndexRaw) : null;
 
   const wrap = document.createElement("div");
   wrap.className = "trace-stepper";
@@ -1452,9 +1517,43 @@ function renderTraceMini(trace) {
     }
   }
 
+  if (!steps.length) {
+    WORKFLOW_ORDER.forEach((agentName, idx) => {
+      const label = WORKFLOW_LABELS[agentName] || agentName.replaceAll("_", " ");
+      const isRunning = runningIndex != null && idx === runningIndex;
+
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.disabled = true;
+      btn.className = `step ${isRunning ? "running" : "pending"}`;
+      btn.title = isRunning ? "Running…" : "Pending…";
+
+      const dot = document.createElement("span");
+      dot.className = "dot";
+
+      const body = document.createElement("span");
+      const title = document.createElement("div");
+      title.className = "step-title";
+      title.textContent = label;
+      const metaLine = document.createElement("div");
+      metaLine.className = "step-meta mono";
+      metaLine.textContent = isRunning ? "RUNNING…" : "pending";
+      body.appendChild(title);
+      body.appendChild(metaLine);
+
+      btn.appendChild(dot);
+      btn.appendChild(body);
+      wrap.appendChild(btn);
+    });
+
+    root.innerHTML = "";
+    root.appendChild(wrap);
+    return;
+  }
+
   steps.forEach((step) => {
     const agentName = String(step.agent || "agent");
-    const label = LABELS[agentName] || agentName.replaceAll("_", " ");
+    const label = WORKFLOW_LABELS[agentName] || agentName.replaceAll("_", " ");
     const latency = step.latency_ms != null ? `${step.latency_ms} ms` : "—";
     const hasErr = Boolean(String(step.error || "").trim());
     const out = step.output && typeof step.output === "object" ? step.output : {};
@@ -1765,6 +1864,8 @@ async function loadDoctor() {
 
     const policy = (d.policy_pack || {}).sha256 || "";
     setText("policyBadge", policy ? `policy: ${policy.slice(0, 10)}…` : "policy: (none)");
+    const ver = String(d.version || "").trim();
+    setText("versionBadge", ver ? `v${ver}` : "v—");
     updateAuthBadge();
     const authStatus = $("authStatus");
     const required = Boolean(d?.settings?.api_key_configured);
@@ -1777,6 +1878,7 @@ async function loadDoctor() {
     setText("backendBadge", "backend: unknown");
     setText("commBadge", "comm: unknown");
     setText("policyBadge", "policy: unknown");
+    setText("versionBadge", "v—");
     setText("authBadge", "auth: unknown");
   }
 }
@@ -2548,14 +2650,32 @@ async function runTriage() {
   state.lastIntake = intake;
   $("intakeJson").value = fmtJson(intakeForJsonView(intake));
 
+  const runBtn = $("runTriage");
+  const runBtnLabel = runBtn ? runBtn.textContent : "";
+  if (runBtn) {
+    runBtn.disabled = true;
+    runBtn.classList.add("loading");
+    runBtn.textContent = "Running…";
+  }
+  startRunStepper();
+
   try {
     const { data, headers } = await postJson("/triage", intake, {});
+    stopRunStepper();
     const reqId = headers.get("X-Request-ID") || null;
     renderResult(data, reqId);
     setText("statusLine", `Done. risk=${data.risk_tier} • backend=${extractBackend(data)}`);
   } catch (e) {
+    stopRunStepper();
+    renderTraceMini([]);
     setError("runError", e);
     setText("statusLine", "Error.");
+  } finally {
+    if (runBtn) {
+      runBtn.disabled = false;
+      runBtn.classList.remove("loading");
+      runBtn.textContent = runBtnLabel || "Run triage";
+    }
   }
 }
 
@@ -4183,7 +4303,37 @@ async function runSynthetic() {
 // ---------------------------
 
 const WORKSPACE_STORAGE_KEY = "clinicaflow.workspace.v1";
+const WORKSPACE_VIEW_KEY = "clinicaflow.workspace.view.v1";
 const WORKSPACE_STATUSES = ["new", "triaged", "needs_review", "closed"];
+const WORKSPACE_VIEWS = ["board", "table"];
+
+function loadWorkspaceView() {
+  try {
+    const raw = String(localStorage.getItem(WORKSPACE_VIEW_KEY) || "").trim();
+    if (WORKSPACE_VIEWS.includes(raw)) return raw;
+  } catch (e) {
+    // ignore
+  }
+  return "board";
+}
+
+function setWorkspaceView(view) {
+  const v = view === "table" ? "table" : "board";
+  state.workspace.view = v;
+  try {
+    localStorage.setItem(WORKSPACE_VIEW_KEY, v);
+  } catch (e) {
+    // ignore
+  }
+
+  show("wsBoardWrap", v === "board");
+  show("wsTableWrap", v === "table");
+
+  const btnBoard = $("wsViewBoard");
+  const btnTable = $("wsViewTable");
+  if (btnBoard) btnBoard.classList.toggle("active", v === "board");
+  if (btnTable) btnTable.classList.toggle("active", v === "table");
+}
 
 function normalizeWorkspaceStatus(value, hasResult) {
   const s = String(value || "").trim();
@@ -4481,6 +4631,168 @@ function workspaceFilterAndSort(itemsAll) {
   return { items, filters: { q, status, sort } };
 }
 
+function renderWorkspaceBoard(itemsAll, filteredItems) {
+  const root = $("wsBoard");
+  if (!root) return;
+
+  const all = Array.isArray(itemsAll) ? itemsAll : [];
+  const items = Array.isArray(filteredItems) ? filteredItems : [];
+
+  const groups = { needs_review: [], new: [], triaged: [], closed: [] };
+  items.forEach((item) => {
+    const st = workspaceStatus(item);
+    if (st in groups) groups[st].push(item);
+  });
+
+  const columns = [
+    { key: "needs_review", title: "Needs review" },
+    { key: "new", title: "New" },
+    { key: "triaged", title: "Triaged" },
+    { key: "closed", title: "Closed" },
+  ];
+
+  function onCardSelected(id) {
+    state.workspace.selectedId = id;
+    renderWorkspaceTable();
+    renderWorkspaceSelected();
+  }
+
+  root.innerHTML = "";
+
+  columns.forEach((col) => {
+    const key = col.key;
+    const rows = groups[key] || [];
+
+    const wrap = document.createElement("div");
+    wrap.className = "kanban-col";
+    wrap.dataset.status = key;
+
+    const head = document.createElement("div");
+    head.className = "kanban-head";
+    const title = document.createElement("div");
+    title.className = "kanban-title";
+    title.textContent = col.title;
+    const count = document.createElement("div");
+    count.className = "kanban-count mono";
+    count.textContent = String(rows.length);
+    head.appendChild(title);
+    head.appendChild(count);
+
+    const list = document.createElement("div");
+    list.className = "kanban-list";
+    list.dataset.status = key;
+
+    function clearDrag() {
+      wrap.classList.remove("dragover");
+    }
+
+    wrap.addEventListener("dragover", (ev) => {
+      ev.preventDefault();
+      wrap.classList.add("dragover");
+    });
+    wrap.addEventListener("dragleave", () => clearDrag());
+    wrap.addEventListener("drop", (ev) => {
+      ev.preventDefault();
+      clearDrag();
+      const id = String(ev?.dataTransfer?.getData("text/plain") || "").trim();
+      if (!id) return;
+      const existing = all.find((x) => x && x.id === id);
+      if (!existing) return;
+      state.workspace.selectedId = id;
+      workspaceUpdateItem(id, { status: key });
+      setText("wsStatus", `Moved: ${id} → ${key}`);
+    });
+
+    if (!rows.length) {
+      const empty = document.createElement("div");
+      empty.className = "kanban-empty";
+      empty.textContent = "Drop here…";
+      list.appendChild(empty);
+    } else {
+      rows.forEach((item) => {
+        const intake = item.intake || {};
+        const result = item.result || null;
+        const created = fmtShortTs(item.created_at);
+        const cc = String(intake.chief_complaint || "").trim() || "(missing chief_complaint)";
+
+        const card = document.createElement("div");
+        card.className = "kanban-card";
+        card.dataset.id = item.id;
+        if (state.workspace.selectedId === item.id) card.classList.add("selected");
+        card.draggable = true;
+        card.addEventListener("click", () => onCardSelected(item.id));
+        card.addEventListener("dragstart", (ev) => {
+          try {
+            ev.dataTransfer.setData("text/plain", item.id);
+            ev.dataTransfer.effectAllowed = "move";
+          } catch (e) {
+            // ignore
+          }
+        });
+
+        const top = document.createElement("div");
+        top.className = "kanban-top";
+        const left = workspaceStatusPill(workspaceStatus(item));
+
+        let right = null;
+        if (result) {
+          const tier = String(result.risk_tier || "").trim().toLowerCase();
+          const okTier = tier === "routine" || tier === "urgent" || tier === "critical" ? tier : "routine";
+          const risk = document.createElement("span");
+          risk.className = `risk ${okTier}`;
+          risk.textContent = okTier;
+          right = risk;
+        } else {
+          const pending = document.createElement("span");
+          pending.className = "pill subtle";
+          pending.textContent = "not triaged";
+          right = pending;
+        }
+
+        top.appendChild(left);
+        top.appendChild(right);
+
+        const ccEl = document.createElement("div");
+        ccEl.className = "kanban-cc";
+        ccEl.textContent = cc.slice(0, 160);
+
+        const meta = document.createElement("div");
+        meta.className = "kanban-meta";
+
+        const ts = document.createElement("span");
+        ts.className = "mono";
+        ts.textContent = created;
+        meta.appendChild(ts);
+
+        if (result) {
+          const backend = extractBackend(result) || "deterministic";
+          const backendEl = document.createElement("span");
+          backendEl.className = "mono";
+          backendEl.textContent = `backend=${backend}`;
+          meta.appendChild(backendEl);
+
+          const flags = Array.isArray(result.red_flags) ? result.red_flags.map((x) => String(x || "").trim()).filter((x) => x) : [];
+          if (flags.length) {
+            const rf = document.createElement("span");
+            rf.className = "mono";
+            rf.textContent = `flags=${flags.length}`;
+            meta.appendChild(rf);
+          }
+        }
+
+        card.appendChild(top);
+        card.appendChild(ccEl);
+        card.appendChild(meta);
+        list.appendChild(card);
+      });
+    }
+
+    wrap.appendChild(head);
+    wrap.appendChild(list);
+    root.appendChild(wrap);
+  });
+}
+
 function buildShiftHandoffMarkdown(itemsAll) {
   const { items, filters } = workspaceFilterAndSort(itemsAll || []);
   const open = items.filter((item) => workspaceStatus(item) !== "closed");
@@ -4575,6 +4887,7 @@ function renderWorkspaceTable() {
   const all = loadWorkspaceItems();
   const { items } = workspaceFilterAndSort(all);
   renderWorkspaceSummary(all, items.length);
+  renderWorkspaceBoard(all, items);
 
   if (!all.length) {
     const tr = document.createElement("tr");
@@ -5813,6 +6126,15 @@ function wireEvents() {
   });
 
   // Workspace tab (local-only)
+  $("wsViewBoard")?.addEventListener("click", () => {
+    setWorkspaceView("board");
+    renderWorkspaceTable();
+  });
+  $("wsViewTable")?.addEventListener("click", () => {
+    setWorkspaceView("table");
+    renderWorkspaceTable();
+  });
+
   $("wsSaveIntake")?.addEventListener("click", () => {
     setError("wsError", "");
     try {
@@ -6014,6 +6336,7 @@ async function init() {
   window.addEventListener("hashchange", () => handleHashChange());
   setTab(loadInitialTab());
   setMode(loadInitialMode());
+  setWorkspaceView(loadWorkspaceView());
   if ($("govBenchSet")) $("govBenchSet").value = "mega";
   if ($("opsAuto")) $("opsAuto").checked = false;
   await registerServiceWorker();
@@ -6032,6 +6355,7 @@ async function init() {
   updateReviewParagraph();
   renderWorkspaceTable();
   renderHome();
+  renderTraceMini([]);
 
   if (wantDirector) {
     directorStart();

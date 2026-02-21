@@ -16,6 +16,8 @@ DEMO_RECORD=1 bash scripts/demo_one_click.sh
 
 Open the printed UI URL (it may auto-select a free port).
 
+If the UI looks “too simple” (stale cached assets), click **Clear demo data** (top-right) or open `/?reset=1`.
+
 ## 2) Follow the built-in runbook
 
 In the UI, start from **Home** (or the welcome modal), then:

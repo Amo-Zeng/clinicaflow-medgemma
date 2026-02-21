@@ -248,6 +248,8 @@ ui_header="$(
 if [[ "${ui_header:-}" == "legacy" ]]; then
   echo "[demo] WARNING: Legacy 2-box fallback UI detected."
   echo "       Make sure you opened: http://127.0.0.1:${CLINICAFLOW_PORT}/"
+  echo "       If you previously loaded the UI, you may have a stale service-worker cache."
+  echo "       Try: http://127.0.0.1:${CLINICAFLOW_PORT}/?reset=1"
   echo "       If it persists, delete the venv and re-run:"
   echo "         rm -rf .venv && bash scripts/demo_one_click.sh"
 fi

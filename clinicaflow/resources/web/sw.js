@@ -1,6 +1,9 @@
 /* ClinicaFlow service worker (no deps). */
 
-const CACHE_NAME = "clinicaflow-static-v1";
+// IMPORTANT: This cache name must change whenever bundled UI assets change,
+// otherwise existing installs can remain stuck on stale JS/CSS indefinitely.
+// Keep it human-readable so it's easy to instruct judges/users to clear it.
+const CACHE_NAME = "clinicaflow-static-0.1.1";
 
 const STATIC_ASSETS = [
   "/",
@@ -35,18 +38,27 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
 
-  // Cache-first for static assets.
+  // Stale-while-revalidate for static assets (prevents "stuck on old UI").
   if (url.pathname.startsWith("/static/")) {
-    event.respondWith(
-      caches.match(req).then((cached) => {
-        if (cached) return cached;
-        return fetch(req).then((resp) => {
-          const copy = resp.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
+    event.respondWith((async () => {
+      const cache = await caches.open(CACHE_NAME);
+      const cached = await cache.match(req);
+
+      const fetchPromise = fetch(req)
+        .then((resp) => {
+          if (resp && resp.ok) cache.put(req, resp.clone());
           return resp;
-        });
-      }),
-    );
+        })
+        .catch(() => null);
+
+      if (cached) {
+        event.waitUntil(fetchPromise);
+        return cached;
+      }
+
+      const resp = await fetchPromise;
+      return resp || new Response("offline", { status: 503, statusText: "offline" });
+    })());
     return;
   }
 
@@ -66,4 +78,3 @@ self.addEventListener("fetch", (event) => {
 
   // Default: network (do not cache API responses).
 });
-

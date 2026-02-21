@@ -19,6 +19,7 @@
         <span id="backendBadge" class="pill">backend: loading…</span>
         <span id="commBadge" class="pill subtle">comm: loading…</span>
         <span id="policyBadge" class="pill subtle">policy: loading…</span>
+        <span id="versionBadge" class="pill subtle">v—</span>
         <span id="authBadge" class="pill subtle">auth: loading…</span>
         <button id="directorToggle" class="btn subtle" type="button">Director: off</button>
         <button id="privacyReset" class="btn subtle" type="button" title="Clears local-only demo storage (workspace, checklists, reviews).">Clear demo data</button>
@@ -103,8 +104,10 @@
             <div class="callout">
               <div class="k">If the UI looks “too simple”</div>
               <div class="small muted">
-                You may be seeing the legacy fallback UI (2-box page). Stop old servers, then re-run:
-                <code>rm -rf .venv &amp;&amp; bash scripts/demo_one_click.sh</code>
+                You may be seeing a stale cached UI (service-worker) or the legacy fallback UI (2-box page).
+                Try <b>Clear demo data</b> (top-right), or open
+                <code>/?reset=1</code>. If it persists, stop old servers, then re-run:
+                <code>rm -rf .venv &amp;&amp; bash scripts/demo_one_click.sh</code>.
               </div>
             </div>
           </section>
@@ -531,7 +534,13 @@
           <section class="panel">
             <div class="panel-head">
               <h2>Case workspace</h2>
-              <div class="small">Local-only storage for demo. Do not store PHI.</div>
+              <div class="row" style="margin-top: 0;">
+                <div class="small">Local-only storage for demo. Do not store PHI.</div>
+                <div class="segmented" role="tablist" aria-label="Workspace view">
+                  <button id="wsViewBoard" class="seg active" data-view="board" type="button">Board</button>
+                  <button id="wsViewTable" class="seg" data-view="table" type="button">Table</button>
+                </div>
+              </div>
             </div>
 
             <div class="row">
@@ -567,7 +576,14 @@
               <div id="wsSummaryText" class="small muted">—</div>
             </div>
 
-            <div class="tablewrap">
+            <div id="wsBoardWrap" class="kanban-wrap">
+              <div id="wsBoard" class="kanban" aria-label="Workspace board"></div>
+              <div class="small muted" style="margin-top: 8px;">
+                Tip: Drag cards between columns to update status (local-only). Click a card to view details on the right.
+              </div>
+            </div>
+
+            <div id="wsTableWrap" class="tablewrap hidden">
               <table>
                 <thead>
                   <tr>

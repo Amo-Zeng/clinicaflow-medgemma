@@ -14,6 +14,7 @@ from clinicaflow.auth import is_authorized
 from clinicaflow.logging_config import configure_logging
 from clinicaflow.models import PatientIntake, TriageResult
 from clinicaflow.pipeline import ClinicaFlowPipeline
+from clinicaflow.rules import SAFETY_RULES_VERSION
 from clinicaflow.settings import Settings, load_settings_from_env
 from clinicaflow.version import __version__
 
@@ -1242,27 +1243,188 @@ def _normalize_vignette_set(value: str) -> str:
 
 
 def _openapi_spec() -> dict:
+    intake_example = SAMPLE_INTAKE
+    triage_example = {
+        "run_id": "example_run_id",
+        "request_id": "example_request_id",
+        "created_at": "2026-02-21T00:00:00+00:00",
+        "pipeline_version": __version__,
+        "total_latency_ms": 123.4,
+        "risk_tier": "critical",
+        "escalation_required": True,
+        "differential_considerations": ["Acute coronary syndrome", "Pulmonary embolism", "GERD"],
+        "red_flags": ["Potential acute coronary syndrome", "Hypotension", "Respiratory compromise risk"],
+        "recommended_next_actions": ["Emergency evaluation now (ED / call local emergency services).", "Urgent clinician review"],
+        "clinician_handoff": "Clinician handoff (SBAR draft):\\n…",
+        "patient_summary": "Decision support only — this is not a diagnosis.\\n…",
+        "confidence": 0.72,
+        "uncertainty_reasons": ["High-acuity case requires clinician confirmation"],
+        "trace": [
+            {"agent": "intake_structuring", "output": {}, "latency_ms": 4.1, "error": None},
+            {"agent": "multimodal_reasoning", "output": {"reasoning_backend": "deterministic"}, "latency_ms": 22.5, "error": None},
+            {"agent": "evidence_policy", "output": {}, "latency_ms": 1.7, "error": None},
+            {"agent": "safety_escalation", "output": {"safety_rules_version": SAFETY_RULES_VERSION}, "latency_ms": 2.2, "error": None},
+            {"agent": "communication", "output": {}, "latency_ms": 1.4, "error": None},
+        ],
+    }
+
     return {
         "openapi": "3.0.0",
-        "info": {"title": "ClinicaFlow Demo API", "version": __version__},
+        "info": {
+            "title": "ClinicaFlow Demo API",
+            "version": __version__,
+            "description": (
+                "ClinicaFlow is a demo/competition scaffold for agentic triage decision support. "
+                "It is NOT a diagnostic device. Use synthetic data only (no PHI)."
+            ),
+        },
+        "components": {
+            "securitySchemes": {
+                "ApiKeyHeader": {"type": "apiKey", "in": "header", "name": "X-API-Key"},
+                "BearerAuth": {"type": "http", "scheme": "bearer"},
+            },
+            "schemas": {
+                "Vitals": {
+                    "type": "object",
+                    "properties": {
+                        "heart_rate": {"type": "number", "nullable": True},
+                        "systolic_bp": {"type": "number", "nullable": True},
+                        "diastolic_bp": {"type": "number", "nullable": True},
+                        "temperature_c": {"type": "number", "nullable": True},
+                        "spo2": {"type": "number", "nullable": True},
+                        "respiratory_rate": {"type": "number", "nullable": True},
+                    },
+                },
+                "PatientIntake": {
+                    "type": "object",
+                    "required": ["chief_complaint"],
+                    "properties": {
+                        "chief_complaint": {"type": "string"},
+                        "history": {"type": "string"},
+                        "demographics": {"type": "object"},
+                        "vitals": {"$ref": "#/components/schemas/Vitals"},
+                        "image_descriptions": {"type": "array", "items": {"type": "string"}},
+                        "prior_notes": {"type": "array", "items": {"type": "string"}},
+                        # Multimodal demo support: data URLs (data:image/...;base64,...)
+                        "image_data_urls": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "example": intake_example,
+                },
+                "AgentTrace": {
+                    "type": "object",
+                    "properties": {
+                        "agent": {"type": "string"},
+                        "output": {"type": "object"},
+                        "latency_ms": {"type": "number", "nullable": True},
+                        "error": {"type": "string", "nullable": True},
+                    },
+                    "required": ["agent", "output"],
+                },
+                "TriageResult": {
+                    "type": "object",
+                    "properties": {
+                        "run_id": {"type": "string"},
+                        "request_id": {"type": "string"},
+                        "created_at": {"type": "string"},
+                        "pipeline_version": {"type": "string"},
+                        "total_latency_ms": {"type": "number"},
+                        "risk_tier": {"type": "string", "enum": ["routine", "urgent", "critical"]},
+                        "escalation_required": {"type": "boolean"},
+                        "differential_considerations": {"type": "array", "items": {"type": "string"}},
+                        "red_flags": {"type": "array", "items": {"type": "string"}},
+                        "recommended_next_actions": {"type": "array", "items": {"type": "string"}},
+                        "clinician_handoff": {"type": "string"},
+                        "patient_summary": {"type": "string"},
+                        "confidence": {"type": "number"},
+                        "uncertainty_reasons": {"type": "array", "items": {"type": "string"}},
+                        "trace": {"type": "array", "items": {"$ref": "#/components/schemas/AgentTrace"}},
+                    },
+                    "required": [
+                        "run_id",
+                        "request_id",
+                        "created_at",
+                        "pipeline_version",
+                        "total_latency_ms",
+                        "risk_tier",
+                        "escalation_required",
+                        "differential_considerations",
+                        "red_flags",
+                        "recommended_next_actions",
+                        "clinician_handoff",
+                        "patient_summary",
+                        "confidence",
+                        "uncertainty_reasons",
+                        "trace",
+                    ],
+                    "example": triage_example,
+                },
+                "ErrorResponse": {
+                    "type": "object",
+                    "properties": {
+                        "error": {
+                            "type": "object",
+                            "properties": {
+                                "code": {"type": "string"},
+                                "message": {"type": "string", "nullable": True},
+                            },
+                            "required": ["code"],
+                        }
+                    },
+                    "required": ["error"],
+                },
+            },
+        },
         "paths": {
-            "/health": {"get": {"responses": {"200": {"description": "ok"}}}},
-            "/ready": {"get": {"responses": {"200": {"description": "ok"}}}},
-            "/live": {"get": {"responses": {"200": {"description": "ok"}}}},
-            "/version": {"get": {"responses": {"200": {"description": "version"}}}},
-            "/doctor": {"get": {"responses": {"200": {"description": "diagnostics (no secrets)"}}}},
-            "/policy_pack": {"get": {"responses": {"200": {"description": "policy pack (demo/site protocols)"}}}},
-            "/safety_rules": {"get": {"responses": {"200": {"description": "deterministic safety rulebook (demo)"}}}},
-            "/metrics": {"get": {"responses": {"200": {"description": "metrics"}}}},
-            "/example": {"get": {"responses": {"200": {"description": "sample intake"}}}},
-            "/vignettes": {"get": {"responses": {"200": {"description": "list vignettes"}}}},
-            "/vignettes/{id}": {"get": {"responses": {"200": {"description": "get vignette input"}}}},
-            "/bench/vignettes": {"get": {"responses": {"200": {"description": "run vignette benchmark"}}}},
-            "/bench/synthetic": {"get": {"responses": {"200": {"description": "run synthetic proxy benchmark"}}}},
-            "/triage": {"post": {"responses": {"200": {"description": "triage result"}}}},
-            "/audit_bundle": {"post": {"responses": {"200": {"description": "audit bundle zip"}}}},
-            "/judge_pack": {"post": {"responses": {"200": {"description": "judge pack zip"}}}},
-            "/fhir_bundle": {"post": {"responses": {"200": {"description": "FHIR bundle JSON"}}}},
+            "/health": {"get": {"summary": "Liveness probe", "responses": {"200": {"description": "ok"}}}},
+            "/ready": {"get": {"summary": "Readiness probe", "responses": {"200": {"description": "ok"}}}},
+            "/live": {"get": {"summary": "Liveness probe alias", "responses": {"200": {"description": "ok"}}}},
+            "/version": {"get": {"summary": "Server version", "responses": {"200": {"description": "version"}}}},
+            "/doctor": {
+                "get": {
+                    "summary": "Diagnostics (no secrets)",
+                    "description": "Safe runtime diagnostics (no API keys, no PHI).",
+                    "responses": {"200": {"description": "diagnostics payload"}},
+                }
+            },
+            "/policy_pack": {"get": {"summary": "Policy pack", "responses": {"200": {"description": "policy pack JSON"}}}},
+            "/safety_rules": {"get": {"summary": "Safety rulebook", "responses": {"200": {"description": "rulebook JSON"}}}},
+            "/metrics": {
+                "get": {
+                    "summary": "Metrics",
+                    "description": "JSON metrics by default; use `?format=prometheus` for Prometheus exposition.",
+                    "responses": {"200": {"description": "metrics"}},
+                }
+            },
+            "/example": {
+                "get": {
+                    "summary": "Sample intake (synthetic)",
+                    "responses": {
+                        "200": {"description": "patient intake", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PatientIntake"}}}}
+                    },
+                }
+            },
+            "/vignettes": {"get": {"summary": "List vignettes", "responses": {"200": {"description": "list"}}}},
+            "/vignettes/{id}": {"get": {"summary": "Get vignette input", "responses": {"200": {"description": "input"}}}},
+            "/bench/vignettes": {"get": {"summary": "Run vignette benchmark", "responses": {"200": {"description": "benchmark"}}}},
+            "/bench/synthetic": {"get": {"summary": "Run synthetic proxy benchmark", "responses": {"200": {"description": "benchmark"}}}},
+            "/triage": {
+                "post": {
+                    "summary": "Run triage pipeline",
+                    "requestBody": {
+                        "required": True,
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PatientIntake"}}},
+                    },
+                    "responses": {
+                        "200": {"description": "triage result", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TriageResult"}}}},
+                        "400": {"description": "bad request", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                        "401": {"description": "unauthorized", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                    },
+                    "security": [{"ApiKeyHeader": []}, {"BearerAuth": []}],
+                }
+            },
+            "/audit_bundle": {"post": {"summary": "Audit bundle zip", "responses": {"200": {"description": "zip (binary)"}}}},
+            "/judge_pack": {"post": {"summary": "Judge pack zip", "responses": {"200": {"description": "zip (binary)"}}}},
+            "/fhir_bundle": {"post": {"summary": "FHIR bundle JSON", "responses": {"200": {"description": "FHIR Bundle"}}}},
         },
     }
 

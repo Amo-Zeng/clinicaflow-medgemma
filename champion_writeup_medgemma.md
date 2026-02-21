@@ -73,7 +73,7 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
   - request IDs end-to-end (`X-Request-ID`),
   - probes (`GET /health`, `GET /ready`, `GET /live`),
   - OpenAPI spec + metrics endpoint (JSON + Prometheus),
-  - PWA-ready static UI (manifest + service worker cache) for local-first/offline demos,
+  - PWA-ready static UI (manifest + **versioned** service worker cache w/ stale-while-revalidate) for local-first/offline demos,
   - packaged-resource validation (`clinicaflow validate`) to prevent broken policy packs / vignette sets,
   - policy-pack introspection endpoint (`GET /policy_pack`) with sha256 + policy IDs (governance-ready),
   - safety rulebook endpoint (`GET /safety_rules`) exposing deterministic trigger catalog + keyword patterns (transparency-ready),
