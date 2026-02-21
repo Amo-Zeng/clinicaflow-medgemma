@@ -38,6 +38,7 @@ It is **not** a diagnostic device and must not be used for autonomous medical de
   - we sanitize high-confidence prompt-structure lines (e.g., `SYSTEM:` / `ignore previous instructions`) before sending text to an external model,
   - and safety escalation remains deterministic.
 - **Model outage / invalid outputs**: reasoning backend is optional; failures fall back to deterministic reasoning, and safety escalation remains deterministic.
+- **Unexpected agent failures**: the pipeline wraps each agent in an error boundary; if an agent raises unexpectedly, the trace records the error and the system fails safe (escalates to urgent clinician review).
 - **Protocol drift**: evidence agent emits `policy_pack_sha256` so protocol updates are traceable in logs/traces.
 
 ## Adversarial regression (recommended)

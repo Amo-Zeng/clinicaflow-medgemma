@@ -75,6 +75,19 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue(result.clinician_handoff)
         self.assertTrue(result.patient_summary)
 
+    def test_safety_agent_exception_fails_safe(self) -> None:
+        intake = PatientIntake.from_mapping({"chief_complaint": "Mild cough", "vitals": {"heart_rate": 80, "spo2": 99, "temperature_c": 37.0}})
+        with patch.object(self.pipeline.safety_escalation, "run", side_effect=RuntimeError("boom")):
+            result = self.pipeline.run(intake)
+
+        self.assertEqual(result.risk_tier, "urgent")
+        self.assertTrue(result.escalation_required)
+        self.assertTrue(result.recommended_next_actions)
+        safety_step = next((x for x in result.trace if x.agent == "safety_escalation"), None)
+        self.assertIsNotNone(safety_step)
+        self.assertTrue(isinstance(safety_step.error, str))
+        self.assertIn("boom", str(safety_step.error))
+
 
 if __name__ == "__main__":
     unittest.main()

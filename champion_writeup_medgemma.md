@@ -89,7 +89,9 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
   - external reasoning emits `reasoning_backend_model` + `reasoning_prompt_version`.
 - **Reliability & security** (when using an external model endpoint):
   - retry/backoff knobs (`CLINICAFLOW_REASONING_MAX_RETRIES`, `...RETRY_BACKOFF_S`),
+  - inference circuit breaker to prevent cascading timeouts when the model endpoint is down (`CLINICAFLOW_INFERENCE_CIRCUIT_*`),
   - basic prompt-injection hardening (sanitize injection-like lines; quote patient summary as JSON; ignore embedded instructions).
+  - pipeline fail-safe error boundaries: if any agent raises unexpectedly, the run is still returned with a conservative escalation + trace error for audit.
   - optional communication rewrite: `CLINICAFLOW_COMMUNICATION_BACKEND=openai_compatible`.
 
 **Clinic deployment path (practical)**

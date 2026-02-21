@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -23,6 +24,100 @@ class OpenAICompatibleConfig:
     retry_backoff_s: float = 0.5
     temperature: float = 0.2
     max_tokens: int = 600
+
+
+@dataclass(slots=True)
+class _CircuitState:
+    failures: int = 0
+    open_until_s: float = 0.0
+    last_failure_s: float = 0.0
+    last_error: str = ""
+
+
+_CIRCUIT_LOCK = threading.Lock()
+_CIRCUITS: dict[str, _CircuitState] = {}
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = str(os.environ.get(name, str(default)) or "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = str(os.environ.get(name, str(default)) or "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+def _circuit_key(config: OpenAICompatibleConfig) -> str:
+    base = config.base_url.rstrip("/")
+    return f"{base}::{config.model}"
+
+
+def _circuit_params() -> tuple[int, float, float]:
+    """Return (threshold_failures, cooldown_s, window_s)."""
+
+    threshold = max(1, _env_int("CLINICAFLOW_INFERENCE_CIRCUIT_FAILS", 2))
+    cooldown_s = max(0.0, _env_float("CLINICAFLOW_INFERENCE_CIRCUIT_COOLDOWN_S", 15.0))
+    window_s = max(1.0, _env_float("CLINICAFLOW_INFERENCE_CIRCUIT_WINDOW_S", 60.0))
+    return threshold, cooldown_s, window_s
+
+
+def _circuit_check_or_raise(*, config: OpenAICompatibleConfig) -> None:
+    key = _circuit_key(config)
+    now = time.time()
+    with _CIRCUIT_LOCK:
+        state = _CIRCUITS.get(key)
+        if not state:
+            return
+        if state.open_until_s <= now:
+            return
+        remaining = state.open_until_s - now
+        tail = f" ({remaining:.1f}s remaining)" if remaining > 0 else ""
+        raise InferenceError(f"Circuit open{tail}: {state.last_error}".strip())
+
+
+def _circuit_record_success(*, config: OpenAICompatibleConfig) -> None:
+    key = _circuit_key(config)
+    with _CIRCUIT_LOCK:
+        state = _CIRCUITS.get(key)
+        if not state:
+            return
+        state.failures = 0
+        state.open_until_s = 0.0
+        state.last_failure_s = 0.0
+        state.last_error = ""
+
+
+def _circuit_record_failure(*, config: OpenAICompatibleConfig, error: str) -> None:
+    key = _circuit_key(config)
+    now = time.time()
+    threshold, cooldown_s, window_s = _circuit_params()
+    with _CIRCUIT_LOCK:
+        state = _CIRCUITS.get(key)
+        if not state:
+            state = _CircuitState()
+            _CIRCUITS[key] = state
+
+        # Only count failures within a rolling window.
+        if state.last_failure_s and now - state.last_failure_s > window_s:
+            state.failures = 0
+
+        state.failures += 1
+        state.last_failure_s = now
+        state.last_error = str(error or "").strip()[:200]
+
+        if cooldown_s > 0 and state.failures >= threshold:
+            state.open_until_s = now + cooldown_s
 
 
 def load_openai_compatible_config_from_env() -> OpenAICompatibleConfig:
@@ -104,6 +199,7 @@ def chat_completion(*, config: OpenAICompatibleConfig, system: str, user: str) -
 
 
 def chat_completion_messages(*, config: OpenAICompatibleConfig, messages: list[dict[str, Any]]) -> str:
+    _circuit_check_or_raise(config=config)
     url = config.base_url.rstrip("/") + "/v1/chat/completions"
     body = {
         "model": config.model,
@@ -141,10 +237,13 @@ def chat_completion_messages(*, config: OpenAICompatibleConfig, messages: list[d
             retryable = True
 
         if attempt >= config.max_retries or not retryable:
+            if last_exc is not None:
+                _circuit_record_failure(config=config, error=str(last_exc))
             raise last_exc from last_cause
         time.sleep(config.retry_backoff_s * (2**attempt))
 
     if last_exc is not None:
+        _circuit_record_failure(config=config, error=str(last_exc))
         raise last_exc from last_cause
 
     try:
@@ -152,12 +251,18 @@ def chat_completion_messages(*, config: OpenAICompatibleConfig, messages: list[d
         message = choice0.get("message") or {}
         content = message.get("content")
         if isinstance(content, str) and content.strip():
+            _circuit_record_success(config=config)
             return content
         # Some servers return 'text' instead.
         text = choice0.get("text")
         if isinstance(text, str) and text.strip():
+            _circuit_record_success(config=config)
             return text
     except (KeyError, IndexError, TypeError) as exc:
-        raise InferenceError(f"Unexpected OpenAI-compatible response: {payload!r}") from exc
+        err = InferenceError(f"Unexpected OpenAI-compatible response: {payload!r}")
+        _circuit_record_failure(config=config, error=str(err))
+        raise err from exc
 
-    raise InferenceError(f"Empty completion content: {payload!r}")
+    err = InferenceError(f"Empty completion content: {payload!r}")
+    _circuit_record_failure(config=config, error=str(err))
+    raise err
