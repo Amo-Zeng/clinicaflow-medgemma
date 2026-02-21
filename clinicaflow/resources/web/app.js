@@ -135,6 +135,7 @@ const state = {
     intervalId: null,
     autoSeconds: 5,
     lastRefreshedAt: null,
+    history: [],
   },
   auth: {
     apiKey: null,
@@ -1199,6 +1200,154 @@ function opsNum(v, { digits = 1 } = {}) {
   return digits == null ? String(n) : n.toFixed(digits);
 }
 
+function recordOpsHistory(metrics) {
+  const m = metrics || null;
+  if (!m) return;
+
+  const avg = Number(m.triage_latency_ms_avg);
+  const entry = {
+    ts: Date.now(),
+    avg_latency_ms: Number.isFinite(avg) ? avg : null,
+    triage_requests_total: Number(m.triage_requests_total || 0) || 0,
+    triage_errors_total: Number(m.triage_errors_total || 0) || 0,
+    triage_success_total: Number(m.triage_success_total || 0) || 0,
+  };
+
+  const hist = Array.isArray(state.ops?.history) ? state.ops.history : [];
+  hist.push(entry);
+  state.ops.history = hist.slice(-60);
+}
+
+function renderOpsChart() {
+  const canvas = $("opsChart");
+  const legend = $("opsChartLegend");
+  if (!canvas) return;
+
+  const histAll = Array.isArray(state.ops?.history) ? state.ops.history : [];
+  const hist = histAll.slice(-30);
+
+  const cssWidth = Math.max(320, Math.floor(canvas.getBoundingClientRect().width || 0));
+  const cssHeight = Math.max(120, Number(canvas.getAttribute("height") || 140));
+  const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
+  canvas.width = cssWidth * dpr;
+  canvas.height = cssHeight * dpr;
+  canvas.style.height = `${cssHeight}px`;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  // background
+  ctx.clearRect(0, 0, cssWidth, cssHeight);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, cssWidth, cssHeight);
+
+  if (!hist.length) {
+    ctx.fillStyle = "rgba(17, 24, 39, 0.55)";
+    ctx.font = "12px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.fillText("No data yet. Click Refresh.", 12, 22);
+    if (legend) legend.textContent = "—";
+    return;
+  }
+
+  const pad = 12;
+  const errBand = 28;
+  const x0 = pad;
+  const x1 = cssWidth - pad;
+  const yTop = pad;
+  const yLineBottom = cssHeight - pad - errBand;
+  const yErrBottom = cssHeight - pad;
+
+  // Collect latency values
+  const vals = hist.map((r) => (typeof r.avg_latency_ms === "number" ? r.avg_latency_ms : null)).filter((v) => v != null);
+  const minV = vals.length ? Math.min(...vals) : 0;
+  const maxV0 = vals.length ? Math.max(...vals) : 1;
+  const maxV = maxV0 === minV ? minV + 1 : maxV0;
+
+  const n = hist.length;
+  const xFor = (i) => (n <= 1 ? x0 : x0 + (i * (x1 - x0)) / (n - 1));
+  const yFor = (v) => {
+    const t = (v - minV) / (maxV - minV);
+    return yLineBottom - t * (yLineBottom - yTop);
+  };
+
+  // grid
+  ctx.strokeStyle = "rgba(17, 24, 39, 0.08)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 3; i += 1) {
+    const y = yTop + (i * (yLineBottom - yTop)) / 3;
+    ctx.beginPath();
+    ctx.moveTo(x0, y);
+    ctx.lineTo(x1, y);
+    ctx.stroke();
+  }
+
+  // latency line
+  ctx.strokeStyle = "#111827";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  hist.forEach((r, i) => {
+    const v = typeof r.avg_latency_ms === "number" ? r.avg_latency_ms : null;
+    if (v == null) return;
+    const x = xFor(i);
+    const y = yFor(v);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // points
+  ctx.fillStyle = "#111827";
+  hist.forEach((r, i) => {
+    const v = typeof r.avg_latency_ms === "number" ? r.avg_latency_ms : null;
+    if (v == null) return;
+    const x = xFor(i);
+    const y = yFor(v);
+    ctx.beginPath();
+    ctx.arc(x, y, 2.6, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // error delta bars
+  const deltas = hist.map((r, i) => {
+    if (i === 0) return 0;
+    const prev = Number(hist[i - 1].triage_errors_total || 0);
+    const cur = Number(r.triage_errors_total || 0);
+    const d = cur - prev;
+    return Number.isFinite(d) ? d : 0;
+  });
+  const maxDelta = Math.max(1, ...deltas.map((d) => Math.abs(d)));
+  const errH = yErrBottom - yLineBottom - 6;
+  hist.forEach((r, i) => {
+    if (i === 0) return;
+    const d = deltas[i] || 0;
+    if (!d) return;
+    const x = xFor(i);
+    const h = (Math.min(Math.abs(d), maxDelta) / maxDelta) * errH;
+    ctx.fillStyle = d > 0 ? "rgba(153, 27, 27, 0.65)" : "rgba(17, 24, 39, 0.22)";
+    ctx.fillRect(x - 2, yErrBottom - h, 4, h);
+  });
+
+  // labels
+  ctx.fillStyle = "rgba(17, 24, 39, 0.55)";
+  ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace";
+  ctx.fillText(`${Math.round(maxV)} ms`, x0, yTop + 10);
+  ctx.fillText(`${Math.round(minV)} ms`, x0, yLineBottom - 2);
+  ctx.fillText("Δerrors", x0, yLineBottom + 16);
+
+  const last = hist[hist.length - 1] || {};
+  const lastDelta = deltas[deltas.length - 1] || 0;
+  if (legend) {
+    const bits = [
+      `window=${hist.length}`,
+      `avg_latency_ms=${typeof last.avg_latency_ms === "number" ? opsNum(last.avg_latency_ms, { digits: 0 }) : "—"}`,
+      `range=${Math.round(minV)}–${Math.round(maxV)}ms`,
+      `Δerrors(last)=${lastDelta}`,
+    ];
+    legend.textContent = bits.join(" • ");
+  }
+}
+
 function renderOpsDashboard() {
   const summary = $("opsSummary");
   const alerts = $("opsAlerts");
@@ -1357,6 +1506,8 @@ function renderOpsDashboard() {
     if (backendDist) bits.push(`reasoning_backend_total: ${backendDist}`);
     dist.textContent = bits.length ? bits.join(" • ") : "—";
   }
+
+  renderOpsChart();
 }
 
 async function loadMetrics() {
@@ -1375,6 +1526,7 @@ async function refreshOps() {
   if (status) status.textContent = "Refreshing…";
   try {
     await Promise.all([loadDoctor(), loadMetrics()]);
+    recordOpsHistory(state.metrics);
     state.ops.lastRefreshedAt = new Date().toISOString();
     renderOpsDashboard();
     renderHome();
@@ -2452,6 +2604,14 @@ function benchConfusionTable(conf, label) {
   wrap.className = "callout";
   wrap.innerHTML = `<div class="k">${escapeHtml(label)}</div><div class="small muted">Gold rows × predicted columns • accuracy=${conf.acc}%</div>`;
 
+  let maxVal = 0;
+  BENCH_TIERS.forEach((g) => {
+    BENCH_TIERS.forEach((p) => {
+      const v = Number(conf?.matrix?.[g]?.[p] || 0) || 0;
+      if (v > maxVal) maxVal = v;
+    });
+  });
+
   const tw = document.createElement("div");
   tw.className = "tablewrap";
   const table = document.createElement("table");
@@ -2462,7 +2622,25 @@ function benchConfusionTable(conf, label) {
   const tbody = document.createElement("tbody");
   BENCH_TIERS.forEach((g) => {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td class="mono">${g}</td>${BENCH_TIERS.map((p) => `<td class="mono">${conf.matrix[g][p] || 0}</td>`).join("")}`;
+    const head = document.createElement("td");
+    head.className = "mono";
+    head.textContent = g;
+    tr.appendChild(head);
+
+    BENCH_TIERS.forEach((p) => {
+      const td = document.createElement("td");
+      td.className = "mono";
+      const v = Number(conf?.matrix?.[g]?.[p] || 0) || 0;
+      td.textContent = String(v);
+      const alpha = maxVal > 0 ? v / maxVal : 0;
+      const isDiag = g === p;
+      const base = isDiag ? "6,95,70" : "153,27,27";
+      const bg = 0.04 + 0.22 * alpha;
+      td.style.backgroundColor = `rgba(${base}, ${bg.toFixed(3)})`;
+      if (v > 0) td.style.fontWeight = isDiag ? "950" : "800";
+      td.title = isDiag ? "correct" : "off-diagonal";
+      tr.appendChild(td);
+    });
     tbody.appendChild(tr);
   });
   table.appendChild(tbody);

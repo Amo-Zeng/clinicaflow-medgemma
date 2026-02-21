@@ -698,6 +698,14 @@ textarea.mono { font-size: 12px; }
 
 .checklist li { margin: 8px 0; }
 
+.chart {
+  width: 100%;
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+}
+
 .modal {
   position: fixed;
   inset: 0;
