@@ -404,16 +404,133 @@ function fillFormFromIntake(intake) {
   }
 }
 
+const UI_LAST_TAB_KEY = "clinicaflow.ui.last_tab.v1";
+const UI_LAST_MODE_KEY = "clinicaflow.ui.last_mode.v1";
+
 function setMode(mode) {
   state.mode = mode;
   $("mode-form").classList.toggle("hidden", mode !== "form");
   $("mode-json").classList.toggle("hidden", mode !== "json");
   document.querySelectorAll(".seg").forEach((b) => b.classList.toggle("active", b.dataset.mode === mode));
+
+  try {
+    localStorage.setItem(UI_LAST_MODE_KEY, String(mode || ""));
+  } catch (e) {
+    // ignore
+  }
 }
 
-function setTab(tab) {
-  document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
-  document.querySelectorAll(".tabpanel").forEach((p) => p.classList.toggle("active", p.id === `tab-${tab}`));
+function knownTabs() {
+  return Array.from(document.querySelectorAll(".tab"))
+    .map((b) => String(b.dataset.tab || "").trim())
+    .filter((t) => t);
+}
+
+function normalizeTabId(tab) {
+  const t = String(tab || "").trim();
+  if (!t) return "home";
+  return knownTabs().includes(t) ? t : "home";
+}
+
+function updateTabUrl(tab) {
+  const t = normalizeTabId(tab);
+  try {
+    history.replaceState(null, "", `#${encodeURIComponent(t)}`);
+  } catch (e) {
+    // ignore
+  }
+}
+
+function setTab(tab, opts) {
+  const options = opts && typeof opts === "object" ? opts : {};
+  const t = normalizeTabId(tab);
+  document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === t));
+  document.querySelectorAll(".tabpanel").forEach((p) => p.classList.toggle("active", p.id === `tab-${t}`));
+
+  try {
+    localStorage.setItem(UI_LAST_TAB_KEY, t);
+  } catch (e) {
+    // ignore
+  }
+
+  if (!options.skipUrl) updateTabUrl(t);
+}
+
+function loadInitialTab() {
+  const raw = String(window.location.hash || "").replace(/^#/, "").trim();
+  if (raw) {
+    try {
+      const decoded = decodeURIComponent(raw);
+      if (knownTabs().includes(decoded)) return decoded;
+    } catch (e) {
+      // ignore
+    }
+    if (knownTabs().includes(raw)) return raw;
+  }
+
+  try {
+    const saved = String(localStorage.getItem(UI_LAST_TAB_KEY) || "").trim();
+    if (saved && knownTabs().includes(saved)) return saved;
+  } catch (e) {
+    // ignore
+  }
+
+  return "home";
+}
+
+function loadInitialMode() {
+  try {
+    const saved = String(localStorage.getItem(UI_LAST_MODE_KEY) || "").trim();
+    if (saved === "form" || saved === "json") return saved;
+  } catch (e) {
+    // ignore
+  }
+  return "form";
+}
+
+function handleHashChange() {
+  const raw = String(window.location.hash || "").replace(/^#/, "").trim();
+  if (!raw) return;
+  let decoded = raw;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch (e) {
+    // ignore
+  }
+  if (!knownTabs().includes(decoded)) return;
+  setTab(decoded, { skipUrl: true });
+}
+
+async function clearLocalDemoData() {
+  try {
+    const keys = [];
+    const n = Number(localStorage?.length || 0);
+    for (let i = 0; i < n; i += 1) {
+      const k = localStorage.key(i);
+      if (k) keys.push(k);
+    }
+    keys.forEach((k) => {
+      if (String(k || "").startsWith("clinicaflow.")) localStorage.removeItem(k);
+    });
+  } catch (e) {
+    // ignore
+  }
+
+  try {
+    sessionStorage.removeItem(AUTH_API_KEY_STORAGE_KEY);
+  } catch (e) {
+    // ignore
+  }
+
+  // Best-effort: clear service-worker caches for a "clean slate" demo.
+  try {
+    if (window.caches && typeof window.caches.keys === "function") {
+      const keys = await window.caches.keys();
+      await Promise.all(keys.map((k) => window.caches.delete(k)));
+    }
+  } catch (e) {
+    // ignore
+  }
 }
 
 // ---------------------------
@@ -4907,6 +5024,15 @@ function wireEvents() {
     }),
   );
 
+  $("privacyReset")?.addEventListener("click", async () => {
+    const ok = confirm(
+      "Clear local-only demo data stored in this browser?\n\nThis clears: workspace, action checklist progress, clinician reviews, UI preferences, and the optional API key.\n\nDo not store PHI in this demo UI.",
+    );
+    if (!ok) return;
+    await clearLocalDemoData();
+    window.location.reload();
+  });
+
   // Home tab quick actions
   $("homeStartDemo")?.addEventListener("click", () => setTab("demo"));
   $("homeGoTriage")?.addEventListener("click", () => setTab("triage"));
@@ -5437,8 +5563,9 @@ function wireEvents() {
 
 async function init() {
   wireEvents();
-  setTab("home");
-  setMode("form");
+  window.addEventListener("hashchange", () => handleHashChange());
+  setTab(loadInitialTab());
+  setMode(loadInitialMode());
   if ($("govBenchSet")) $("govBenchSet").value = "mega";
   if ($("opsAuto")) $("opsAuto").checked = false;
   await registerServiceWorker();

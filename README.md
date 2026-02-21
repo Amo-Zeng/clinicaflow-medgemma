@@ -15,7 +15,7 @@ It implements a deterministic, auditable 5-agent triage pipeline aligned with th
 ## Links
 
 - Kaggle Writeup: https://www.kaggle.com/competitions/med-gemma-impact-challenge/writeups/new-writeup-1768960611416
-- Demo Video: https://www.youtube.com/watch?v=vZgvNssSSGk
+- Demo Video (placeholder; replace before submission): https://www.youtube.com/watch?v=vZgvNssSSGk
 - Public Repo: https://github.com/Amo-Zeng/clinicaflow-medgemma
 
 ## Repository Layout

@@ -12,7 +12,11 @@ Open the printed UI URL (it may auto-select a free port).
 
 ## 2) Follow the built-in runbook
 
-In the UI, start from **Home** (or the welcome modal), then open the **Demo** tab and click through:
+In the UI, start from **Home** (or the welcome modal), then:
+
+- Recommended: click **Director: off** (top-right) to enable the recording overlay (teleprompter + UI highlights).
+  - Hotkeys: `N`/`P` next/prev, `D` do-step, `Esc` end.
+- Or open the **Demo** tab and click through manually:
 
 1. Ops readiness (`/doctor`, `/metrics`, `/openapi.json`, `/policy_pack`)
 2. High-acuity case (critical) + download a **redacted** audit bundle (or **Judge pack.zip**)
