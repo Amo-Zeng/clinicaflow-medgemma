@@ -20,6 +20,10 @@ Primary/urgent-care triage is a high-stakes synthesis task: clinicians must comb
 
 This is amplified in low-resource clinics where cloud-only tools are unreliable and privacy constraints demand **local-first** options.
 
+**Impact potential (transparent estimate; not clinical validation)**
+
+Using the repo’s reproducible synthetic proxy benchmark as a rough time proxy (median write-up time `5.03 → 4.26 min`), if a small clinic handles ~`60` triage encounters/day, this suggests ~`46` minutes/day of documentation time saved (`0.77 min × 60`) — while also enforcing a deterministic under-triage safety gate for common red-flag patterns. This estimate is illustrative only and must be validated on site-specific workflows and distributions.
+
 ### Overall solution (agentic workflow + safety)
 
 ClinicaFlow reframes triage as a **5-agent workflow** with an auditable trace, rather than a single prompt:
@@ -34,6 +38,11 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
 4. **Safety & Escalation Agent**: applies deterministic red-flag rules + uncertainty thresholds to prevent under-triage.
 5. **Communication Agent**: produces a clinician handoff summary and patient-facing return precautions in plain language (optionally rewritten by MedGemma for clarity; rewrite-only, no new facts).
    - Clinician handoff is formatted as an SBAR-style draft for faster review.
+
+**Effective use of HAI-DEF models (MedGemma)**
+
+- MedGemma is used where foundation-model reasoning is most valuable: synthesizing the structured intake into a concise differential + rationale (and optionally rewriting deterministic drafts for clear communication).
+- Safety-critical escalation remains deterministic (rulebook + vitals thresholds) to reduce jailbreak/overreach risk in high-stakes triage.
 
 **Safety-first behaviors**
 
@@ -56,6 +65,7 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
   - request IDs end-to-end (`X-Request-ID`),
   - probes (`GET /health`, `GET /ready`, `GET /live`),
   - OpenAPI spec + metrics endpoint (JSON + Prometheus),
+  - PWA-ready static UI (manifest + service worker cache) for local-first/offline demos,
   - packaged-resource validation (`clinicaflow validate`) to prevent broken policy packs / vignette sets,
   - policy-pack introspection endpoint (`GET /policy_pack`) with sha256 + policy IDs (governance-ready),
   - safety rulebook endpoint (`GET /safety_rules`) exposing deterministic trigger catalog + keyword patterns (transparency-ready),
