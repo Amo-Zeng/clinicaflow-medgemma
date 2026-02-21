@@ -122,6 +122,7 @@ const state = {
   lastBench: null,
   lastBenchSet: null,
   lastSynthetic: null,
+  lastFhirBundle: null,
   review: {
     lastCaseId: null,
     lastIntake: null,
@@ -1224,6 +1225,20 @@ function normalizeChecklist(actions, saved) {
     .map((t) => ({ text: t, checked: byText.get(t) || false }));
 }
 
+function updateNotePreview() {
+  const el = $("notePreview");
+  if (!el) return;
+  if (!state.lastIntake || !state.lastResult) {
+    el.textContent = "—";
+    return;
+  }
+  try {
+    el.textContent = buildNoteMarkdown(state.lastIntake, state.lastResult, state.lastActionChecklist).trim() + "\n";
+  } catch (e) {
+    el.textContent = `Error building note: ${e}`;
+  }
+}
+
 function updateActionsProgress(checklist) {
   const el = $("actionsProgress");
   if (!el) return;
@@ -1270,6 +1285,7 @@ function renderActionChecklist(actions, requestId, opts) {
       label.classList.toggle("done", cb.checked);
       saveActionChecklist(requestId, checklist);
       updateActionsProgress(checklist);
+      updateNotePreview();
     });
 
     const isSafety = safetySet.has(String(item.text || "").trim());
@@ -1291,6 +1307,7 @@ function renderActionChecklist(actions, requestId, opts) {
   // Persist initial state so later exports are stable.
   saveActionChecklist(requestId, checklist);
   updateActionsProgress(checklist);
+  updateNotePreview();
 }
 
 function traceOutput(result, agentName) {
@@ -1480,6 +1497,8 @@ function renderDecisionBanner(result) {
 function renderResult(result, requestIdFromHeader) {
   state.lastResult = result;
   state.lastRequestId = requestIdFromHeader || result.request_id || null;
+  state.lastFhirBundle = null;
+  setText("fhirPreview", "{}");
 
   renderDecisionBanner(result);
   setRiskTier(result.risk_tier);
@@ -1512,6 +1531,7 @@ function renderResult(result, requestIdFromHeader) {
   renderActionChecklist(result.recommended_next_actions || [], state.lastRequestId || result.request_id || "", {
     safetyActions: safety.actions_added_by_safety || [],
   });
+  updateNotePreview();
 
   const conf = typeof result.confidence === "number" ? result.confidence : null;
   setText("confidenceVal", conf == null ? "—" : `confidence: ${(conf * 100).toFixed(0)}%`);
@@ -1638,17 +1658,28 @@ async function loadDoctor() {
     const backend = (d.reasoning_backend || {}).backend || "deterministic";
     const model = (d.reasoning_backend || {}).model || "";
     const ok = (d.reasoning_backend || {}).connectivity_ok;
+    const circuit = (d.reasoning_backend || {}).circuit_breaker || {};
     const status = ok === true ? "ok" : ok === false ? "unreachable" : "";
     const label = model ? `${backend} • ${model}` : backend;
-    const fullLabel = status ? `${label} • ${status}` : label;
+    const circ =
+      circuit && circuit.open
+        ? `circuit-open${typeof circuit.remaining_s === "number" ? `(${Math.round(circuit.remaining_s)}s)` : ""}`
+        : "";
+    const fullBits = [label, status, circ].filter((x) => x);
+    const fullLabel = fullBits.join(" • ");
     setText("backendBadge", `backend: ${fullLabel}`);
 
     const commBackend = (d.communication_backend || {}).backend || "deterministic";
     const commModel = (d.communication_backend || {}).model || "";
     const commOk = (d.communication_backend || {}).connectivity_ok;
+    const commCircuit = (d.communication_backend || {}).circuit_breaker || {};
     const commStatus = commOk === true ? "ok" : commOk === false ? "unreachable" : "";
     const commLabel = commModel ? `${commBackend} • ${commModel}` : commBackend;
-    const commFullLabel = commStatus ? `${commLabel} • ${commStatus}` : commLabel;
+    const commCirc =
+      commCircuit && commCircuit.open
+        ? `circuit-open${typeof commCircuit.remaining_s === "number" ? `(${Math.round(commCircuit.remaining_s)}s)` : ""}`
+        : "";
+    const commFullLabel = [commLabel, commStatus, commCirc].filter((x) => x).join(" • ");
     setText("commBadge", `comm: ${commFullLabel}`);
 
     const policy = (d.policy_pack || {}).sha256 || "";
@@ -1888,6 +1919,16 @@ function renderOpsDashboard() {
   const ok = rb.connectivity_ok;
   const backendLine = model ? `${backend} • ${model}` : backend;
   const backendHealth = ok === true ? "ok" : ok === false ? "unreachable" : "unknown";
+  const circuit = rb.circuit_breaker || {};
+  const circOpen = Boolean(circuit?.open);
+  const circRemain = typeof circuit?.remaining_s === "number" ? circuit.remaining_s : null;
+  const circFails = typeof circuit?.failures === "number" ? circuit.failures : null;
+
+  const cb = (d || {}).communication_backend || {};
+  const commCircuit = cb.circuit_breaker || {};
+  const commCircOpen = Boolean(commCircuit?.open);
+  const commCircRemain = typeof commCircuit?.remaining_s === "number" ? commCircuit.remaining_s : null;
+  const commCircFails = typeof commCircuit?.failures === "number" ? commCircuit.failures : null;
   const authRequired = Boolean(d?.settings?.api_key_configured);
   const authHasKey = Boolean(state.auth?.apiKey);
 
@@ -1895,6 +1936,18 @@ function renderOpsDashboard() {
   addCard("Triage requests", `${triageReq}`, `success=${triageOk} • errors=${triageErr}`);
   addCard("Avg triage latency", Number.isFinite(avgLatency) ? `${opsNum(avgLatency, { digits: 2 })} ms` : "—", "from pipeline total_latency_ms");
   addCard("Reasoning backend", backendLine, `connectivity=${backendHealth}`);
+  if (circOpen || commCircOpen || (circFails != null && circFails > 0) || (commCircFails != null && commCircFails > 0)) {
+    const bits = [];
+    const fmt = (open, remain, fails) => {
+      const left = open ? "open" : "closed";
+      const r = remain != null && open ? ` (${Math.round(remain)}s)` : "";
+      const f = fails != null && fails > 0 ? ` fails=${fails}` : "";
+      return `${left}${r}${f}`;
+    };
+    bits.push(`reasoning: ${fmt(circOpen, circRemain, circFails)}`);
+    bits.push(`comm: ${fmt(commCircOpen, commCircRemain, commCircFails)}`);
+    addCard("Circuit breaker", bits.join(" • "), "Prevents cascading timeouts when endpoint is down.");
+  }
   addCard(
     "API auth",
     authRequired ? (authHasKey ? "enabled (key set)" : "enabled (key missing)") : "disabled",
@@ -1918,6 +1971,16 @@ function renderOpsDashboard() {
   // Alerts
   const issues = [];
   if (ok === false) issues.push({ level: "bad", text: "Reasoning backend unreachable (demo will fall back to deterministic)." });
+  if (circOpen)
+    issues.push({
+      level: "warn",
+      text: `Reasoning circuit breaker OPEN${circRemain != null ? ` (${Math.round(circRemain)}s)` : ""} — skipping external calls.`,
+    });
+  if (commCircOpen)
+    issues.push({
+      level: "warn",
+      text: `Comm circuit breaker OPEN${commCircRemain != null ? ` (${Math.round(commCircRemain)}s)` : ""} — skipping external calls.`,
+    });
   if (authRequired && !authHasKey) issues.push({ level: "warn", text: "Server requires API key but none is set (POST actions will 401)." });
   if (triageErr > 0) issues.push({ level: "bad", text: `Triage errors observed: ${triageErr}` });
   if (Number.isFinite(avgLatency) && avgLatency > 1800) issues.push({ level: "warn", text: `High average latency: ${opsNum(avgLatency, { digits: 0 })} ms` });
@@ -3056,9 +3119,47 @@ async function downloadFhirBundle() {
       payload,
       requestId ? { "X-Request-ID": requestId } : {},
     );
+    state.lastFhirBundle = data;
+    setText("fhirPreview", fmtJson(data));
     const req = headers.get("X-Request-ID") || requestId || (data?.identifier?.value ?? "run");
     downloadText(`clinicaflow_fhir_${req}.json`, fmtJson(data), "application/fhir+json");
     setText("statusLine", "Downloaded FHIR bundle.");
+  } catch (e) {
+    setError("runError", e);
+    setText("statusLine", "Error.");
+  }
+}
+
+async function buildFhirPreview() {
+  setError("runError", "");
+  if (!state.lastIntake || !state.lastResult) {
+    setError("runError", "Run a triage case first (so intake + result are available).");
+    return;
+  }
+
+  if (state.lastFhirBundle) {
+    setText("fhirPreview", fmtJson(state.lastFhirBundle));
+    setText("statusLine", "FHIR preview ready (cached).");
+    return;
+  }
+
+  const requestId = state.lastRequestId || "";
+  setText("statusLine", "Building FHIR preview…");
+
+  try {
+    const payload = {
+      intake: state.lastIntake,
+      result: state.lastResult,
+      checklist: state.lastActionChecklist || [],
+    };
+    const { data } = await postJson(
+      `/fhir_bundle?redact=1`,
+      payload,
+      requestId ? { "X-Request-ID": requestId } : {},
+    );
+    state.lastFhirBundle = data;
+    setText("fhirPreview", fmtJson(data));
+    setText("statusLine", "FHIR preview ready.");
   } catch (e) {
     setError("runError", e);
     setText("statusLine", "Error.");
@@ -4643,6 +4744,32 @@ function saveStoredReviews(reviews) {
   }
 }
 
+async function reviewImportFromFile(file) {
+  setError("reviewError", "");
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const payload = JSON.parse(text);
+    if (!Array.isArray(payload)) throw new Error("Invalid file: expected a JSON array of review objects.");
+    const sanitized = payload
+      .filter((x) => x && typeof x === "object")
+      .map((x) => ({
+        ...x,
+        id: String(x.id || `${String(x.case_id || "case")}-${Date.now()}-${Math.random().toString(16).slice(2)}`),
+        created_at: String(x.created_at || new Date().toISOString()),
+        case_id: String(x.case_id || "").trim(),
+        vignette_set: String(x.vignette_set || "standard").trim() || "standard",
+      }));
+    saveStoredReviews(sanitized);
+    renderReviewTable();
+    updateReviewParagraph();
+    renderReviewSummary();
+    setText("statusLine", `Imported ${sanitized.length} reviews.`);
+  } catch (e) {
+    setError("reviewError", e);
+  }
+}
+
 function readReviewForm() {
   return {
     reviewer: {
@@ -4794,6 +4921,9 @@ function deleteSavedReview(r) {
   const reviews = loadStoredReviews().filter((x) => x && x.id !== r.id);
   saveStoredReviews(reviews);
   renderReviewTable();
+  updateReviewParagraph();
+  renderReviewSummary();
+  setText("statusLine", "Deleted saved review.");
 }
 
 async function loadReviewCases() {
@@ -4945,6 +5075,160 @@ function buildReviewMarkdown(reviews) {
   return lines.join("\n").trim() + "\n";
 }
 
+function summarizeReviews(reviews) {
+  const safetyCounts = {};
+  const actionability = [];
+  const handoff = [];
+  const roles = new Set();
+  const caseIds = new Set();
+  const quotes = [];
+
+  (reviews || []).forEach((r) => {
+    const cid = String(r?.case_id || "").trim();
+    if (cid) caseIds.add(cid);
+
+    const role = String(r?.reviewer?.role || "").trim();
+    if (role) roles.add(role);
+
+    const safety = String(r?.ratings?.risk_tier_safety || "").trim().toLowerCase();
+    if (safety) safetyCounts[safety] = (safetyCounts[safety] || 0) + 1;
+
+    const a = r?.ratings?.actionability;
+    if (typeof a === "number" && Number.isFinite(a)) actionability.push(a);
+    const h = r?.ratings?.handoff_quality;
+    if (typeof h === "number" && Number.isFinite(h)) handoff.push(h);
+
+    const fb = String(r?.notes?.feedback || "").trim();
+    if (fb) quotes.push(fb);
+  });
+
+  function meanOrNull(values) {
+    if (!values.length) return null;
+    const sum = values.reduce((acc, v) => acc + v, 0);
+    return sum / values.length;
+  }
+
+  return {
+    nReviews: (reviews || []).length,
+    nCases: caseIds.size,
+    safetyCounts,
+    avgActionability: meanOrNull(actionability),
+    avgHandoff: meanOrNull(handoff),
+    reviewerRoles: [...roles].sort(),
+    quotes,
+  };
+}
+
+function groupReviewsBySet(reviews) {
+  const groups = {};
+  (reviews || []).forEach((r) => {
+    const raw = String(r?.vignette_set || "").trim().toLowerCase();
+    const setName = raw || "standard";
+    if (!groups[setName]) groups[setName] = [];
+    groups[setName].push(r);
+  });
+  return groups;
+}
+
+function reviewSummaryMarkdown(reviews, opts) {
+  const options = opts && typeof opts === "object" ? opts : {};
+  const maxQuotes = Number.isFinite(Number(options.maxQuotes)) ? Number(options.maxQuotes) : 3;
+  const summary = summarizeReviews(reviews);
+  const groups = groupReviewsBySet(reviews);
+
+  const lines = [];
+  lines.push("## Clinician review (qualitative; no PHI)");
+  lines.push("");
+  if (!summary.nReviews) {
+    lines.push("- No clinician reviews recorded for this submission.");
+    return lines.join("\n").trim() + "\n";
+  }
+
+  lines.push(`- Reviews: **${summary.nReviews}** (cases: **${summary.nCases}**)`);
+  if (summary.reviewerRoles.length) lines.push(`- Reviewer roles (as entered): ${summary.reviewerRoles.join(", ")}`);
+  const safetyKeys = Object.keys(summary.safetyCounts || {});
+  if (safetyKeys.length) {
+    const parts = safetyKeys
+      .sort((a, b) => (summary.safetyCounts[b] || 0) - (summary.safetyCounts[a] || 0) || a.localeCompare(b))
+      .map((k) => `${k}=${summary.safetyCounts[k]}`);
+    lines.push(`- Risk-tier safety: ${parts.join(", ")}`);
+  }
+  if (summary.avgActionability != null) lines.push(`- Avg actionability: **${summary.avgActionability.toFixed(2)}/5**`);
+  if (summary.avgHandoff != null) lines.push(`- Avg handoff quality: **${summary.avgHandoff.toFixed(2)}/5**`);
+
+  const q = (summary.quotes || []).filter((x) => x).slice(0, Math.max(0, maxQuotes));
+  if (q.length) {
+    lines.push("");
+    lines.push("### Selected feedback (verbatim)");
+    lines.push("");
+    q.forEach((item) => {
+      lines.push(`- ${item}`);
+    });
+  }
+
+  const setNames = Object.keys(groups || {});
+  if (setNames.length > 1) {
+    lines.push("");
+    lines.push("## Breakdown by vignette set");
+    lines.push("");
+    setNames
+      .slice()
+      .sort()
+      .forEach((setName) => {
+        const s = summarizeReviews(groups[setName] || []);
+        lines.push(`### \`${setName}\``);
+        lines.push("");
+        lines.push(`- Reviews: **${s.nReviews}** (cases: **${s.nCases}**)`);
+        const ks = Object.keys(s.safetyCounts || {});
+        if (ks.length) {
+          const parts = ks
+            .sort((a, b) => (s.safetyCounts[b] || 0) - (s.safetyCounts[a] || 0) || a.localeCompare(b))
+            .map((k) => `${k}=${s.safetyCounts[k]}`);
+          lines.push(`- Risk-tier safety: ${parts.join(", ")}`);
+        }
+        if (s.avgActionability != null) lines.push(`- Avg actionability: **${s.avgActionability.toFixed(2)}/5**`);
+        if (s.avgHandoff != null) lines.push(`- Avg handoff quality: **${s.avgHandoff.toFixed(2)}/5**`);
+        lines.push("");
+      });
+  }
+
+  return lines.join("\n").trim() + "\n";
+}
+
+function renderReviewSummary() {
+  const textEl = $("reviewSummaryText");
+  const mdEl = $("reviewSummaryMd");
+  if (!textEl && !mdEl) return;
+
+  const reviews = loadStoredReviews();
+  const s = summarizeReviews(reviews);
+  const md = reviewSummaryMarkdown(reviews, { maxQuotes: 3 });
+
+  if (mdEl) mdEl.textContent = md.trim() ? md : "—";
+
+  if (!textEl) return;
+  if (!s.nReviews) {
+    textEl.innerHTML = `<div class="small muted">No saved reviews yet.</div>`;
+    return;
+  }
+
+  const bits = [];
+  bits.push(`<div class="mono">reviews=${escapeHtml(String(s.nReviews))} • cases=${escapeHtml(String(s.nCases))}</div>`);
+  if (s.reviewerRoles.length) bits.push(`<div class="small muted">roles: ${escapeHtml(s.reviewerRoles.join(", "))}</div>`);
+
+  const safetyKeys = Object.keys(s.safetyCounts || {});
+  if (safetyKeys.length) {
+    const parts = safetyKeys
+      .sort((a, b) => (s.safetyCounts[b] || 0) - (s.safetyCounts[a] || 0) || a.localeCompare(b))
+      .map((k) => `${k}=${s.safetyCounts[k]}`);
+    bits.push(`<div class="small muted">risk_tier_safety: ${escapeHtml(parts.join(" • "))}</div>`);
+  }
+  if (s.avgActionability != null) bits.push(`<div class="small muted">avg_actionability: ${escapeHtml(s.avgActionability.toFixed(2))}/5</div>`);
+  if (s.avgHandoff != null) bits.push(`<div class="small muted">avg_handoff_quality: ${escapeHtml(s.avgHandoff.toFixed(2))}/5</div>`);
+
+  textEl.innerHTML = bits.join("");
+}
+
 function buildWriteupParagraph() {
   const reviews = loadStoredReviews();
   const nReviews = reviews.length;
@@ -4992,6 +5276,22 @@ function buildWriteupParagraph() {
   if (noted.length) lines.push(`Key notes: ${noted.map((x) => `“${x}”`).join("; ")}.`);
   if (helpful) lines.push(`Most helpful aspect: “${helpful}”.`);
   if (improve) lines.push(`Top improvement suggestion: “${improve}”.`);
+
+  const summary = summarizeReviews(reviews);
+  const safetyKeys = Object.keys(summary.safetyCounts || {});
+  if (safetyKeys.length || summary.avgActionability != null || summary.avgHandoff != null) {
+    const parts = [];
+    if (safetyKeys.length) {
+      const safetyBits = safetyKeys
+        .sort((a, b) => (summary.safetyCounts[b] || 0) - (summary.safetyCounts[a] || 0) || a.localeCompare(b))
+        .map((k) => `${k}=${summary.safetyCounts[k]}`)
+        .join(", ");
+      parts.push(`risk_tier_safety: ${safetyBits}`);
+    }
+    if (summary.avgActionability != null) parts.push(`avg_actionability=${summary.avgActionability.toFixed(2)}/5`);
+    if (summary.avgHandoff != null) parts.push(`avg_handoff_quality=${summary.avgHandoff.toFixed(2)}/5`);
+    if (parts.length) lines.push(`Ratings (from recorded reviews): ${parts.join(" • ")}.`);
+  }
   lines.push(
     "This feedback is qualitative UX/safety input only and does not substitute for site-specific clinical validation. " +
       "We do not fabricate reviewer feedback; exportable review notes are generated from recorded inputs.",
@@ -5088,6 +5388,7 @@ function wireEvents() {
     setText("statusLine", "Downloaded note.md");
   });
   $("downloadFhir")?.addEventListener("click", () => downloadFhirBundle());
+  $("buildFhirPreview")?.addEventListener("click", () => buildFhirPreview());
   $("downloadReport")?.addEventListener("click", () => downloadReportHtml());
   $("printReport")?.addEventListener("click", () => printReportHtml());
   $("downloadRedacted").addEventListener("click", () => downloadAuditBundle(true));
@@ -5292,6 +5593,7 @@ function wireEvents() {
       saveStoredReviews(reviews);
       renderReviewTable();
       updateReviewParagraph();
+      renderReviewSummary();
       setText("statusLine", "Saved review locally.");
     });
 
@@ -5314,6 +5616,38 @@ function wireEvents() {
       setText("statusLine", "Downloaded clinician_review_notes.md");
     });
 
+  const reviewCopySummary = $("reviewCopySummary");
+  if (reviewCopySummary)
+    reviewCopySummary.addEventListener("click", () => {
+      const reviews = loadStoredReviews();
+      const md = reviewSummaryMarkdown(reviews, { maxQuotes: 3 });
+      copyText(md, "Copied summary.md");
+    });
+
+  const reviewDownloadSummary = $("reviewDownloadSummary");
+  if (reviewDownloadSummary)
+    reviewDownloadSummary.addEventListener("click", () => {
+      const reviews = loadStoredReviews();
+      const md = reviewSummaryMarkdown(reviews, { maxQuotes: 3 });
+      downloadText("clinician_review_summary.md", md, "text/markdown");
+      setText("statusLine", "Downloaded clinician_review_summary.md");
+    });
+
+  const reviewImportJson = $("reviewImportJson");
+  const reviewImportFile = $("reviewImportFile");
+  if (reviewImportJson && reviewImportFile) {
+    reviewImportJson.addEventListener("click", () => reviewImportFile.click());
+    reviewImportFile.addEventListener("change", async () => {
+      const file = reviewImportFile.files?.[0];
+      if (file) await reviewImportFromFile(file);
+      try {
+        reviewImportFile.value = "";
+      } catch (e) {
+        // ignore
+      }
+    });
+  }
+
   const reviewReset = $("reviewReset");
   if (reviewReset)
     reviewReset.addEventListener("click", () => {
@@ -5322,6 +5656,7 @@ function wireEvents() {
       saveStoredReviews([]);
       renderReviewTable();
       updateReviewParagraph();
+      renderReviewSummary();
       setText("statusLine", "Reset local reviews.");
     });
 
@@ -5562,6 +5897,23 @@ function wireEvents() {
 }
 
 async function init() {
+  const params = new URLSearchParams(window.location.search || "");
+  const wantReset = ["1", "true", "yes"].includes(String(params.get("reset") || "").trim().toLowerCase());
+  const wantDirector = ["1", "true", "yes"].includes(String(params.get("director") || "").trim().toLowerCase());
+  const wantWelcome = ["1", "true", "yes"].includes(String(params.get("welcome") || "").trim().toLowerCase());
+
+  if (wantReset) {
+    await clearLocalDemoData();
+    try {
+      params.delete("reset");
+      const next = params.toString();
+      const url = `${window.location.pathname}${next ? `?${next}` : ""}${window.location.hash || ""}`;
+      history.replaceState(null, "", url);
+    } catch (e) {
+      // ignore
+    }
+  }
+
   wireEvents();
   window.addEventListener("hashchange", () => handleHashChange());
   setTab(loadInitialTab());
@@ -5580,10 +5932,18 @@ async function init() {
   await loadReviewCases();
   setReviewIdentityDefaults();
   renderReviewTable();
+  renderReviewSummary();
   updateReviewParagraph();
   renderWorkspaceTable();
   renderHome();
-  maybeShowWelcomeModal();
+
+  if (wantDirector) {
+    directorStart();
+  } else if (wantWelcome) {
+    show("welcomeModal", true);
+  } else {
+    maybeShowWelcomeModal();
+  }
 }
 
 init().catch((e) => {

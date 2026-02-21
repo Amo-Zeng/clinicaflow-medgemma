@@ -15,7 +15,7 @@ It implements a deterministic, auditable 5-agent triage pipeline aligned with th
 ## Links
 
 - Kaggle Writeup: https://www.kaggle.com/competitions/med-gemma-impact-challenge/writeups/new-writeup-1768960611416
-- Demo Video (placeholder; replace before submission): https://www.youtube.com/watch?v=vZgvNssSSGk
+- Demo Video (required by Kaggle; placeholder—replace before submission): https://www.youtube.com/watch?v=vZgvNssSSGk
 - Public Repo: https://github.com/Amo-Zeng/clinicaflow-medgemma
 
 ## Repository Layout
@@ -43,6 +43,12 @@ bash scripts/demo_one_click.sh
 
 Then open `http://127.0.0.1:8000/` and click `Director: off` (top right) for a step-by-step 3-minute demo overlay
 (teleprompter + UI highlights; hotkeys: `N`/`P`/`D`/`Esc`).
+
+Recording-friendly mode (auto-starts Director mode + clears local-only demo storage for a clean recording):
+
+```bash
+DEMO_RECORD=1 bash scripts/demo_one_click.sh
+```
 
 If the UI renders as a “legacy fallback” 2-box page, you likely have a stale install. Fix with:
 

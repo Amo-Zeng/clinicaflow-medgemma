@@ -24,6 +24,14 @@ This is amplified in low-resource clinics where cloud-only tools are unreliable 
 
 Using the repo’s reproducible synthetic proxy benchmark as a rough time proxy (median write-up time `5.03 → 4.26 min`), if a small clinic handles ~`60` triage encounters/day, this suggests ~`46` minutes/day of documentation time saved (`0.77 min × 60`) — while also enforcing a deterministic under-triage safety gate for common red-flag patterns. This estimate is illustrative only and must be validated on site-specific workflows and distributions.
 
+### Judge scorecard (how ClinicaFlow meets the criteria)
+
+- **Effective use of HAI-DEF models (20%)**: MedGemma is used where open-weight model reasoning adds the most value (concise differential + rationale from structured intake; optional rewrite-only communication polish). Safety escalation remains deterministic.
+- **Problem domain (15%)**: triage under time pressure with missed red flags + documentation burden; scoped to primary/urgent care workflows with a clear user journey (triage nurse → clinician → QA).
+- **Impact potential (15%)**: transparent time-savings estimate from a reproducible proxy benchmark; safety gate explicitly optimizes against under-triage.
+- **Product feasibility (20%)**: local-first runnable stack, OpenAI-compatible MedGemma integration path (vLLM), deterministic governance controls, audit bundles, and minimal FHIR export.
+- **Execution & communication (30%)**: one-click demo + Console UI runbook, Director-mode recording overlay, reproducible benchmark scripts, and exportable judge pack (zip) for fast evaluation.
+
 ### Overall solution (agentic workflow + safety)
 
 ClinicaFlow reframes triage as a **5-agent workflow** with an auditable trace, rather than a single prompt:
@@ -208,7 +216,7 @@ Below is a **copy-paste template** for the final submission writeup. It is desig
 
 ### Required links
 
-- **Video (≤3 min):** https://www.youtube.com/watch?v=vZgvNssSSGk
+- **Video (≤3 min):** https://www.youtube.com/watch?v=vZgvNssSSGk *(placeholder; replace before final submission)*
 - **Public code repository:** https://github.com/Amo-Zeng/clinicaflow-medgemma
 - **Public interactive demo (bonus):** https://github.com/Amo-Zeng/clinicaflow-medgemma (run `bash scripts/demo_one_click.sh`)
 - **Open-weight HF model tracing to HAI-DEF (bonus):** Not released in this round (code-only submission).

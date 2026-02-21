@@ -948,6 +948,18 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                         err = step.get("error")
                         if isinstance(err, str) and err.strip():
                             self.server.stats["triage_agent_errors_total"][agent] += 1
+                        else:
+                            # Some agent failures are recorded in output fields rather than the trace-level
+                            # `error` field (e.g., external inference fallback). Count these as errors so
+                            # ops dashboards reflect backend instability.
+                            out = step.get("output") or {}
+                            derived = ""
+                            if isinstance(out, dict) and agent == "multimodal_reasoning":
+                                derived = str(out.get("reasoning_backend_error") or "").strip()
+                            elif isinstance(out, dict) and agent == "communication":
+                                derived = str(out.get("communication_backend_error") or "").strip()
+                            if derived:
+                                self.server.stats["triage_agent_errors_total"][agent] += 1
 
                 logger.info(
                     "triage_complete",

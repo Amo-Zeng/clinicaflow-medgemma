@@ -42,6 +42,14 @@ echo "[pack] Generating clinician review packet (synthetic; no PHI)..."
 ensure_venv >/dev/null
 clinicaflow benchmark review_packet --set standard --limit 30 --include-gold --out "$OUT_DIR/clinician_review_packet_standard.md" >/dev/null
 
+if [[ -f "reviews/clinician_reviews.json" ]]; then
+  echo "[pack] Including clinician review notes..."
+  cp -f "reviews/clinician_reviews.json" "$OUT_DIR/clinician_reviews.json"
+  clinicaflow benchmark review_summary --in "reviews/clinician_reviews.json" --out "$OUT_DIR/clinician_review_summary.md" --max-quotes 3 >/dev/null || true
+else
+  echo "[pack] No clinician review JSON found at reviews/clinician_reviews.json (skipping)."
+fi
+
 echo "[pack] Copying key docs..."
 cp -f champion_writeup_medgemma.md "$OUT_DIR/champion_writeup_medgemma.md"
 cp -f README.md "$OUT_DIR/README.md"

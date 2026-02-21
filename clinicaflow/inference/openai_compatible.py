@@ -120,6 +120,49 @@ def _circuit_record_failure(*, config: OpenAICompatibleConfig, error: str) -> No
             state.open_until_s = now + cooldown_s
 
 
+def circuit_breaker_status(*, base_url: str, model: str) -> dict[str, Any]:
+    """Return current circuit-breaker state for an endpoint+model pair.
+
+    Intended for diagnostics/ops dashboards. No secrets are included.
+    """
+
+    base_url = str(base_url or "").strip()
+    model = str(model or "").strip()
+    if not base_url or not model:
+        return {"configured": False, "open": False, "failures": 0, "remaining_s": 0.0, "last_error": ""}
+
+    threshold, cooldown_s, window_s = _circuit_params()
+    key = f"{base_url.rstrip('/')}::{model}"
+    now = time.time()
+
+    with _CIRCUIT_LOCK:
+        state = _CIRCUITS.get(key)
+
+        if not state:
+            return {
+                "configured": True,
+                "open": False,
+                "failures": 0,
+                "remaining_s": 0.0,
+                "last_error": "",
+                "threshold_failures": threshold,
+                "cooldown_s": cooldown_s,
+                "window_s": window_s,
+            }
+
+        remaining = max(0.0, float(state.open_until_s or 0.0) - now)
+        return {
+            "configured": True,
+            "open": bool(remaining > 0),
+            "failures": int(state.failures or 0),
+            "remaining_s": round(remaining, 1),
+            "last_error": str(state.last_error or ""),
+            "threshold_failures": threshold,
+            "cooldown_s": cooldown_s,
+            "window_s": window_s,
+        }
+
+
 def load_openai_compatible_config_from_env() -> OpenAICompatibleConfig:
     return load_openai_compatible_config_from_env_prefix("CLINICAFLOW_REASONING")
 

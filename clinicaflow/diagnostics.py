@@ -9,6 +9,7 @@ from typing import Any
 from clinicaflow.policy_pack import load_policy_pack, policy_pack_sha256
 from clinicaflow.settings import load_settings_from_env
 from clinicaflow.version import __version__
+from clinicaflow.inference.openai_compatible import circuit_breaker_status
 
 
 def resolve_policy_pack_path() -> tuple[object, str]:
@@ -89,6 +90,9 @@ def collect_diagnostics() -> dict[str, Any]:
             "timeout_s": reasoning_timeout_s,
             "max_retries": reasoning_max_retries,
             **connectivity,
+            "circuit_breaker": circuit_breaker_status(base_url=reasoning_base_url, model=reasoning_model)
+            if reasoning_backend.strip().lower() in {"openai", "openai_compatible"}
+            else {"configured": False, "open": False, "failures": 0, "remaining_s": 0.0, "last_error": ""},
         },
         "communication_backend": {
             "backend": comm_backend,
@@ -97,6 +101,9 @@ def collect_diagnostics() -> dict[str, Any]:
             "timeout_s": comm_timeout_s,
             "max_retries": comm_max_retries,
             **comm_connectivity,
+            "circuit_breaker": circuit_breaker_status(base_url=comm_base_url, model=comm_model)
+            if comm_backend.strip().lower() in {"openai", "openai_compatible"}
+            else {"configured": False, "open": False, "failures": 0, "remaining_s": 0.0, "last_error": ""},
         },
     }
 

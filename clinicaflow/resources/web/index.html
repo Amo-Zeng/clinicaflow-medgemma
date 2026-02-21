@@ -353,6 +353,21 @@
             </details>
 
             <details class="details">
+              <summary>Note draft (markdown)</summary>
+              <div class="small muted">Generated locally from the current intake + result + checklist (no external calls).</div>
+              <pre id="notePreview" class="pre mono">—</pre>
+            </details>
+
+            <details class="details">
+              <summary>FHIR bundle (preview)</summary>
+              <div class="row" style="margin-top: 0;">
+                <button id="buildFhirPreview" class="btn subtle" type="button">Build preview</button>
+                <div class="small muted">Uses <code>POST /fhir_bundle?redact=1</code> with the existing intake+result.</div>
+              </div>
+              <pre id="fhirPreview" class="pre mono">{}</pre>
+            </details>
+
+            <details class="details">
               <summary>Structured intake (normalized)</summary>
               <pre id="structuredOut" class="pre mono">{}</pre>
             </details>
@@ -1027,6 +1042,25 @@
                 </thead>
                 <tbody id="reviewTableBody"></tbody>
               </table>
+            </div>
+
+            <div id="reviewSummary" class="callout">
+              <div class="k">Review summary (auto-generated)</div>
+              <div id="reviewSummaryText" class="small muted">—</div>
+              <details class="details">
+                <summary>Summary markdown (for writeup)</summary>
+                <pre id="reviewSummaryMd" class="pre mono"></pre>
+              </details>
+              <div class="row">
+                <button id="reviewCopySummary" class="btn subtle" type="button">Copy summary.md</button>
+                <button id="reviewDownloadSummary" class="btn subtle" type="button">Download summary.md</button>
+                <button id="reviewImportJson" class="btn subtle" type="button">Import JSON</button>
+                <input id="reviewImportFile" class="hidden" type="file" accept="application/json" />
+              </div>
+              <div class="small muted">
+                Tip: To include clinician feedback in the submission pack, save your downloaded <code>clinician_reviews.json</code> into
+                <code>reviews/clinician_reviews.json</code>, then run <code>bash scripts/prepare_submission_pack.sh</code>.
+              </div>
             </div>
 
             <div class="row">

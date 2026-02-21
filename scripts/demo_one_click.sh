@@ -16,6 +16,7 @@ MEDGEMMA_SERVED_MODEL_NAME="${MEDGEMMA_SERVED_MODEL_NAME:-}"
 
 RUN_BENCHMARKS="${RUN_BENCHMARKS:-0}"
 OPEN_BROWSER="${OPEN_BROWSER:-0}"
+DEMO_RECORD="${DEMO_RECORD:-0}"
 
 VLLM_PID=""
 SERVER_PID=""
@@ -251,9 +252,19 @@ if [[ "${ui_header:-}" == "legacy" ]]; then
   echo "         rm -rf .venv && bash scripts/demo_one_click.sh"
 fi
 
+UI_URL="http://127.0.0.1:${CLINICAFLOW_PORT}/"
+if [[ "${DEMO_RECORD}" == "1" ]]; then
+  UI_URL="http://127.0.0.1:${CLINICAFLOW_PORT}/?director=1&reset=1"
+  OPEN_BROWSER="1"
+  echo ""
+  echo "[demo] Recording mode enabled (DEMO_RECORD=1)."
+  echo "       - Auto-starts Director mode in the browser"
+  echo "       - Resets local-only demo storage for a clean recording"
+fi
+
 echo ""
 echo "[demo] Ready:"
-echo "       UI:      http://127.0.0.1:${CLINICAFLOW_PORT}/"
+echo "       UI:      ${UI_URL}"
 echo "       OpenAPI: http://127.0.0.1:${CLINICAFLOW_PORT}/openapi.json"
 echo "       Metrics: http://127.0.0.1:${CLINICAFLOW_PORT}/metrics"
 echo ""
@@ -264,7 +275,7 @@ echo ""
 if [[ "${OPEN_BROWSER}" == "1" ]]; then
   python - <<PY
 import webbrowser
-webbrowser.open("http://127.0.0.1:${CLINICAFLOW_PORT}/")
+webbrowser.open("${UI_URL}")
 PY
 fi
 

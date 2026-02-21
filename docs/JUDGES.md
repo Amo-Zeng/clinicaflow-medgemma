@@ -8,6 +8,12 @@ This repo is designed so a judge can evaluate the agentic workflow in **~3 minut
 bash scripts/demo_one_click.sh
 ```
 
+Recording-friendly mode (auto-start Director overlay + clears local-only demo data):
+
+```bash
+DEMO_RECORD=1 bash scripts/demo_one_click.sh
+```
+
 Open the printed UI URL (it may auto-select a free port).
 
 ## 2) Follow the built-in runbook
