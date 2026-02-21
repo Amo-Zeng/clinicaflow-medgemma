@@ -75,6 +75,7 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
   - minimal FHIR bundle export (`POST /fhir_bundle`) for demo interoperability (includes `Task`s for the next-action checklist),
   - printable triage report export (`report.html`) + action checklist (local-only storage),
   - one-click **judge pack** export (`POST /judge_pack`) bundling triage audit bundle + benchmarks + governance + ops snapshots,
+  - built-in **Director mode** overlay (teleprompter + step highlights) to record a polished ≤3 minute demo,
   - governance dashboard tab (safety gate + trigger coverage + action provenance) with exportable markdown reports,
   - failure analysis packet export (includes safety triggers + provenance + workflow mini for clinician QA),
   - Docker image (non-root runtime + healthcheck) + CI.

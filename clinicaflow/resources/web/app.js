@@ -137,6 +137,13 @@ const state = {
     lastRefreshedAt: null,
     history: [],
   },
+  director: {
+    enabled: false,
+    index: 0,
+    startedAt: null,
+    timerId: null,
+    lastStatus: null,
+  },
   auth: {
     apiKey: null,
   },
@@ -444,6 +451,377 @@ function maybeShowWelcomeModal() {
     // ignore
   }
   show("welcomeModal", true);
+}
+
+// ---------------------------
+// Director mode (3-minute demo)
+// ---------------------------
+
+function formatClock(ms) {
+  const totalSeconds = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+  const m = Math.floor(totalSeconds / 60);
+  const s = String(totalSeconds % 60).padStart(2, "0");
+  return `${m}:${s}`;
+}
+
+const DIRECTOR_STEPS = [
+  {
+    id: "intro",
+    tab: "home",
+    title: "Intro + safety posture",
+    text: "Confirm synthetic-only + decision-support only. Then show the 5-agent workflow and system status cards.",
+    say: [
+      "This is ClinicaFlow, a decision-support triage copilot built for the MedGemma Impact Challenge.",
+      "",
+      "Important: this demo uses synthetic vignettes only (no PHI). ClinicaFlow does not diagnose — it drafts a triage recommendation for clinician review.",
+      "",
+      "ClinicaFlow runs a 5-agent workflow: structuring → MedGemma reasoning → evidence/policy → deterministic safety gate → communication, with a full audit trace and exportable artifacts.",
+    ].join("\n"),
+    highlight: ["#homeStartDemo", ".flow", "#homeDownloadAudit", "#homeDownloadJudgePack"],
+  },
+  {
+    id: "ops",
+    tab: "ops",
+    title: "Ops readiness (/doctor + /metrics)",
+    text: "Show which backends are active, policy hash, and per-agent latencies/errors. (No secrets.)",
+    say: [
+      "First, ops readiness. The console pulls live health and metrics from /doctor and /metrics.",
+      "",
+      "We can see which reasoning backend is active (MedGemma vs deterministic fallback), the policy pack SHA for governance, and per-agent latency/error breakdowns.",
+    ].join("\n"),
+    doLabel: "Refresh ops",
+    do: async () => {
+      await refreshOps();
+    },
+    highlight: ["#opsRefresh", "#opsChart", "#opsAgentBody", "#opsAlerts"],
+  },
+  {
+    id: "critical",
+    tab: "triage",
+    title: "Critical vignette (MedGemma + safety gate)",
+    text: "Run the high-acuity case and point to risk tier, escalation, safety triggers, and next actions.",
+    say: [
+      "Now a critical synthetic vignette: chest pain with hypotension.",
+      "",
+      "MedGemma generates the differential + rationale, but escalation is enforced deterministically by the safety gate. The output includes red flags, safety triggers, next actions, and an SBAR-style clinician handoff.",
+    ].join("\n"),
+    doLabel: "Load + run critical case",
+    do: async () => {
+      await demoLoadAndRun("v01_chest_pain_hypotension");
+      const traceDetails = $("trace")?.closest("details");
+      if (traceDetails) traceDetails.open = true;
+    },
+    highlight: ["#riskTier", "#safetyTriggers", "#actions", "#traceMini", "#trace"],
+  },
+  {
+    id: "export",
+    tab: "triage",
+    title: "Audit & report export (redacted)",
+    text: "Download a redacted audit bundle and optionally the printable report / note draft.",
+    say: [
+      "For auditability, we can export a redacted audit bundle: intake + outputs + manifest hashes + trace, without any images or identifiers.",
+      "",
+      "We also provide a printable report and a note draft for clinician review.",
+    ].join("\n"),
+    doLabel: "Download audit (redacted)",
+    do: async () => {
+      await downloadAuditBundle(true);
+    },
+    highlight: ["#downloadRedacted", "#downloadReport", "#downloadNote"],
+  },
+  {
+    id: "judgepack",
+    tab: "triage",
+    title: "One-click judge pack.zip",
+    text: "Download a single zip bundling triage artifacts + benchmarks + governance + ops snapshots.",
+    say: [
+      "For judge-friendly inspection, we provide a single judge pack zip.",
+      "",
+      "It bundles the redacted triage audit artifacts plus regression benchmarks, governance report, safety rules, policy pack metadata, and ops snapshots—ready to attach or inspect offline.",
+    ].join("\n"),
+    doLabel: "Download judge pack.zip",
+    do: async () => {
+      await downloadJudgePack();
+    },
+    highlight: ["#downloadJudgePack"],
+  },
+  {
+    id: "governance",
+    tab: "governance",
+    title: "Regression + governance gate",
+    text: "Run the mega vignette benchmark and show under-triage + red-flag recall metrics.",
+    say: [
+      "Next, governance. We run a vignette regression set and track red-flag recall and under-triage.",
+      "",
+      "The key safety objective is to minimize under-triage of urgent/critical cases; the governance view surfaces failures and exports a failure packet for clinician QA.",
+    ].join("\n"),
+    doLabel: "Run mega benchmark",
+    do: async () => {
+      if ($("govBenchSet")) $("govBenchSet").value = "mega";
+      await runBenchSet("mega", $("govStatus"));
+    },
+    highlight: ["#govRunBench", "#govGate", "#govUnder", "#govDownloadFailure"],
+  },
+  {
+    id: "rules",
+    tab: "rules",
+    title: "Deterministic safety rulebook",
+    text: "Load and filter the explicit trigger catalog powering the safety agent.",
+    say: [
+      "Finally, transparency: the safety gate is built on an explicit, versioned rulebook.",
+      "",
+      "These triggers are inspectable, testable, and replaceable with site protocols; the model can't “talk its way” out of escalation criteria.",
+    ].join("\n"),
+    doLabel: "Load rulebook",
+    do: async () => {
+      await loadSafetyRules();
+    },
+    highlight: ["#rulesRefresh", "#rulesMeta", "#tab-rules .tablewrap"],
+  },
+  {
+    id: "workspace",
+    tab: "workspace",
+    title: "Shift handoff + wrap-up",
+    text: "Export a shift_handoff.md from the local workspace queue, then wrap up.",
+    say: [
+      "Wrap-up: ClinicaFlow is designed for real clinic workflows.",
+      "",
+      "Runs can be saved to a local workspace queue, then exported as a shift handoff markdown for the next clinician.",
+      "",
+      "Again: decision support only — validate on-site with clinician oversight.",
+    ].join("\n"),
+    doLabel: "Download shift_handoff.md",
+    do: async () => {
+      await workspaceDownloadShiftHandoff();
+    },
+    highlight: ["#wsDownloadHandoff", "#wsSummary", "#tab-workspace .tablewrap"],
+  },
+];
+
+function directorStep() {
+  const idx = Math.max(0, Math.min(Number(state.director.index) || 0, DIRECTOR_STEPS.length - 1));
+  state.director.index = idx;
+  return DIRECTOR_STEPS[idx];
+}
+
+function directorElapsedMs() {
+  const startedAt = Number(state.director.startedAt) || 0;
+  return startedAt ? Date.now() - startedAt : 0;
+}
+
+function directorSetStatus(text) {
+  state.director.lastStatus = String(text || "");
+  setText("directorStatus", state.director.lastStatus || "—");
+}
+
+function updateDirectorToggle() {
+  const btn = $("directorToggle");
+  if (!btn) return;
+  const on = Boolean(state.director.enabled);
+  btn.textContent = on ? "Director: on" : "Director: off";
+  btn.classList.toggle("primary", on);
+  btn.classList.toggle("subtle", !on);
+}
+
+function directorIsVisible(el) {
+  if (!el || !(el instanceof HTMLElement)) return false;
+  const style = window.getComputedStyle(el);
+  if (style.display === "none" || style.visibility === "hidden") return false;
+  const rect = el.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
+function directorClearHighlights() {
+  document.querySelectorAll(".director-highlight").forEach((el) => el.classList.remove("director-highlight"));
+}
+
+function directorHighlightTarget(el) {
+  if (!el || !(el instanceof HTMLElement)) return null;
+
+  if (el.classList.contains("btn")) {
+    el.classList.add("director-highlight");
+    return el;
+  }
+
+  const tag = String(el.tagName || "").toUpperCase();
+  if (tag === "TBODY" || tag === "TR" || tag === "TD" || tag === "TH" || tag === "TABLE") {
+    const wrap = el.closest(".tablewrap");
+    if (wrap) {
+      wrap.classList.add("director-highlight");
+      return wrap;
+    }
+  }
+
+  const card = el.closest(".card");
+  if (card) {
+    card.classList.add("director-highlight");
+    return card;
+  }
+
+  const callout = el.closest(".callout");
+  if (callout) {
+    callout.classList.add("director-highlight");
+    return callout;
+  }
+
+  el.classList.add("director-highlight");
+  return el;
+}
+
+function directorApplyHighlights(step) {
+  directorClearHighlights();
+  if (!step || !step.highlight) return;
+  const selectors = Array.isArray(step.highlight) ? step.highlight : [step.highlight];
+  let firstVisible = null;
+
+  selectors.forEach((sel) => {
+    try {
+      document.querySelectorAll(sel).forEach((el) => {
+        const target = directorHighlightTarget(el);
+        if (!firstVisible && directorIsVisible(target)) firstVisible = target;
+      });
+    } catch (e) {
+      // ignore invalid selectors
+    }
+  });
+
+  if (firstVisible) {
+    try {
+      firstVisible.scrollIntoView({ behavior: "smooth", block: "center" });
+    } catch (e) {
+      // ignore
+    }
+  }
+}
+
+function directorUpdateMeta(step) {
+  const total = DIRECTOR_STEPS.length;
+  const idx = Number(state.director.index) || 0;
+  const tab = step?.tab ? String(step.tab) : "—";
+  const elapsed = formatClock(directorElapsedMs());
+  setText("directorMeta", `Step ${idx + 1}/${total} • ${tab} • ${elapsed} • N/P/D/Esc`);
+}
+
+function directorRender({ resetStatus = true } = {}) {
+  if (!state.director.enabled) return;
+  const step = directorStep();
+
+  if (step.tab) setTab(step.tab);
+
+  setText("directorStepTitle", step.title || "—");
+  setText("directorStepText", step.text || "—");
+  setText("directorSay", step.say || "—");
+  directorUpdateMeta(step);
+
+  const back = $("directorBack");
+  const next = $("directorNext");
+  const doBtn = $("directorDo");
+
+  if (back) back.disabled = state.director.index <= 0;
+  if (next) next.disabled = state.director.index >= DIRECTOR_STEPS.length - 1;
+
+  const hasDo = typeof step.do === "function";
+  if (doBtn) {
+    doBtn.disabled = !hasDo;
+    doBtn.textContent = step.doLabel || "Do step";
+  }
+
+  if (resetStatus) directorSetStatus("Ready.");
+  directorApplyHighlights(step);
+}
+
+function directorStart() {
+  state.director.enabled = true;
+  state.director.index = 0;
+  state.director.startedAt = Date.now();
+  directorSetStatus("Ready.");
+  updateDirectorToggle();
+  show("directorOverlay", true);
+  show("welcomeModal", false);
+
+  if (state.director.timerId) clearInterval(state.director.timerId);
+  state.director.timerId = setInterval(() => {
+    if (!state.director.enabled) return;
+    directorUpdateMeta(directorStep());
+  }, 1000);
+
+  directorRender({ resetStatus: false });
+}
+
+function directorEnd() {
+  state.director.enabled = false;
+  updateDirectorToggle();
+  show("directorOverlay", false);
+  directorClearHighlights();
+  if (state.director.timerId) clearInterval(state.director.timerId);
+  state.director.timerId = null;
+  state.director.startedAt = null;
+}
+
+function directorNext() {
+  if (!state.director.enabled) return;
+  state.director.index = Math.min(DIRECTOR_STEPS.length - 1, Number(state.director.index) + 1);
+  directorRender();
+}
+
+function directorBack() {
+  if (!state.director.enabled) return;
+  state.director.index = Math.max(0, Number(state.director.index) - 1);
+  directorRender();
+}
+
+async function directorDoStep() {
+  if (!state.director.enabled) return;
+  const step = directorStep();
+  if (typeof step.do !== "function") return;
+
+  const doBtn = $("directorDo");
+  if (doBtn) doBtn.disabled = true;
+  directorSetStatus("Running…");
+  try {
+    await step.do();
+    directorSetStatus("Done.");
+  } catch (e) {
+    directorSetStatus(`Error: ${e}`);
+  } finally {
+    if (doBtn) doBtn.disabled = false;
+    directorApplyHighlights(step);
+    directorUpdateMeta(step);
+  }
+}
+
+function directorToggle() {
+  if (state.director.enabled) directorEnd();
+  else directorStart();
+}
+
+function directorHandleHotkeys(ev) {
+  if (!state.director.enabled) return;
+  const tag = String(ev?.target?.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "textarea" || tag === "select" || ev?.target?.isContentEditable) return;
+
+  if (ev.key === "Escape") {
+    ev.preventDefault();
+    directorEnd();
+    return;
+  }
+
+  if (ev.key === "n" || ev.key === "N" || ev.key === "ArrowRight") {
+    ev.preventDefault();
+    directorNext();
+    return;
+  }
+
+  if (ev.key === "p" || ev.key === "P" || ev.key === "ArrowLeft") {
+    ev.preventDefault();
+    directorBack();
+    return;
+  }
+
+  if (ev.key === "d" || ev.key === "D") {
+    ev.preventDefault();
+    directorDoStep();
+  }
 }
 
 function renderHome() {
@@ -5010,6 +5388,7 @@ function wireEvents() {
   $("demoCritical")?.addEventListener("click", () => demoLoadAndRun("v01_chest_pain_hypotension"));
   $("demoNeuro")?.addEventListener("click", () => demoLoadAndRun("v05_slurred_speech_weakness"));
   $("demoRoutine")?.addEventListener("click", () => demoLoadAndRun("v21_sore_throat_routine"));
+  $("demoDirectorStart")?.addEventListener("click", () => directorStart());
   $("demoSynthetic")?.addEventListener("click", async () => {
     setTab("regression");
     await runSynthetic();
@@ -5043,6 +5422,17 @@ function wireEvents() {
     workspaceAdd({ intake: state.lastIntake, result: state.lastResult, checklist: state.lastActionChecklist });
     setTab("workspace");
   });
+
+  // Director mode
+  $("directorToggle")?.addEventListener("click", () => directorToggle());
+  $("directorEnd")?.addEventListener("click", () => directorEnd());
+  $("directorBack")?.addEventListener("click", () => directorBack());
+  $("directorNext")?.addEventListener("click", () => directorNext());
+  $("directorDo")?.addEventListener("click", () => directorDoStep());
+  $("directorCopySay")?.addEventListener("click", async () => {
+    await copyText($("directorSay")?.textContent || "", "Copied teleprompter.");
+  });
+  document.addEventListener("keydown", directorHandleHotkeys);
 }
 
 async function init() {

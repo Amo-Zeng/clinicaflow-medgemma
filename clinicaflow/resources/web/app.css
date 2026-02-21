@@ -814,3 +814,58 @@ tr:last-child td { border-bottom: 0; }
   font-weight: 900;
   color: #111827;
 }
+
+/* --------------------------------
+ * Director mode (recording overlay)
+ * -------------------------------- */
+
+.director {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  width: min(420px, calc(100% - 36px));
+  max-height: calc(100vh - 120px);
+  overflow: auto;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  z-index: 60;
+  backdrop-filter: blur(8px);
+}
+
+.director-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.director-title {
+  font-size: 14px;
+  font-weight: 950;
+  letter-spacing: 0.2px;
+}
+
+.director-body {
+  padding: 12px 14px 14px;
+}
+
+.director-highlight {
+  outline: 3px solid rgba(79, 70, 229, 0.75);
+  outline-offset: 2px;
+  border-radius: 12px;
+  animation: directorPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes directorPulse {
+  0% { box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.10); }
+  50% { box-shadow: 0 0 0 10px rgba(79, 70, 229, 0.18); }
+  100% { box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.10); }
+}

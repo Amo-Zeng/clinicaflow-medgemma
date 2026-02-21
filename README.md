@@ -41,6 +41,9 @@ One-click demo (starts the demo server; optionally starts a local MedGemma vLLM 
 bash scripts/demo_one_click.sh
 ```
 
+Then open `http://127.0.0.1:8000/` and click `Director: off` (top right) for a step-by-step 3-minute demo overlay
+(teleprompter + UI highlights; hotkeys: `N`/`P`/`D`/`Esc`).
+
 If the UI renders as a “legacy fallback” 2-box page, you likely have a stale install. Fix with:
 
 ```bash

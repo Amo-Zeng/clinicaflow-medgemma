@@ -20,6 +20,7 @@
         <span id="commBadge" class="pill subtle">comm: loading…</span>
         <span id="policyBadge" class="pill subtle">policy: loading…</span>
         <span id="authBadge" class="pill subtle">auth: loading…</span>
+        <button id="directorToggle" class="btn subtle" type="button">Director: off</button>
         <a class="btn subtle" href="/openapi.json" target="_blank" rel="noreferrer">OpenAPI</a>
         <a class="btn subtle" href="/metrics" target="_blank" rel="noreferrer">Metrics</a>
         <a class="btn subtle" href="/policy_pack" target="_blank" rel="noreferrer">Policy pack</a>
@@ -396,6 +397,11 @@
             <div class="panel-head">
               <h2>3-minute demo runbook</h2>
               <div class="small">Click buttons in order while recording.</div>
+            </div>
+
+            <div class="row" style="margin-top: 0;">
+              <button id="demoDirectorStart" class="btn subtle" type="button">Start Director mode</button>
+              <div class="small muted">Shows an overlay that guides your recording step-by-step.</div>
             </div>
 
             <ol class="runbook">
@@ -1083,6 +1089,35 @@
             Don't show again on this browser
           </label>
         </div>
+      </div>
+    </div>
+
+    <div id="directorOverlay" class="director hidden" role="dialog" aria-modal="false" aria-label="Director mode">
+      <div class="director-head">
+        <div>
+          <div class="director-title">Director mode</div>
+          <div id="directorMeta" class="small muted">—</div>
+        </div>
+        <div class="row" style="margin-top: 0;">
+          <button id="directorEnd" class="btn subtle" type="button">End</button>
+        </div>
+      </div>
+      <div class="director-body">
+        <div id="directorStepTitle" class="k">—</div>
+        <div id="directorStepText" class="small muted">—</div>
+        <details class="details" style="margin-top: 10px;">
+          <summary>Teleprompter</summary>
+          <pre id="directorSay" class="pre mono" style="max-height: 160px;">—</pre>
+          <div class="row">
+            <button id="directorCopySay" class="btn subtle" type="button">Copy</button>
+          </div>
+        </details>
+        <div class="row">
+          <button id="directorBack" class="btn subtle" type="button">Back</button>
+          <button id="directorDo" class="btn primary" type="button">Do step</button>
+          <button id="directorNext" class="btn subtle" type="button">Next</button>
+        </div>
+        <div id="directorStatus" class="small muted" style="margin-top: 8px;">—</div>
       </div>
     </div>
 
