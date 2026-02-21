@@ -12,10 +12,10 @@ Open the printed UI URL (it may auto-select a free port).
 
 ## 2) Follow the built-in runbook
 
-In the UI, open the **Demo** tab and click through:
+In the UI, start from **Home** (or the welcome modal), then open the **Demo** tab and click through:
 
 1. Ops readiness (`/doctor`, `/metrics`, `/openapi.json`, `/policy_pack`)
-2. High-acuity case (critical) + download a **redacted** audit bundle
+2. High-acuity case (critical) + download a **redacted** audit bundle (or **Judge pack.zip**)
 3. Neuro red-flag case (urgent)
 4. Routine case
 5. Benchmarks (synthetic proxy + vignette regression; try `standard` or `mega`)

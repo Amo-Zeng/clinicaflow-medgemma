@@ -408,6 +408,113 @@ function setTab(tab) {
   document.querySelectorAll(".tabpanel").forEach((p) => p.classList.toggle("active", p.id === `tab-${tab}`));
 }
 
+// ---------------------------
+// Home dashboard + onboarding
+// ---------------------------
+
+const WELCOME_DISMISSED_KEY = "clinicaflow.ui.welcome_dismissed.v1";
+
+async function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  try {
+    await navigator.serviceWorker.register("/static/sw.js", { scope: "/" });
+  } catch (e) {
+    // ignore
+  }
+}
+
+function closeWelcomeModal() {
+  const dontShow = Boolean($("welcomeDontShow")?.checked);
+  if (dontShow) {
+    try {
+      localStorage.setItem(WELCOME_DISMISSED_KEY, "1");
+    } catch (e) {
+      // ignore
+    }
+  }
+  show("welcomeModal", false);
+}
+
+function maybeShowWelcomeModal() {
+  try {
+    const dismissed = localStorage.getItem(WELCOME_DISMISSED_KEY) || "";
+    if (dismissed.trim()) return;
+  } catch (e) {
+    // ignore
+  }
+  show("welcomeModal", true);
+}
+
+function renderHome() {
+  const back = $("homeBackends");
+  const policyRules = $("homePolicyRules");
+  const ops = $("homeOps");
+  const last = $("homeLastRun");
+  if (!back && !policyRules && !ops && !last) return;
+
+  const d = state.doctor || {};
+  const rb = d.reasoning_backend || {};
+  const cb = d.communication_backend || {};
+  const pp = d.policy_pack || {};
+  const m = state.metrics || {};
+
+  if (back) {
+    const rbBits = [String(rb.backend || "deterministic")];
+    if (rb.model) rbBits.push(String(rb.model));
+    if (rb.connectivity_ok === true) rbBits.push("ok");
+    else if (rb.connectivity_ok === false) rbBits.push("unreachable");
+
+    const cbBits = [String(cb.backend || "deterministic")];
+    if (cb.model) cbBits.push(String(cb.model));
+    if (cb.connectivity_ok === true) cbBits.push("ok");
+    else if (cb.connectivity_ok === false) cbBits.push("unreachable");
+
+    back.textContent = `reasoning: ${rbBits.join(" • ")}  |  comm: ${cbBits.join(" • ")}`;
+  }
+
+  if (policyRules) {
+    const sha = String(pp.sha256 || "").trim();
+    const shaShort = sha ? `${sha.slice(0, 12)}…` : "(none)";
+    const rulesVer = String(state.safetyRules?.safety_rules_version || "").trim();
+    const rulesText = rulesVer ? rulesVer : "(not loaded — open Rules tab)";
+    policyRules.textContent = `policy_sha256: ${shaShort}  |  safety_rules: ${rulesText}`;
+  }
+
+  if (ops) {
+    const uptime = formatUptime(m.uptime_s);
+    const req = m.requests_total != null ? String(m.requests_total) : "—";
+    const triOk = m.triage_success_total != null ? String(m.triage_success_total) : "—";
+    const triErr = m.triage_errors_total != null ? String(m.triage_errors_total) : "—";
+    const avg = typeof m.triage_latency_ms_avg === "number" ? `${m.triage_latency_ms_avg} ms` : "—";
+    ops.textContent = `uptime: ${uptime} • requests: ${req} • triage ok/err: ${triOk}/${triErr} • avg latency: ${avg}`;
+  }
+
+  const hasRun = Boolean(state.lastIntake && state.lastResult);
+  const btnAudit = $("homeDownloadAudit");
+  if (btnAudit) btnAudit.disabled = !hasRun;
+  const btnReport = $("homeDownloadReport");
+  if (btnReport) btnReport.disabled = !hasRun;
+  const btnJudge = $("homeDownloadJudgePack");
+  if (btnJudge) btnJudge.disabled = !hasRun;
+  const btnJudge2 = $("downloadJudgePack");
+  if (btnJudge2) btnJudge2.disabled = !hasRun;
+  const btnOpen = $("homeOpenTrace");
+  if (btnOpen) btnOpen.disabled = !Boolean(state.lastResult);
+
+  if (last) {
+    if (!state.lastResult) {
+      last.textContent = "No run yet.";
+    } else {
+      const r = state.lastResult || {};
+      const rid = state.lastRequestId || r.request_id || "—";
+      const tier = r.risk_tier || "—";
+      const backend = extractBackend(r);
+      const ms = r.total_latency_ms ?? "—";
+      last.textContent = `request_id=${rid} • tier=${tier} • backend=${backend} • latency=${ms} ms`;
+    }
+  }
+}
+
 function setRiskTier(tier) {
   const el = $("riskTier");
   el.classList.remove("routine", "urgent", "critical");
@@ -706,11 +813,13 @@ function renderTrace(trace) {
   const root = $("trace");
   root.innerHTML = "";
 
-  (trace || []).forEach((step) => {
+  (trace || []).forEach((step, idx) => {
     const details = document.createElement("details");
     details.open = false;
     const summary = document.createElement("summary");
     const agent = step.agent || "agent";
+    details.dataset.agent = String(agent);
+    details.id = `trace-${String(agent).replaceAll("_", "-")}-${idx}`;
     const latency = step.latency_ms != null ? `${step.latency_ms} ms` : "";
     summary.textContent = `${agent}  ${latency}`.trim();
     details.appendChild(summary);
@@ -749,20 +858,62 @@ function renderTraceMini(trace) {
     return;
   }
 
+  const LABELS = {
+    intake_structuring: "Structuring",
+    multimodal_reasoning: "Reasoning",
+    evidence_policy: "Policy",
+    safety_escalation: "Safety",
+    communication: "Handoff",
+  };
+
   const wrap = document.createElement("div");
-  wrap.className = "trace-mini";
+  wrap.className = "trace-stepper";
+
+  function jumpTo(agentName) {
+    const esc =
+      window.CSS && typeof window.CSS.escape === "function"
+        ? window.CSS.escape(agentName)
+        : String(agentName || "").replaceAll('"', '\\"');
+    const selector = `#trace details[data-agent="${esc}"]`;
+    const target = document.querySelector(selector);
+    if (!target) return;
+    target.open = true;
+    try {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (e) {
+      target.scrollIntoView();
+    }
+  }
 
   steps.forEach((step) => {
-    const agent = document.createElement("div");
-    agent.className = "agent";
-    agent.textContent = String(step.agent || "agent");
+    const agentName = String(step.agent || "agent");
+    const label = LABELS[agentName] || agentName.replaceAll("_", " ");
+    const latency = step.latency_ms != null ? `${step.latency_ms} ms` : "—";
+    const hasErr = Boolean(String(step.error || "").trim());
+    const ms = typeof step.latency_ms === "number" ? step.latency_ms : null;
 
-    const lat = document.createElement("div");
-    lat.className = "lat mono";
-    lat.textContent = step.latency_ms != null ? `${step.latency_ms} ms` : "";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `step${hasErr ? " bad" : ms != null && ms > 900 ? " warn" : ""}`;
+    btn.title = "Jump to full agent output";
+    btn.addEventListener("click", () => jumpTo(agentName));
 
-    wrap.appendChild(agent);
-    wrap.appendChild(lat);
+    const dot = document.createElement("span");
+    dot.className = "dot";
+
+    const body = document.createElement("span");
+    const title = document.createElement("div");
+    title.className = "step-title";
+    title.textContent = label;
+    const meta = document.createElement("div");
+    meta.className = "step-meta mono";
+    meta.textContent = hasErr ? `ERROR • ${latency}` : latency;
+    body.appendChild(title);
+    body.appendChild(meta);
+
+    btn.appendChild(dot);
+    btn.appendChild(body);
+    wrap.appendChild(btn);
   });
 
   root.innerHTML = "";
@@ -908,6 +1059,7 @@ function renderResult(result, requestIdFromHeader) {
   renderTrace(result.trace || []);
 
   $("rawResult").textContent = fmtJson(result);
+  renderHome();
 }
 
 function renderCitations(evidenceOut) {
@@ -1225,9 +1377,11 @@ async function refreshOps() {
     await Promise.all([loadDoctor(), loadMetrics()]);
     state.ops.lastRefreshedAt = new Date().toISOString();
     renderOpsDashboard();
+    renderHome();
     if (status) status.textContent = `Last updated: ${state.ops.lastRefreshedAt.replace("T", " ").replace("Z", "")}`;
   } catch (e) {
     renderOpsDashboard();
+    renderHome();
     if (status) status.textContent = `Error: ${e}`;
   }
 }
@@ -2183,6 +2337,55 @@ async function downloadAuditBundle(redact) {
   a.remove();
   URL.revokeObjectURL(url);
   setText("statusLine", "Downloaded audit bundle.");
+}
+
+async function downloadJudgePack() {
+  setError("runError", "");
+  if (!state.lastIntake || !state.lastResult) {
+    setError("runError", "Run a triage case first (so intake + result are available).");
+    return;
+  }
+
+  const requestId = state.lastRequestId || "";
+  setText("statusLine", "Building judge pack…");
+
+  const payload = {
+    intake: state.lastIntake,
+    result: state.lastResult,
+    checklist: state.lastActionChecklist || [],
+  };
+
+  const resp = await fetch(`/judge_pack?set=mega&redact=1&include_synthetic=1`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...buildAuthHeaders(),
+      ...(requestId ? { "X-Request-ID": requestId } : {}),
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    setError("runError", `Judge pack failed: HTTP ${resp.status} ${text}`);
+    setText("statusLine", "Error.");
+    return;
+  }
+
+  const blob = await resp.blob();
+  const cd = resp.headers.get("Content-Disposition") || "";
+  const m = /filename=\"([^\"]+)\"/.exec(cd);
+  const filename = m ? m[1] : `clinicaflow_judge_pack_${requestId || "run"}.zip`;
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  setText("statusLine", "Downloaded judge pack.");
 }
 
 async function downloadFhirBundle() {
@@ -3188,13 +3391,84 @@ function renderWorkspaceSelected() {
   if (btnUpdate) btnUpdate.disabled = !item;
   const btnRun = $("wsRunTriage");
   if (btnRun) btnRun.disabled = !item;
+
+  const sum = $("wsSelectedSummaryText");
+  const rf = $("wsSelectedRedFlags");
+  const act = $("wsSelectedActions");
+  const hand = $("wsSelectedHandoff");
+
+  const btnLoad = $("wsLoadIntoTriage");
+  if (btnLoad) btnLoad.disabled = !item;
+  const btnReport = $("wsDownloadReport");
+  if (btnReport) btnReport.disabled = !Boolean(item?.result);
+  const btnNote = $("wsDownloadNote");
+  if (btnNote) btnNote.disabled = !Boolean(item?.result);
+  const btnDel = $("wsDeleteSelected");
+  if (btnDel) btnDel.disabled = !item;
+
+  if (!item) {
+    if (sum) sum.textContent = "Select an item from the table to view details.";
+    if (rf) rf.textContent = "red_flags: —";
+    if (act) act.textContent = "next_actions: —";
+    if (hand) hand.textContent = "handoff: —";
+    return;
+  }
+
+  const intake = item.intake || {};
+  const result = item.result || null;
+  const status = workspaceStatus(item);
+  const created = fmtShortTs(item.created_at);
+  const cc = String(intake.chief_complaint || "").trim() || "(missing chief_complaint)";
+
+  const rid = result ? String(result.request_id || item.id || "").trim() : String(item.id || "").trim();
+  const tier = result ? String(result.risk_tier || "—") : "—";
+  const backend = result ? extractBackend(result) : "—";
+
+  if (sum) sum.textContent = `id=${item.id} • created=${created} • status=${status} • request_id=${rid || "—"} • tier=${tier} • backend=${backend} • cc=${cc.slice(0, 120)}`;
+
+  if (rf) {
+    const flags = result && Array.isArray(result.red_flags) ? result.red_flags.map((x) => String(x || "").trim()).filter((x) => x) : [];
+    rf.textContent = flags.length ? `red_flags: ${flags.slice(0, 6).join(" • ")}${flags.length > 6 ? " • …" : ""}` : "red_flags: —";
+  }
+
+  if (act) {
+    if (!result) {
+      act.textContent = "next_actions: (not triaged)";
+    } else {
+      const safety = traceOutput(result, "safety_escalation") || {};
+      const safetyActions = Array.isArray(safety.actions_added_by_safety)
+        ? safety.actions_added_by_safety.map((x) => String(x || "").trim()).filter((x) => x)
+        : [];
+      const safetySet = new Set(safetyActions);
+      const actions = Array.isArray(result.recommended_next_actions)
+        ? result.recommended_next_actions.map((x) => String(x || "").trim()).filter((x) => x)
+        : [];
+      const tagged = actions.map((a) => `[${safetySet.has(a) ? "SAFETY" : "POLICY"}] ${a}`);
+      act.textContent = tagged.length ? `next_actions: ${tagged.slice(0, 5).join(" • ")}${tagged.length > 5 ? " • …" : ""}` : "next_actions: —";
+    }
+  }
+
+  if (hand) {
+    if (!result) {
+      hand.textContent = "handoff: —";
+    } else {
+      const raw = String(result.clinician_handoff || "").trim();
+      if (!raw) {
+        hand.textContent = "handoff: —";
+      } else {
+        const lines = raw.split(/\r?\n/g).slice(0, 10);
+        hand.textContent = lines.join("\n") + (raw.split(/\r?\n/g).length > 10 ? "\n…" : "");
+      }
+    }
+  }
 }
 
-function renderWorkspaceSummary(items) {
+function renderWorkspaceSummary(items, filteredCount) {
   const el = $("wsSummaryText");
   if (!el) return;
 
   const total = (items || []).length;
+  const filtered = typeof filteredCount === "number" ? filteredCount : null;
   const runs = (items || []).filter((x) => x && x.result).length;
 
   const tiers = { routine: 0, urgent: 0, critical: 0, unknown: 0 };
@@ -3229,7 +3503,8 @@ function renderWorkspaceSummary(items) {
   const avg = latencies.length ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : null;
   const tierBits = `routine=${tiers.routine}, urgent=${tiers.urgent}, critical=${tiers.critical}`;
   const statusBits = `new=${statuses.new}, triaged=${statuses.triaged}, needs_review=${statuses.needs_review}, closed=${statuses.closed}`;
-  el.textContent = `items: ${total} (runs: ${runs}) • status: ${statusBits} • tiers: ${tierBits} • backends: ${backendBits || "—"} • avg latency: ${
+  const filterBits = filtered != null && filtered !== total ? ` • filtered: ${filtered}/${total}` : "";
+  el.textContent = `items: ${total} (runs: ${runs})${filterBits} • status: ${statusBits} • tiers: ${tierBits} • backends: ${backendBits || "—"} • avg latency: ${
     avg != null ? `${avg} ms` : "—"
   }`;
 }
@@ -3256,14 +3531,182 @@ function workspaceDownloadNote(item) {
   setText("wsStatus", "Downloaded note.md");
 }
 
+function workspaceFilters() {
+  const q = String($("wsSearch")?.value || "").trim().toLowerCase();
+  const status = String($("wsFilterStatus")?.value || "all").trim();
+  const sort = String($("wsSort")?.value || "newest").trim();
+  return { q, status, sort };
+}
+
+function workspaceRiskRank(item) {
+  const t = String(item?.result?.risk_tier || "").trim().toLowerCase();
+  if (t === "critical") return 3;
+  if (t === "urgent") return 2;
+  if (t === "routine") return 1;
+  return 0;
+}
+
+function workspaceStatusRank(value) {
+  const s = String(value || "").trim();
+  if (s === "needs_review") return 3;
+  if (s === "new") return 2;
+  if (s === "triaged") return 1;
+  if (s === "closed") return 0;
+  return -1;
+}
+
+function workspaceFilterAndSort(itemsAll) {
+  const { q, status, sort } = workspaceFilters();
+  let items = (itemsAll || []).slice().filter((x) => x && typeof x === "object");
+
+  if (status && status !== "all") {
+    items = items.filter((item) => workspaceStatus(item) === status);
+  }
+
+  if (q) {
+    items = items.filter((item) => {
+      const intake = item.intake || {};
+      const result = item.result || {};
+      const text = [
+        item.id,
+        item.created_at,
+        workspaceStatus(item),
+        intake.chief_complaint,
+        result.risk_tier,
+        (result.red_flags || []).join(" "),
+        (result.recommended_next_actions || []).join(" "),
+      ]
+        .map((x) => String(x || "").toLowerCase())
+        .join(" ");
+      return text.includes(q);
+    });
+  }
+
+  function created(item) {
+    return String(item?.created_at || "");
+  }
+
+  if (sort === "oldest") {
+    items.sort((a, b) => created(a).localeCompare(created(b)) || String(a.id).localeCompare(String(b.id)));
+  } else if (sort === "severity") {
+    items.sort(
+      (a, b) =>
+        workspaceRiskRank(b) - workspaceRiskRank(a) ||
+        created(b).localeCompare(created(a)) ||
+        String(a.id).localeCompare(String(b.id)),
+    );
+  } else if (sort === "status") {
+    items.sort(
+      (a, b) =>
+        workspaceStatusRank(workspaceStatus(b)) - workspaceStatusRank(workspaceStatus(a)) ||
+        workspaceRiskRank(b) - workspaceRiskRank(a) ||
+        created(b).localeCompare(created(a)) ||
+        String(a.id).localeCompare(String(b.id)),
+    );
+  } else {
+    // newest (default)
+    items.sort((a, b) => created(b).localeCompare(created(a)) || String(a.id).localeCompare(String(b.id)));
+  }
+
+  return { items, filters: { q, status, sort } };
+}
+
+function buildShiftHandoffMarkdown(itemsAll) {
+  const { items, filters } = workspaceFilterAndSort(itemsAll || []);
+  const open = items.filter((item) => workspaceStatus(item) !== "closed");
+  const now = new Date().toISOString();
+
+  const lines = [];
+  lines.push("# ClinicaFlow — Shift handoff (demo)");
+  lines.push("");
+  lines.push("- DISCLAIMER: Decision support only. Not a diagnosis. No PHI.");
+  lines.push(`- generated_at: \`${now}\``);
+  lines.push(`- filters: status=\`${filters.status}\` sort=\`${filters.sort}\` q=\`${filters.q || ""}\``);
+  lines.push(`- items_in_view: \`${items.length}\``);
+  lines.push(`- open_items_in_view: \`${open.length}\``);
+  lines.push("");
+
+  const groups = { needs_review: [], new: [], triaged: [], closed: [] };
+  open.forEach((item) => {
+    const st = workspaceStatus(item);
+    if (st in groups) groups[st].push(item);
+  });
+
+  const sections = [
+    ["needs_review", "Needs review"],
+    ["new", "New (not triaged yet)"],
+    ["triaged", "Triaged"],
+  ];
+
+  sections.forEach(([key, title]) => {
+    const rows = groups[key] || [];
+    lines.push(`## ${title} (${rows.length})`);
+    lines.push("");
+    if (!rows.length) {
+      lines.push("- (none)");
+      lines.push("");
+      return;
+    }
+
+    rows
+      .slice()
+      .sort((a, b) => workspaceRiskRank(b) - workspaceRiskRank(a) || String(b.created_at || "").localeCompare(String(a.created_at || "")))
+      .forEach((item) => {
+        const intake = item.intake || {};
+        const result = item.result || null;
+        const st = workspaceStatus(item);
+        const created = fmtShortTs(item.created_at);
+        const cc = String(intake.chief_complaint || "").trim() || "(missing chief_complaint)";
+        lines.push(`### ${item.id}`);
+        lines.push("");
+        lines.push(`- status: \`${st}\``);
+        lines.push(`- created_at: \`${created}\``);
+        lines.push(`- chief_complaint: ${cc}`);
+        if (result) {
+          lines.push(`- request_id: \`${result.request_id || item.id}\``);
+          lines.push(`- risk_tier: \`${result.risk_tier || ""}\``);
+          lines.push(`- reasoning_backend: \`${extractBackend(result)}\``);
+          const flags = Array.isArray(result.red_flags) ? result.red_flags.map((x) => String(x || "").trim()).filter((x) => x) : [];
+          if (flags.length) lines.push(`- red_flags: ${flags.slice(0, 8).join("; ")}${flags.length > 8 ? "; …" : ""}`);
+          const actions = Array.isArray(result.recommended_next_actions)
+            ? result.recommended_next_actions.map((x) => String(x || "").trim()).filter((x) => x)
+            : [];
+          if (actions.length) lines.push(`- top_actions: ${actions.slice(0, 6).join("; ")}${actions.length > 6 ? "; …" : ""}`);
+
+          const handoff = String(result.clinician_handoff || "").trim();
+          if (handoff) {
+            const snippet = handoff.split(/\r?\n/g).slice(0, 12).join("\n");
+            lines.push("- handoff (snippet):");
+            lines.push("");
+            lines.push("```");
+            lines.push(snippet);
+            lines.push("```");
+          }
+        }
+        lines.push("");
+      });
+  });
+
+  return lines.join("\n").trim() + "\n";
+}
+
+function workspaceDownloadShiftHandoff() {
+  const itemsAll = loadWorkspaceItems();
+  const md = buildShiftHandoffMarkdown(itemsAll);
+  downloadText("shift_handoff.md", md, "text/markdown; charset=utf-8");
+  setText("wsStatus", "Downloaded shift_handoff.md");
+}
+
 function renderWorkspaceTable() {
   const body = $("wsTableBody");
   if (!body) return;
   body.innerHTML = "";
 
-  const items = loadWorkspaceItems();
-  renderWorkspaceSummary(items);
-  if (!items.length) {
+  const all = loadWorkspaceItems();
+  const { items } = workspaceFilterAndSort(all);
+  renderWorkspaceSummary(all, items.length);
+
+  if (!all.length) {
     const tr = document.createElement("tr");
     tr.innerHTML = `<td class="muted" colspan="6">No saved items yet.</td>`;
     body.appendChild(tr);
@@ -3271,16 +3714,23 @@ function renderWorkspaceTable() {
     return;
   }
 
-  items
-    .slice()
-    .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")))
-    .forEach((item) => {
+  if (!items.length) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td class="muted" colspan="6">No matching items (adjust filters).</td>`;
+    body.appendChild(tr);
+    renderWorkspaceSelected();
+    return;
+  }
+
+  items.forEach((item) => {
       const tr = document.createElement("tr");
       const intake = item.intake || {};
       const result = item.result || null;
       const status = workspaceStatus(item);
       const tier = result ? result.risk_tier || "" : "—";
       const backend = result ? extractBackend(result) : "—";
+
+      if (item.id === state.workspace.selectedId) tr.classList.add("row-selected");
 
       tr.innerHTML = `
         <td class="mono">${escapeHtml(fmtShortTs(item.created_at))}</td>
@@ -3296,7 +3746,7 @@ function renderWorkspaceTable() {
       tr.style.cursor = "pointer";
       tr.addEventListener("click", () => {
         state.workspace.selectedId = item.id;
-        renderWorkspaceSelected();
+        renderWorkspaceTable();
         setText("wsStatus", `Selected: ${item.id}`);
         setError("wsError", "");
       });
@@ -3901,6 +4351,43 @@ function wireEvents() {
     }),
   );
 
+  // Home tab quick actions
+  $("homeStartDemo")?.addEventListener("click", () => setTab("demo"));
+  $("homeGoTriage")?.addEventListener("click", () => setTab("triage"));
+  $("homeGoWorkspace")?.addEventListener("click", () => setTab("workspace"));
+  $("homeGoGovernance")?.addEventListener("click", () => setTab("governance"));
+  $("homeGoOps")?.addEventListener("click", async () => {
+    setTab("ops");
+    await refreshOps();
+  });
+  $("homeRunCritical")?.addEventListener("click", () => demoLoadAndRun("v01_chest_pain_hypotension"));
+  $("homeRunAdversarial")?.addEventListener("click", () =>
+    demoLoadAndRun("a01_cp_abbrev_hypotension", { set: "adversarial" }),
+  );
+  $("homeDownloadAudit")?.addEventListener("click", () => downloadAuditBundle(true));
+  $("homeDownloadReport")?.addEventListener("click", () => downloadReportHtml());
+  $("homeDownloadJudgePack")?.addEventListener("click", () => downloadJudgePack());
+  $("homeOpenTrace")?.addEventListener("click", () => setTab("triage"));
+
+  // Welcome modal
+  $("welcomeClose")?.addEventListener("click", () => closeWelcomeModal());
+  $("welcomeStartDemo")?.addEventListener("click", () => {
+    setTab("demo");
+    closeWelcomeModal();
+  });
+  $("welcomeRunTriage")?.addEventListener("click", () => {
+    setTab("triage");
+    closeWelcomeModal();
+  });
+  $("welcomeOpenWorkspace")?.addEventListener("click", () => {
+    setTab("workspace");
+    closeWelcomeModal();
+  });
+  $("welcomeModal")?.addEventListener("click", (ev) => {
+    const isBackdrop = ev?.target?.dataset?.close === "1";
+    if (isBackdrop) closeWelcomeModal();
+  });
+
   $("loadPreset").addEventListener("click", () => loadPreset().catch((e) => setError("intakeError", e)));
   $("runTriage").addEventListener("click", () => runTriage());
   $("copyResult").addEventListener("click", () => copyResult());
@@ -3923,6 +4410,7 @@ function wireEvents() {
   $("printReport")?.addEventListener("click", () => printReportHtml());
   $("downloadRedacted").addEventListener("click", () => downloadAuditBundle(true));
   $("downloadFull").addEventListener("click", () => downloadAuditBundle(false));
+  $("downloadJudgePack")?.addEventListener("click", () => downloadJudgePack());
 
   $("applyJsonToForm").addEventListener("click", () => {
     try {
@@ -4255,6 +4743,15 @@ function wireEvents() {
     setText("wsStatus", "Reset workspace.");
   });
 
+  const wsSearch = $("wsSearch");
+  if (wsSearch) {
+    wsSearch.addEventListener("input", () => renderWorkspaceTable());
+    wsSearch.addEventListener("change", () => renderWorkspaceTable());
+  }
+  $("wsFilterStatus")?.addEventListener("change", () => renderWorkspaceTable());
+  $("wsSort")?.addEventListener("change", () => renderWorkspaceTable());
+  $("wsDownloadHandoff")?.addEventListener("click", () => workspaceDownloadShiftHandoff());
+
   $("wsUpdateStatus")?.addEventListener("click", () => {
     setError("wsError", "");
     const item = workspaceSelectedItem();
@@ -4372,9 +4869,11 @@ function wireEvents() {
 
 async function init() {
   wireEvents();
+  setTab("home");
   setMode("form");
   if ($("govBenchSet")) $("govBenchSet").value = "mega";
   if ($("opsAuto")) $("opsAuto").checked = false;
+  await registerServiceWorker();
   loadAuthFromStorage();
   updateAuthBadge();
   renderGovernance(null, null);
@@ -4388,6 +4887,8 @@ async function init() {
   renderReviewTable();
   updateReviewParagraph();
   renderWorkspaceTable();
+  renderHome();
+  maybeShowWelcomeModal();
 }
 
 init().catch((e) => {

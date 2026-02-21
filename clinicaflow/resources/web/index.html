@@ -3,7 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#111827" />
     <title>ClinicaFlow Console</title>
+    <link rel="icon" href="/static/icon.svg" />
+    <link rel="manifest" href="/static/manifest.webmanifest" />
     <link rel="stylesheet" href="/static/app.css" />
   </head>
   <body>
@@ -25,7 +28,8 @@
 
     <main class="container">
       <nav class="tabs" aria-label="Console tabs">
-        <button class="tab active" data-tab="triage" type="button">Triage</button>
+        <button class="tab active" data-tab="home" type="button">Home</button>
+        <button class="tab" data-tab="triage" type="button">Triage</button>
         <button class="tab" data-tab="demo" type="button">Demo</button>
         <button class="tab" data-tab="workspace" type="button">Workspace</button>
         <button class="tab" data-tab="regression" type="button">Regression</button>
@@ -36,7 +40,119 @@
         <button class="tab" data-tab="about" type="button">About</button>
       </nav>
 
-      <section id="tab-triage" class="tabpanel active">
+      <section id="tab-home" class="tabpanel active">
+        <div class="grid">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Quick start</h2>
+              <div class="small">Judge-friendly navigation.</div>
+            </div>
+
+            <div class="hero">
+              <div class="hero-title">Safe, auditable triage workflow</div>
+              <div class="hero-subtitle muted">Decision support only — use synthetic data (no PHI).</div>
+              <div class="flow" aria-label="5-agent workflow">
+                <div class="flow-step">
+                  <div class="flow-n">1</div>
+                  <div class="flow-label">Structuring</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                  <div class="flow-n">2</div>
+                  <div class="flow-label">Reasoning (MedGemma)</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                  <div class="flow-n">3</div>
+                  <div class="flow-label">Evidence &amp; policy</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step safety">
+                  <div class="flow-n">4</div>
+                  <div class="flow-label">Safety gate</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-step">
+                  <div class="flow-n">5</div>
+                  <div class="flow-label">Communication</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="row">
+              <button id="homeStartDemo" class="btn primary" type="button">Start 3-minute demo</button>
+              <button id="homeGoTriage" class="btn subtle" type="button">New triage</button>
+              <button id="homeGoWorkspace" class="btn subtle" type="button">Open workspace</button>
+              <button id="homeGoGovernance" class="btn subtle" type="button">Open governance</button>
+              <button id="homeGoOps" class="btn subtle" type="button">Open ops</button>
+            </div>
+
+            <div class="callout">
+              <div class="k">Demo cases</div>
+              <div class="row" style="margin-top: 8px;">
+                <button id="homeRunCritical" class="btn primary" type="button">Run critical vignette</button>
+                <button id="homeRunAdversarial" class="btn subtle" type="button">Run adversarial vignette</button>
+              </div>
+              <div class="small muted" style="margin-top: 8px;">
+                Loads a synthetic case and runs triage. Then you can download the audit bundle / report.
+              </div>
+            </div>
+
+            <div class="callout">
+              <div class="k">If the UI looks “too simple”</div>
+              <div class="small muted">
+                You may be seeing the legacy fallback UI (2-box page). Stop old servers, then re-run:
+                <code>rm -rf .venv &amp;&amp; bash scripts/demo_one_click.sh</code>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>System status</h2>
+              <div class="small">Live from <code>/doctor</code> + <code>/metrics</code>.</div>
+            </div>
+
+            <div class="summary">
+              <div class="card">
+                <div class="k">Backends</div>
+                <div id="homeBackends" class="small muted">—</div>
+              </div>
+              <div class="card">
+                <div class="k">Policy &amp; rules</div>
+                <div id="homePolicyRules" class="small muted">—</div>
+              </div>
+              <div class="card">
+                <div class="k">Ops</div>
+                <div id="homeOps" class="small muted">—</div>
+              </div>
+              <div class="card">
+                <div class="k">Last triage</div>
+                <div id="homeLastRun" class="small muted">No run yet.</div>
+                <div class="row" style="margin-top: 8px;">
+                  <button id="homeDownloadAudit" class="btn subtle" type="button">Audit (redacted)</button>
+                  <button id="homeDownloadReport" class="btn subtle" type="button">Report</button>
+                  <button id="homeDownloadJudgePack" class="btn subtle" type="button">Judge pack.zip</button>
+                  <button id="homeOpenTrace" class="btn subtle" type="button">Open output</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="callout">
+              <div class="k">Recording checklist</div>
+              <ul class="checklist">
+                <li>Say “decision support, not diagnosis”.</li>
+                <li>Show deterministic safety triggers + escalation rationale.</li>
+                <li>Download a redacted audit bundle.</li>
+                <li>Run vignette regression + governance gate.</li>
+                <li>Show Ops dashboard: per-agent latency/errors.</li>
+              </ul>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section id="tab-triage" class="tabpanel">
         <div class="grid">
           <section class="panel">
             <div class="panel-head">
@@ -265,6 +381,7 @@
               <button id="printReport" class="btn subtle" type="button">Print report</button>
               <button id="downloadRedacted" class="btn subtle" type="button">Download audit bundle (redacted)</button>
               <button id="downloadFull" class="btn subtle" type="button">Download audit bundle (full)</button>
+              <button id="downloadJudgePack" class="btn subtle" type="button">Download judge pack.zip</button>
             </div>
 
             <div id="runError" class="alert hidden"></div>
@@ -396,6 +513,24 @@
               <button id="wsReset" class="btn subtle" type="button">Reset</button>
               <span id="wsStatus" class="small"></span>
             </div>
+
+            <div class="row" style="margin-top: 6px;">
+              <input id="wsSearch" type="text" placeholder="Search (id, complaint, tier, red flags)…" style="min-width: 260px;" />
+              <select id="wsFilterStatus" class="select" style="min-width: 180px;">
+                <option value="all">status: all</option>
+                <option value="new">status: new</option>
+                <option value="triaged">status: triaged</option>
+                <option value="needs_review">status: needs_review</option>
+                <option value="closed">status: closed</option>
+              </select>
+              <select id="wsSort" class="select" style="min-width: 180px;">
+                <option value="newest">sort: newest</option>
+                <option value="oldest">sort: oldest</option>
+                <option value="severity">sort: severity</option>
+                <option value="status">sort: status</option>
+              </select>
+              <button id="wsDownloadHandoff" class="btn subtle" type="button">Download shift_handoff.md</button>
+            </div>
             <input id="wsImportFile" class="hidden" type="file" accept="application/json" />
 
             <div id="wsSummary" class="callout">
@@ -437,7 +572,18 @@
               <button id="wsRunTriage" class="btn subtle" type="button">Run triage</button>
             </div>
 
-            <pre id="wsSelected" class="pre mono">{}</pre>
+            <div id="wsSelectedSummary" class="callout">
+              <div class="k">Summary</div>
+              <div id="wsSelectedSummaryText" class="small muted">—</div>
+              <div id="wsSelectedRedFlags" class="small muted" style="margin-top: 8px;">—</div>
+              <div id="wsSelectedActions" class="small muted" style="margin-top: 8px;">—</div>
+              <div id="wsSelectedHandoff" class="prewrap muted" style="margin-top: 8px;">—</div>
+            </div>
+
+            <details class="details">
+              <summary>Raw JSON</summary>
+              <pre id="wsSelected" class="pre mono">{}</pre>
+            </details>
             <div class="row">
               <button id="wsLoadIntoTriage" class="btn primary" type="button">Load into triage</button>
               <button id="wsDownloadReport" class="btn subtle" type="button">Download report</button>
@@ -905,6 +1051,34 @@
         </section>
       </section>
     </main>
+
+    <div id="welcomeModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Welcome">
+      <div class="modal-backdrop" data-close="1"></div>
+      <div class="modal-card">
+        <div class="modal-head">
+          <div>
+            <div class="modal-title">Welcome to ClinicaFlow</div>
+            <div class="small muted">Start with the judge-friendly demo runbook.</div>
+          </div>
+          <button id="welcomeClose" class="btn subtle" type="button">Close</button>
+        </div>
+        <div class="modal-body">
+          <div class="callout">
+            <div class="k">Choose a path</div>
+            <div class="row" style="margin-top: 8px;">
+              <button id="welcomeStartDemo" class="btn primary" type="button">Start demo runbook</button>
+              <button id="welcomeRunTriage" class="btn subtle" type="button">Go to triage</button>
+              <button id="welcomeOpenWorkspace" class="btn subtle" type="button">Open workspace</button>
+            </div>
+          </div>
+
+          <label class="check" style="margin-top: 10px;">
+            <input id="welcomeDontShow" type="checkbox" />
+            Don't show again on this browser
+          </label>
+        </div>
+      </div>
+    </div>
 
     <script src="/static/app.js"></script>
   </body>

@@ -146,6 +146,55 @@ class DemoServerTests(unittest.TestCase):
         finally:
             _stop_server(server, thread)
 
+    def test_judge_pack_endpoint(self) -> None:
+        settings = Settings(
+            debug=False,
+            log_level="INFO",
+            json_logs=False,
+            max_request_bytes=262144,
+            policy_top_k=2,
+            policy_pack_path="",
+            cors_allow_origin="*",
+            api_key="",
+        )
+        server, thread, base_url = _start_server(settings=settings)
+        try:
+            case = {
+                "chief_complaint": "Chest pain and dizziness for 30 minutes",
+                "history": "history of hypertension",
+                "vitals": {"heart_rate": 122, "systolic_bp": 92, "spo2": 96, "temperature_c": 37.0},
+            }
+            body = json.dumps(case).encode("utf-8")
+            status, headers, raw = _http(
+                "POST",
+                base_url + "/judge_pack?set=standard&redact=1&include_synthetic=0",
+                body=body,
+                headers={"Content-Type": "application/json", "X-Request-ID": "judge1"},
+            )
+            self.assertEqual(status, 200)
+            self.assertEqual(headers.get("X-Request-ID"), "judge1")
+            cd = headers.get("Content-Disposition") or ""
+            self.assertIn("clinicaflow_judge_pack_", cd)
+
+            buf = io.BytesIO(raw)
+            with zipfile.ZipFile(buf) as zf:
+                names = set(zf.namelist())
+                self.assertIn("README.md", names)
+                self.assertIn("judge_pack_manifest.json", names)
+                self.assertIn("triage/intake.json", names)
+                self.assertIn("triage/triage_result.json", names)
+                self.assertIn("system/doctor.json", names)
+                self.assertIn("system/metrics.json", names)
+                self.assertIn("resources/policy_pack.json", names)
+                self.assertIn("resources/safety_rules.json", names)
+                self.assertIn("benchmarks/vignettes_standard.json", names)
+                self.assertIn("benchmarks/vignettes_standard.md", names)
+                self.assertIn("governance/governance_report_standard.md", names)
+                self.assertIn("governance/failure_packet_standard.md", names)
+                self.assertNotIn("benchmarks/synthetic_proxy.md", names)
+        finally:
+            _stop_server(server, thread)
+
     def test_head_supported_for_ui_and_static(self) -> None:
         settings = Settings(
             debug=False,

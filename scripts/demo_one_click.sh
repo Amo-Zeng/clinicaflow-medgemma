@@ -257,6 +257,9 @@ echo "       UI:      http://127.0.0.1:${CLINICAFLOW_PORT}/"
 echo "       OpenAPI: http://127.0.0.1:${CLINICAFLOW_PORT}/openapi.json"
 echo "       Metrics: http://127.0.0.1:${CLINICAFLOW_PORT}/metrics"
 echo ""
+echo "       Tip: Start from the Home tab (or welcome modal) → Start 3-minute demo."
+echo "       Tip: After a triage run, click 'Judge pack.zip' to download all artifacts."
+echo ""
 
 if [[ "${OPEN_BROWSER}" == "1" ]]; then
   python - <<PY

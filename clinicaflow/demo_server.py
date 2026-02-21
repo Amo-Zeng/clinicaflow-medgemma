@@ -364,6 +364,9 @@ def _load_web_assets() -> dict[str, tuple[bytes, str]]:
         "index.html": "text/html; charset=utf-8",
         "app.css": "text/css; charset=utf-8",
         "app.js": "application/javascript; charset=utf-8",
+        "manifest.webmanifest": "application/manifest+json; charset=utf-8",
+        "sw.js": "application/javascript; charset=utf-8",
+        "icon.svg": "image/svg+xml; charset=utf-8",
     }
 
     # 1) Preferred: importlib.resources (works for normal installs and editable installs).
@@ -447,6 +450,9 @@ def _new_stats() -> dict:
         "audit_bundle_requests_total": 0,
         "audit_bundle_success_total": 0,
         "audit_bundle_errors_total": 0,
+        "judge_pack_requests_total": 0,
+        "judge_pack_success_total": 0,
+        "judge_pack_errors_total": 0,
         "fhir_bundle_requests_total": 0,
         "fhir_bundle_success_total": 0,
         "fhir_bundle_errors_total": 0,
@@ -794,7 +800,7 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
             path = parsed.path
             query = parse_qs(parsed.query)
 
-            if path not in {"/triage", "/audit_bundle", "/fhir_bundle"}:
+            if path not in {"/triage", "/audit_bundle", "/judge_pack", "/fhir_bundle"}:
                 self._write_json({"error": {"code": "not_found"}}, code=HTTPStatus.NOT_FOUND, request_id=request_id)
                 status_code = HTTPStatus.NOT_FOUND
                 return
@@ -845,6 +851,8 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                     self.server.stats["triage_errors_total"] += 1
                 elif path == "/audit_bundle":
                     self.server.stats["audit_bundle_errors_total"] += 1
+                elif path == "/judge_pack":
+                    self.server.stats["judge_pack_errors_total"] += 1
                 else:
                     self.server.stats["fhir_bundle_errors_total"] += 1
                 self._write_json(
@@ -860,6 +868,8 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                     self.server.stats["triage_errors_total"] += 1
                 elif path == "/audit_bundle":
                     self.server.stats["audit_bundle_errors_total"] += 1
+                elif path == "/judge_pack":
+                    self.server.stats["judge_pack_errors_total"] += 1
                 else:
                     self.server.stats["fhir_bundle_errors_total"] += 1
                 self._write_json(
@@ -877,6 +887,8 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                     self.server.stats["triage_errors_total"] += 1
                 elif path == "/audit_bundle":
                     self.server.stats["audit_bundle_errors_total"] += 1
+                elif path == "/judge_pack":
+                    self.server.stats["judge_pack_errors_total"] += 1
                 else:
                     self.server.stats["fhir_bundle_errors_total"] += 1
                 self._write_json(
@@ -979,6 +991,176 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                 status_code = HTTPStatus.OK
                 return
 
+            if path == "/judge_pack":
+                self.server.stats["judge_pack_requests_total"] += 1
+                set_name = _normalize_vignette_set(str(query.get("set", ["mega"])[0]))
+                redact = str(query.get("redact", ["1"])[0]).strip().lower() in {"1", "true", "yes"}
+                include_synthetic = str(query.get("include_synthetic", ["1"])[0]).strip().lower() in {"1", "true", "yes"}
+
+                result_obj = existing_result or self.server.pipeline.run(intake, request_id=request_id)
+                pack_request_id = result_obj.request_id or request_id
+
+                from clinicaflow.audit import build_audit_bundle_files
+
+                files: dict[str, bytes] = {}
+
+                readme_lines = [
+                    "# ClinicaFlow — Judge Pack (synthetic)",
+                    "",
+                    "- DISCLAIMER: Decision support only. Not a diagnosis. No PHI.",
+                    f"- request_id: `{pack_request_id}`",
+                    f"- redacted: `{redact}`",
+                    f"- vignette_set: `{set_name}`",
+                    f"- include_synthetic_proxy: `{include_synthetic}`",
+                    "",
+                    "## Contents",
+                    "",
+                    "- `triage/`: audit bundle (intake/result/note/report + manifest)",
+                    "- `system/`: runtime diagnostics and metrics snapshot",
+                    "- `resources/`: policy pack + deterministic safety rules",
+                    "- `benchmarks/`: vignette summary (+ optional synthetic proxy)",
+                    "- `governance/`: governance report + failure analysis packet",
+                    "",
+                    "## Reproduce",
+                    "",
+                    "- Run demo UI: `bash scripts/demo_one_click.sh`",
+                    "- Governance gate: `clinicaflow benchmark governance --set mega --gate`",
+                    "",
+                ]
+                files["README.md"] = ("\n".join(readme_lines).strip() + "\n").encode("utf-8")
+
+                # Optional: include competition-facing docs when running from a source checkout.
+                try:
+                    from pathlib import Path
+
+                    repo_root = Path(__file__).resolve().parent.parent
+                    candidates = [
+                        (repo_root / "champion_writeup_medgemma.md", "submission/champion_writeup_medgemma.md"),
+                        (repo_root / "README.md", "submission/REPO_README.md"),
+                        (repo_root / "docs" / "JUDGES.md", "submission/JUDGES.md"),
+                        (repo_root / "docs" / "VIDEO_SCRIPT.md", "submission/VIDEO_SCRIPT.md"),
+                        (repo_root / "docs" / "VIGNETTE_REGRESSION.md", "submission/VIGNETTE_REGRESSION.md"),
+                        (repo_root / "docs" / "MEDGEMMA_INTEGRATION.md", "submission/MEDGEMMA_INTEGRATION.md"),
+                        (repo_root / "docs" / "SAFETY.md", "submission/SAFETY.md"),
+                    ]
+                    for src, dst in candidates:
+                        if src.is_file():
+                            files[dst] = src.read_bytes()
+                except Exception:  # noqa: BLE001
+                    pass
+
+                audit_files = build_audit_bundle_files(intake=intake, result=result_obj, redact=redact, checklist=checklist)
+                for name, data in audit_files.items():
+                    files[f"triage/{name}"] = data
+
+                from clinicaflow.diagnostics import collect_diagnostics
+
+                files["system/doctor.json"] = json.dumps(collect_diagnostics(), indent=2, ensure_ascii=False).encode("utf-8")
+
+                uptime_s = int(time.time() - self.server.start_time)
+                count = int(self.server.stats.get("triage_latency_ms_count") or 0)
+                total = float(self.server.stats.get("triage_latency_ms_sum") or 0.0)
+                avg = round(total / count, 2) if count else 0.0
+                metrics_payload = {"uptime_s": uptime_s, "version": __version__, "triage_latency_ms_avg": avg, **self.server.stats}
+                files["system/metrics.json"] = json.dumps(metrics_payload, indent=2, ensure_ascii=False).encode("utf-8")
+
+                from clinicaflow.rules import safety_rules_catalog
+
+                files["resources/safety_rules.json"] = json.dumps(safety_rules_catalog(), indent=2, ensure_ascii=False).encode("utf-8")
+
+                from importlib.resources import files as pkg_files
+
+                from clinicaflow.policy_pack import load_policy_pack, policy_pack_sha256
+
+                if self.server.settings.policy_pack_path:
+                    policy_source = self.server.settings.policy_pack_path
+                    policy_path: object = self.server.settings.policy_pack_path
+                else:
+                    policy_source = "package:clinicaflow.resources/policy_pack.json"
+                    policy_path = pkg_files("clinicaflow.resources").joinpath("policy_pack.json")
+
+                policies = load_policy_pack(policy_path)
+                policy_payload = {
+                    "source": str(policy_source),
+                    "sha256": policy_pack_sha256(policy_path),
+                    "n_policies": len(policies),
+                    "policies": [p.to_dict() for p in policies],
+                }
+                files["resources/policy_pack.json"] = json.dumps(policy_payload, indent=2, ensure_ascii=False).encode("utf-8")
+
+                from clinicaflow.benchmarks.vignettes import run_benchmark_rows
+
+                vignette_rows = _load_vignettes(set_name)
+                summary, per_case = run_benchmark_rows(vignette_rows)
+                bench_payload = {"set": set_name, "summary": summary.to_dict(), "per_case": per_case}
+                files[f"benchmarks/vignettes_{set_name}.json"] = json.dumps(bench_payload, indent=2, ensure_ascii=False).encode("utf-8")
+                files[f"benchmarks/vignettes_{set_name}.md"] = (summary.to_markdown_table().strip() + "\n").encode("utf-8")
+
+                from clinicaflow.benchmarks.governance import (
+                    compute_action_provenance,
+                    compute_gate,
+                    compute_trigger_coverage,
+                    to_failure_packet_markdown,
+                    to_governance_markdown,
+                )
+
+                gate = compute_gate(summary, min_red_flag_recall=99.9)
+                provenance = compute_action_provenance(per_case)
+                triggers = compute_trigger_coverage(per_case, top_k=20)
+                files[f"governance/governance_report_{set_name}.md"] = to_governance_markdown(
+                    set_name=set_name,
+                    summary=summary,
+                    gate=gate,
+                    provenance=provenance,
+                    triggers=triggers,
+                ).encode("utf-8")
+                files[f"governance/failure_packet_{set_name}.md"] = to_failure_packet_markdown(
+                    set_name=set_name,
+                    rows=vignette_rows,
+                    per_case=per_case,
+                    summary=summary,
+                    gate=gate,
+                    limit=25,
+                ).encode("utf-8")
+
+                if include_synthetic:
+                    from clinicaflow.benchmarks.synthetic import run_benchmark
+
+                    syn = run_benchmark(seed=17, n_cases=220)
+                    files["benchmarks/synthetic_proxy.json"] = json.dumps(
+                        {"seed": 17, "n_cases": 220, "summary": syn.to_dict()},
+                        indent=2,
+                        ensure_ascii=False,
+                    ).encode("utf-8")
+                    files["benchmarks/synthetic_proxy.md"] = (syn.to_markdown_table().strip() + "\n").encode("utf-8")
+
+                files["judge_pack_manifest.json"] = json.dumps(
+                    {
+                        "request_id": pack_request_id,
+                        "redacted": redact,
+                        "vignette_set": set_name,
+                        "include_synthetic_proxy": include_synthetic,
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                ).encode("utf-8")
+
+                buf = io.BytesIO()
+                with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                    for name, data in files.items():
+                        zf.writestr(name, data)
+
+                self.server.stats["judge_pack_success_total"] += 1
+                filename = f"clinicaflow_judge_pack_{pack_request_id}.zip"
+                self._write_bytes(
+                    buf.getvalue(),
+                    content_type="application/zip",
+                    request_id=pack_request_id,
+                    extra_headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+                )
+                status_code = HTTPStatus.OK
+                return
+
             self.server.stats["fhir_bundle_requests_total"] += 1
             redact = str(query.get("redact", ["1"])[0]).strip().lower() in {"1", "true", "yes"}
             result_obj = existing_result or self.server.pipeline.run(intake, request_id=request_id)
@@ -995,6 +1177,8 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                 self.server.stats["triage_errors_total"] += 1
             elif urlparse(self.path).path == "/audit_bundle":
                 self.server.stats["audit_bundle_errors_total"] += 1
+            elif urlparse(self.path).path == "/judge_pack":
+                self.server.stats["judge_pack_errors_total"] += 1
             else:
                 self.server.stats["fhir_bundle_errors_total"] += 1
             logger.exception("post_error", extra={"event": "post_error", "request_id": request_id})
@@ -1065,6 +1249,7 @@ def _openapi_spec() -> dict:
             "/bench/synthetic": {"get": {"responses": {"200": {"description": "run synthetic proxy benchmark"}}}},
             "/triage": {"post": {"responses": {"200": {"description": "triage result"}}}},
             "/audit_bundle": {"post": {"responses": {"200": {"description": "audit bundle zip"}}}},
+            "/judge_pack": {"post": {"responses": {"200": {"description": "judge pack zip"}}}},
             "/fhir_bundle": {"post": {"responses": {"200": {"description": "FHIR bundle JSON"}}}},
         },
     }
@@ -1115,6 +1300,9 @@ def _format_prometheus_metrics(payload: dict) -> str:
     metric("clinicaflow_audit_bundle_requests_total", payload.get("audit_bundle_requests_total"))
     metric("clinicaflow_audit_bundle_success_total", payload.get("audit_bundle_success_total"))
     metric("clinicaflow_audit_bundle_errors_total", payload.get("audit_bundle_errors_total"))
+    metric("clinicaflow_judge_pack_requests_total", payload.get("judge_pack_requests_total"))
+    metric("clinicaflow_judge_pack_success_total", payload.get("judge_pack_success_total"))
+    metric("clinicaflow_judge_pack_errors_total", payload.get("judge_pack_errors_total"))
     metric("clinicaflow_fhir_bundle_requests_total", payload.get("fhir_bundle_requests_total"))
     metric("clinicaflow_fhir_bundle_success_total", payload.get("fhir_bundle_success_total"))
     metric("clinicaflow_fhir_bundle_errors_total", payload.get("fhir_bundle_errors_total"))
@@ -1155,7 +1343,9 @@ def run(host: str = "0.0.0.0", port: int = 8000) -> None:
     server = make_server(host, port, settings=settings)
     print(f"ClinicaFlow demo server running at http://{host}:{port}")
     print("Open / in your browser for the demo UI")
-    print("API: POST /triage, POST /audit_bundle, POST /fhir_bundle, GET /doctor, GET /vignettes, GET /bench/vignettes")
+    print(
+        "API: POST /triage, POST /audit_bundle, POST /judge_pack, POST /fhir_bundle, GET /doctor, GET /vignettes, GET /bench/vignettes"
+    )
     print("Ops: GET /health, GET /metrics, GET /openapi.json")
     server.serve_forever()
 

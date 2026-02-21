@@ -41,6 +41,12 @@ One-click demo (starts the demo server; optionally starts a local MedGemma vLLM 
 bash scripts/demo_one_click.sh
 ```
 
+If the UI renders as a “legacy fallback” 2-box page, you likely have a stale install. Fix with:
+
+```bash
+rm -rf .venv && bash scripts/demo_one_click.sh
+```
+
 Require a real MedGemma backend (fails fast if not reachable):
 
 ```bash
@@ -203,12 +209,15 @@ Open the local demo UI:
 
 Console features:
 
+- Home dashboard + onboarding modal (judge-friendly)
 - Structured triage form + JSON mode
 - Action checklist (progress stored locally)
 - Workspace tab (case board: statuses + one-click triage/re-run + local import/export)
+- Workspace filters + **shift handoff** export (`shift_handoff.md`)
 - Built-in vignette presets (standard/adversarial/extended)
 - Agent trace viewer (audit-friendly)
 - Downloadable audit bundle zip (redacted/full)
+- Downloadable **judge pack** zip (audit bundle + benchmarks + governance + ops snapshots)
 - Downloadable printable triage report (`report.html`)
 - Downloadable minimal FHIR bundle JSON (redacted)
 - Vignette regression tab + JSON export
@@ -227,6 +236,7 @@ API spec & metrics:
 - Doctor (no secrets): http://127.0.0.1:8000/doctor
 - Policy pack: http://127.0.0.1:8000/policy_pack
 - Benchmarks: http://127.0.0.1:8000/bench/synthetic , http://127.0.0.1:8000/bench/vignettes
+- Judge pack: `POST http://127.0.0.1:8000/judge_pack`
 
 Health check:
 
