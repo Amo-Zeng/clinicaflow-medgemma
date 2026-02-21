@@ -26,8 +26,10 @@ function fmtJson(obj) {
 const PHI_PATTERNS = [
   { name: "email", re: /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i },
   // Very rough US-centric phone heuristic; intentionally permissive for a warning banner.
-  { name: "phone", re: /\b(?:\+?1[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]?\d{3}[\s.-]?\d{4}\b/ },
+  { name: "phone", re: /(?:\+?1[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]?\d{3}[\s.-]?\d{4}/ },
   { name: "ssn", re: /\b\d{3}-\d{2}-\d{4}\b/ },
+  { name: "mrn", re: /\b(?:mrn|medical\s*record\s*(?:number|no\.?))\b\s*[:#-]?\s*\d{5,}\b/i },
+  { name: "dob", re: /\b(?:dob|date\s*of\s*birth)\b\s*[:#-]?\s*(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2})\b/i },
 ];
 
 function detectPhiHits(intake) {
@@ -974,7 +976,9 @@ function renderHome() {
     const shaShort = sha ? `${sha.slice(0, 12)}…` : "(none)";
     const rulesVer = String(state.safetyRules?.safety_rules_version || "").trim();
     const rulesText = rulesVer ? rulesVer : "(not loaded — open Rules tab)";
-    policyRules.textContent = `policy_sha256: ${shaShort}  |  safety_rules: ${rulesText}`;
+    const phi = d?.privacy?.phi_guard_enabled;
+    const phiText = phi === false ? "phi_guard: off" : "phi_guard: on";
+    policyRules.textContent = `policy_sha256: ${shaShort}  |  safety_rules: ${rulesText}  |  ${phiText}`;
   }
 
   if (ops) {
@@ -1127,6 +1131,30 @@ function renderSignalsSummary(structured) {
 
   section("Symptoms", symptoms.slice(0, 8));
   section("Risk factors", risk.slice(0, 8));
+}
+
+function renderQualityWarnings(warnings) {
+  const root = $("qualityWarnings");
+  if (!root) return;
+
+  const rows = Array.isArray(warnings) ? warnings.map((x) => String(x)).filter((x) => x.trim()) : [];
+  root.innerHTML = "";
+  if (!rows.length) {
+    root.textContent = "None.";
+    return;
+  }
+
+  const chips = document.createElement("div");
+  chips.className = "chips";
+
+  rows.slice(0, 8).forEach((text) => {
+    const span = document.createElement("span");
+    span.className = "chip warn";
+    span.textContent = text;
+    chips.appendChild(span);
+  });
+
+  root.appendChild(chips);
 }
 
 function renderSafetyTriggers(triggers) {
@@ -1343,6 +1371,32 @@ function renderTrace(trace) {
     pre.textContent = fmtJson(step.output || {});
     details.appendChild(pre);
 
+    const agentName = String(step.agent || "");
+    const out = step.output && typeof step.output === "object" ? step.output : {};
+    if (!step.error) {
+      let derived = "";
+      let skipped = "";
+      if (agentName === "multimodal_reasoning") {
+        derived = String(out.reasoning_backend_error || "").trim();
+        skipped = String(out.reasoning_backend_skipped_reason || "").trim();
+      } else if (agentName === "communication") {
+        derived = String(out.communication_backend_error || "").trim();
+        skipped = String(out.communication_backend_skipped_reason || "").trim();
+      }
+
+      if (derived) {
+        const err = document.createElement("div");
+        err.className = "alert";
+        err.textContent = `Backend fallback: ${derived}`;
+        details.appendChild(err);
+      } else if (skipped) {
+        const msg = document.createElement("div");
+        msg.className = "callout";
+        msg.textContent = `External call skipped: ${skipped}`;
+        details.appendChild(msg);
+      }
+    }
+
     if (step.error) {
       const err = document.createElement("div");
       err.className = "alert";
@@ -1403,12 +1457,28 @@ function renderTraceMini(trace) {
     const label = LABELS[agentName] || agentName.replaceAll("_", " ");
     const latency = step.latency_ms != null ? `${step.latency_ms} ms` : "—";
     const hasErr = Boolean(String(step.error || "").trim());
+    const out = step.output && typeof step.output === "object" ? step.output : {};
+    let derivedErr = "";
+    let derivedSkip = "";
+    if (agentName === "multimodal_reasoning") {
+      derivedErr = String(out.reasoning_backend_error || "").trim();
+      derivedSkip = String(out.reasoning_backend_skipped_reason || "").trim();
+    } else if (agentName === "communication") {
+      derivedErr = String(out.communication_backend_error || "").trim();
+      derivedSkip = String(out.communication_backend_skipped_reason || "").trim();
+    }
+    const hasDerivedErr = Boolean(derivedErr);
+    const hasSkip = Boolean(derivedSkip);
     const ms = typeof step.latency_ms === "number" ? step.latency_ms : null;
 
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = `step${hasErr ? " bad" : ms != null && ms > 900 ? " warn" : ""}`;
-    btn.title = "Jump to full agent output";
+    btn.className = `step${hasErr || hasDerivedErr ? " bad" : hasSkip || (ms != null && ms > 900) ? " warn" : ""}`;
+    btn.title = derivedErr
+      ? `Backend fallback: ${derivedErr}`
+      : derivedSkip
+        ? `External call skipped: ${derivedSkip}`
+        : "Jump to full agent output";
     btn.addEventListener("click", () => jumpTo(agentName));
 
     const dot = document.createElement("span");
@@ -1420,7 +1490,13 @@ function renderTraceMini(trace) {
     title.textContent = label;
     const meta = document.createElement("div");
     meta.className = "step-meta mono";
-    meta.textContent = hasErr ? `ERROR • ${latency}` : latency;
+    meta.textContent = hasErr
+      ? `ERROR • ${latency}`
+      : hasDerivedErr
+        ? `FALLBACK • ${latency}`
+        : hasSkip
+          ? `SKIP • ${latency}`
+          : latency;
     body.appendChild(title);
     body.appendChild(meta);
 
@@ -1540,6 +1616,7 @@ function renderResult(result, requestIdFromHeader) {
   const structured = traceOutput(result, "intake_structuring");
   $("structuredOut").textContent = fmtJson(structured || {});
   renderSignalsSummary(structured || {});
+  renderQualityWarnings(structured?.data_quality_warnings || []);
   const missing = structured?.missing_fields || [];
   const missingEl = $("missingFields");
   if (missingEl) renderList(missingEl, missing, { ordered: false, emptyText: "None." });
@@ -1552,6 +1629,8 @@ function renderResult(result, requestIdFromHeader) {
   if (model) reasoningBits.push(`model=${model}`);
   if (pv) reasoningBits.push(`prompt=${pv}`);
   if (reasoning.images_present != null) reasoningBits.push(`images=${reasoning.images_sent ?? 0}/${reasoning.images_present}`);
+  if (reasoning.reasoning_backend_skipped_reason)
+    reasoningBits.push(`skipped=${String(reasoning.reasoning_backend_skipped_reason).slice(0, 80)}`);
   if (reasoning.reasoning_backend_error) reasoningBits.push(`error=${String(reasoning.reasoning_backend_error).slice(0, 80)}`);
   setText("reasoningInfo", reasoningBits.length ? reasoningBits.join(" • ") : "—");
   setText("rationale", reasoning.reasoning_rationale || "—");
@@ -1567,6 +1646,8 @@ function renderResult(result, requestIdFromHeader) {
   if (comm.communication_backend) commBits.push(`backend=${comm.communication_backend}`);
   if (comm.communication_backend_model) commBits.push(`model=${comm.communication_backend_model}`);
   if (comm.communication_prompt_version) commBits.push(`prompt=${comm.communication_prompt_version}`);
+  if (comm.communication_backend_skipped_reason)
+    commBits.push(`skipped=${String(comm.communication_backend_skipped_reason).slice(0, 80)}`);
   if (comm.communication_backend_error) commBits.push(`error=${String(comm.communication_backend_error).slice(0, 80)}`);
   setText("commInfo", commBits.length ? `Communication: ${commBits.join(" • ")}` : "Communication: —");
 
@@ -2554,6 +2635,8 @@ function buildNoteMarkdown(intake, result, checklist) {
   const reasoning = traceOutput(result, "multimodal_reasoning");
   const evidence = traceOutput(result, "evidence_policy");
   const safety = traceOutput(result, "safety_escalation");
+  const structured = traceOutput(result, "intake_structuring");
+  const comm = traceOutput(result, "communication");
 
   const safetyActionsRaw = Array.isArray(safety?.actions_added_by_safety) ? safety.actions_added_by_safety : [];
   const safetyActions = safetyActionsRaw.map((x) => String(x || "").trim()).filter((x) => x);
@@ -2579,13 +2662,26 @@ function buildNoteMarkdown(intake, result, checklist) {
   if (reasoning.reasoning_backend) lines.push(`- reasoning_backend: ${reasoning.reasoning_backend}`);
   if (reasoning.reasoning_backend_model) lines.push(`- reasoning_model: ${reasoning.reasoning_backend_model}`);
   if (reasoning.reasoning_prompt_version) lines.push(`- reasoning_prompt_version: ${reasoning.reasoning_prompt_version}`);
+  if (reasoning.reasoning_backend_skipped_reason)
+    lines.push(`- reasoning_backend_skipped_reason: ${String(reasoning.reasoning_backend_skipped_reason).trim()}`);
   if (evidence.policy_pack_sha256) lines.push(`- policy_pack_sha256: ${evidence.policy_pack_sha256}`);
   if (safety.safety_rules_version) lines.push(`- safety_rules_version: ${safety.safety_rules_version}`);
+  if (comm.communication_backend) lines.push(`- communication_backend: ${comm.communication_backend}`);
+  if (comm.communication_backend_model) lines.push(`- communication_model: ${comm.communication_backend_model}`);
+  if (comm.communication_prompt_version) lines.push(`- communication_prompt_version: ${comm.communication_prompt_version}`);
+  if (comm.communication_backend_skipped_reason)
+    lines.push(`- communication_backend_skipped_reason: ${String(comm.communication_backend_skipped_reason).trim()}`);
   lines.push("");
   lines.push("## Intake (synthetic/demo)");
   lines.push(`- chief_complaint: ${(intake.chief_complaint || "").trim()}`);
   if ((intake.history || "").trim()) lines.push(`- history: ${(intake.history || "").trim()}`);
   if (vitalsParts.length) lines.push(`- vitals: ${vitalsParts.join(", ")}`);
+  const phi = Array.isArray(structured?.phi_hits) ? structured.phi_hits.map((x) => String(x)).filter((x) => x.trim()) : [];
+  if (phi.length) lines.push(`- phi_hits (heuristic): ${phi.join(", ")}`);
+  const qw = Array.isArray(structured?.data_quality_warnings)
+    ? structured.data_quality_warnings.map((x) => String(x)).filter((x) => x.trim())
+    : [];
+  if (qw.length) lines.push(`- data_quality_warnings: ${qw.join(" • ")}`);
   lines.push("");
   lines.push("## Triage");
   lines.push(`- risk_tier: ${result.risk_tier}`);

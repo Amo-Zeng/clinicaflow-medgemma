@@ -10,6 +10,7 @@ from clinicaflow.policy_pack import load_policy_pack, policy_pack_sha256
 from clinicaflow.settings import load_settings_from_env
 from clinicaflow.version import __version__
 from clinicaflow.inference.openai_compatible import circuit_breaker_status
+from clinicaflow.privacy import phi_guard_enabled
 
 
 def resolve_policy_pack_path() -> tuple[object, str]:
@@ -77,6 +78,9 @@ def collect_diagnostics() -> dict[str, Any]:
             "policy_top_k": settings.policy_top_k,
             "cors_allow_origin": settings.cors_allow_origin,
             "api_key_configured": bool(settings.api_key),
+        },
+        "privacy": {
+            "phi_guard_enabled": phi_guard_enabled(),
         },
         "policy_pack": {
             "source": policy_source,

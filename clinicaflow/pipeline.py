@@ -72,11 +72,16 @@ class ClinicaFlowPipeline:
             structured_payload = self.intake_structuring.run(intake)
         except Exception as exc:  # noqa: BLE001
             structured_error = str(exc)
+            from clinicaflow.privacy import detect_phi_hits
+            from clinicaflow.quality import intake_quality_warnings
+
             structured_payload = {
                 "symptoms": ["unspecified symptoms"],
                 "risk_factors": [],
                 "missing_fields": missing_fields_for(intake),
                 "normalized_summary": sanitize_untrusted_text(intake.combined_text(), max_chars=1200),
+                "phi_hits": detect_phi_hits(intake.combined_text()),
+                "data_quality_warnings": intake_quality_warnings(intake),
             }
         append_trace(agent=self.intake_structuring.name, output=structured_payload, started=start, error=structured_error)
 

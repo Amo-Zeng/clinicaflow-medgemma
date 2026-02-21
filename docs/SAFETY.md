@@ -54,6 +54,9 @@ python -m clinicaflow.benchmarks.vignettes --set adversarial --print-markdown
 - Prefer **local-first** processing in constrained settings.
 - Avoid logging identifiable patient information.
 - If integrating a hosted model endpoint, ensure compliance with local policy and patient consent requirements.
+- **PHI guard (demo-safe default):** ClinicaFlow blocks external model calls when it detects obvious identifiers
+  (email/phone/SSN/MRN/DOB) in the intake text. This is best-effort and can be disabled with `CLINICAFLOW_PHI_GUARD=0`
+  only when you are certain you are using synthetic or properly de-identified data.
 - If writing audit bundles (`clinicaflow audit`), store them securely and follow retention/access controls.
 - If using image uploads (`image_data_urls`) in the demo UI, treat them as sensitive:
   - redacted audit bundles exclude images,

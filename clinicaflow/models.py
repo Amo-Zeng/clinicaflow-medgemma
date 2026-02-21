@@ -78,6 +78,9 @@ class StructuredIntake:
     risk_factors: list[str]
     missing_fields: list[str]
     normalized_summary: str
+    # Best-effort privacy/quality metadata (no PHI content).
+    phi_hits: list[str] = field(default_factory=list)
+    data_quality_warnings: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)

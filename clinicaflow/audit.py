@@ -297,6 +297,7 @@ def _note_markdown_bytes(
     evidence = _trace_output(result_payload, "evidence_policy")
     reasoning = _trace_output(result_payload, "multimodal_reasoning")
     structured = _trace_output(result_payload, "intake_structuring")
+    communication = _trace_output(result_payload, "communication")
 
     lines: list[str] = []
     lines.append("# ClinicaFlow triage note (demo)")
@@ -319,8 +320,22 @@ def _note_markdown_bytes(
         lines.append(f"- reasoning_model: `{str(reasoning.get('reasoning_backend_model'))}`")
     if reasoning.get("reasoning_prompt_version"):
         lines.append(f"- reasoning_prompt_version: `{str(reasoning.get('reasoning_prompt_version'))}`")
+    if reasoning.get("reasoning_backend_skipped_reason"):
+        lines.append(f"- reasoning_backend_skipped_reason: `{str(reasoning.get('reasoning_backend_skipped_reason'))}`")
+    if reasoning.get("reasoning_backend_error"):
+        lines.append(f"- reasoning_backend_error: `{str(reasoning.get('reasoning_backend_error'))}`")
     if evidence.get("policy_pack_sha256"):
         lines.append(f"- policy_pack_sha256: `{str(evidence.get('policy_pack_sha256'))}`")
+    if communication.get("communication_backend"):
+        lines.append(f"- communication_backend: `{str(communication.get('communication_backend'))}`")
+    if communication.get("communication_backend_model"):
+        lines.append(f"- communication_model: `{str(communication.get('communication_backend_model'))}`")
+    if communication.get("communication_prompt_version"):
+        lines.append(f"- communication_prompt_version: `{str(communication.get('communication_prompt_version'))}`")
+    if communication.get("communication_backend_skipped_reason"):
+        lines.append(f"- communication_backend_skipped_reason: `{str(communication.get('communication_backend_skipped_reason'))}`")
+    if communication.get("communication_backend_error"):
+        lines.append(f"- communication_backend_error: `{str(communication.get('communication_backend_error'))}`")
     lines.append("")
 
     lines.append("## Intake (as provided)")
@@ -365,6 +380,22 @@ def _note_markdown_bytes(
     if isinstance(risk_factors, list) and risk_factors:
         lines.append("- extracted_risk_factors:")
         for item in risk_factors:
+            s = str(item).strip()
+            if s:
+                lines.append(f"  - {s}")
+
+    phi_hits = structured.get("phi_hits") or []
+    if isinstance(phi_hits, list) and phi_hits:
+        lines.append("- phi_hits (heuristic; do not include actual identifiers):")
+        for item in phi_hits:
+            s = str(item).strip()
+            if s:
+                lines.append(f"  - {s}")
+
+    quality = structured.get("data_quality_warnings") or []
+    if isinstance(quality, list) and quality:
+        lines.append("- data_quality_warnings:")
+        for item in quality:
             s = str(item).strip()
             if s:
                 lines.append(f"  - {s}")
@@ -512,6 +543,12 @@ def _report_html_bytes(
     risk_factors = structured.get("risk_factors") or []
     if not isinstance(risk_factors, list):
         risk_factors = []
+    quality_warnings = structured.get("data_quality_warnings") or []
+    if not isinstance(quality_warnings, list):
+        quality_warnings = []
+    phi_hits = structured.get("phi_hits") or []
+    if not isinstance(phi_hits, list):
+        phi_hits = []
 
     def li(items: list[str]) -> str:
         if not items:
@@ -578,6 +615,24 @@ def _report_html_bytes(
             agent = str(step.get("agent") or "").strip() or "agent"
             latency = step.get("latency_ms")
             err = str(step.get("error") or "").strip()
+            if not err:
+                out = step.get("output") or {}
+                if isinstance(out, dict) and agent == "multimodal_reasoning":
+                    derived = str(out.get("reasoning_backend_error") or "").strip()
+                    skipped = str(out.get("reasoning_backend_skipped_reason") or "").strip()
+                    if derived:
+                        err = f"fallback: {derived}"
+                    elif skipped:
+                        err = f"skipped: {skipped}"
+                elif isinstance(out, dict) and agent == "communication":
+                    derived = str(out.get("communication_backend_error") or "").strip()
+                    skipped = str(out.get("communication_backend_skipped_reason") or "").strip()
+                    if derived:
+                        err = f"fallback: {derived}"
+                    elif skipped:
+                        err = f"skipped: {skipped}"
+                if err:
+                    err = err[:160]
             latency_str = ""
             if isinstance(latency, (int, float)):
                 latency_str = f"{float(latency):.2f} ms"
@@ -702,12 +757,16 @@ def _report_html_bytes(
             <li>reasoning_backend: <span class="mono">{html.escape(str(reasoning.get('reasoning_backend') or ''))}</span></li>
             <li>reasoning_model: <span class="mono">{html.escape(str(reasoning.get('reasoning_backend_model') or ''))}</span></li>
             <li>reasoning_prompt_version: <span class="mono">{html.escape(str(reasoning.get('reasoning_prompt_version') or ''))}</span></li>
+            <li>reasoning_skipped: <span class="mono">{html.escape(str(reasoning.get('reasoning_backend_skipped_reason') or ''))}</span></li>
+            <li>reasoning_error: <span class="mono">{html.escape(str(reasoning.get('reasoning_backend_error') or ''))}</span></li>
             <li>policy_pack_sha256: <span class="mono">{html.escape(str(evidence.get('policy_pack_sha256') or ''))}</span></li>
             <li>policy_pack_source: <span class="mono">{html.escape(str(evidence.get('policy_pack_source') or ''))}</span></li>
             <li>safety_rules_version: <span class="mono">{html.escape(str(safety.get('safety_rules_version') or ''))}</span></li>
             <li>communication_backend: <span class="mono">{html.escape(str(communication.get('communication_backend') or ''))}</span></li>
             <li>communication_model: <span class="mono">{html.escape(str(communication.get('communication_backend_model') or ''))}</span></li>
             <li>communication_prompt_version: <span class="mono">{html.escape(str(communication.get('communication_prompt_version') or ''))}</span></li>
+            <li>communication_skipped: <span class="mono">{html.escape(str(communication.get('communication_backend_skipped_reason') or ''))}</span></li>
+            <li>communication_error: <span class="mono">{html.escape(str(communication.get('communication_backend_error') or ''))}</span></li>
           </ul>
           <div class="small" style="margin-top: 8px;">
             DISCLAIMER: Decision support only. Not a diagnosis. Clinician confirmation required.
@@ -745,6 +804,10 @@ def _report_html_bytes(
           <ul>{li([str(x) for x in symptoms if str(x).strip()])}</ul>
           <div class="small" style="margin-top: 8px;">Risk factors</div>
           <ul>{li([str(x) for x in risk_factors if str(x).strip()])}</ul>
+          <div class="small" style="margin-top: 8px;">Data quality warnings</div>
+          <ul>{li([str(x) for x in quality_warnings if str(x).strip()])}</ul>
+          <div class="small" style="margin-top: 8px;">PHI patterns (heuristic)</div>
+          <ul>{li([str(x) for x in phi_hits if str(x).strip()])}</ul>
         </div>
         <div class="card">
           <div class="k">Red flags</div>

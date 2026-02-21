@@ -292,6 +292,7 @@ Request tracing:
 - `CLINICAFLOW_POLICY_TOPK` (default: `2`)
 - `CLINICAFLOW_CORS_ALLOW_ORIGIN` (default: `*`)
 - `CLINICAFLOW_API_KEY` (default: empty) — if set, `POST /triage` requires auth (`Authorization: Bearer ...` or `X-API-Key`)
+- `CLINICAFLOW_PHI_GUARD` (default: `true`) — blocks external model calls if obvious identifiers are detected (demo-safe default)
 - `CLINICAFLOW_REASONING_SEND_IMAGES` (default: `false`) — if `true`, send `image_data_urls` to the OpenAI-compatible backend (vision models)
 - `CLINICAFLOW_REASONING_MAX_IMAGES` (default: `2`)
 - `CLINICAFLOW_COMMUNICATION_BACKEND` (default: `deterministic`) — optional draft rewriting via an OpenAI-compatible endpoint

@@ -77,6 +77,7 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
   - packaged-resource validation (`clinicaflow validate`) to prevent broken policy packs / vignette sets,
   - policy-pack introspection endpoint (`GET /policy_pack`) with sha256 + policy IDs (governance-ready),
   - safety rulebook endpoint (`GET /safety_rules`) exposing deterministic trigger catalog + keyword patterns (transparency-ready),
+  - intake data-quality warnings (range checks) surfaced in UI + report exports (reduces unit/input errors),
   - optional JSON logs (`CLINICAFLOW_JSON_LOGS=true`) for log pipelines,
   - optional API-key protection for `POST /triage` (`CLINICAFLOW_API_KEY`),
   - `clinicaflow doctor` for quick runtime/policy-pack sanity checks,
@@ -99,6 +100,7 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
   - retry/backoff knobs (`CLINICAFLOW_REASONING_MAX_RETRIES`, `...RETRY_BACKOFF_S`),
   - inference circuit breaker to prevent cascading timeouts when the model endpoint is down (`CLINICAFLOW_INFERENCE_CIRCUIT_*`),
   - basic prompt-injection hardening (sanitize injection-like lines; quote patient summary as JSON; ignore embedded instructions).
+  - **PHI guard (demo-safe default):** blocks external model calls when obvious identifiers are detected (email/phone/SSN/MRN/DOB), unless explicitly disabled (`CLINICAFLOW_PHI_GUARD=0`).
   - pipeline fail-safe error boundaries: if any agent raises unexpectedly, the run is still returned with a conservative escalation + trace error for audit.
   - optional communication rewrite: `CLINICAFLOW_COMMUNICATION_BACKEND=openai_compatible`.
 

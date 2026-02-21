@@ -5,6 +5,8 @@ import re
 
 from clinicaflow.models import PatientIntake, StructuredIntake, Vitals
 from clinicaflow.policy_pack import PolicySnippet, load_policy_pack, match_policies, policy_pack_sha256
+from clinicaflow.privacy import detect_phi_hits, external_calls_allowed
+from clinicaflow.quality import intake_quality_warnings
 from clinicaflow.rules import (
     RISK_FACTORS,
     SAFETY_RULES_VERSION,
@@ -85,7 +87,8 @@ class IntakeStructuringAgent:
     name = "intake_structuring"
 
     def run(self, intake: PatientIntake) -> dict:
-        text = normalize_text(intake.combined_text()).lower()
+        combined = intake.combined_text()
+        text = normalize_text(combined).lower()
 
         symptoms: list[str] = []
         for canonical, patterns in _SYMPTOM_RULES:
@@ -115,11 +118,16 @@ class IntakeStructuringAgent:
         if intake.vitals.temperature_c is None:
             missing_fields.append("temperature_c")
 
+        phi_hits = detect_phi_hits(combined)
+        quality_warnings = intake_quality_warnings(intake)
+
         structured = StructuredIntake(
             symptoms=_dedupe(symptoms) or ["unspecified symptoms"],
             risk_factors=risk_factors,
             missing_fields=missing_fields,
             normalized_summary=sanitize_untrusted_text(intake.combined_text(), max_chars=1200),
+            phi_hits=phi_hits,
+            data_quality_warnings=quality_warnings,
         )
         return asdict(structured)
 
@@ -128,10 +136,19 @@ class MultimodalClinicalReasoningAgent:
     name = "multimodal_reasoning"
 
     def run(self, structured: StructuredIntake, vitals: Vitals, *, image_data_urls: list[str] | None = None) -> dict:
+        phi_hits = [str(x) for x in (structured.phi_hits or []) if str(x).strip()]
+        backend_skipped_reason = ""
+        if not external_calls_allowed(phi_hits=phi_hits):
+            backend_skipped_reason = f"PHI guard blocked external call: {', '.join(phi_hits)}"
+
         try:
             from clinicaflow.inference.reasoning import run_reasoning_backend
 
-            backend_payload = run_reasoning_backend(structured=structured, vitals=vitals, image_data_urls=image_data_urls)
+            backend_payload = (
+                None
+                if backend_skipped_reason
+                else run_reasoning_backend(structured=structured, vitals=vitals, image_data_urls=image_data_urls)
+            )
             if backend_payload:
                 backend_payload["reasoning_backend"] = "external"
                 return backend_payload
@@ -165,6 +182,8 @@ class MultimodalClinicalReasoningAgent:
             "uses_multimodal_context": bool(structured.normalized_summary) or bool(image_data_urls),
             "reasoning_backend": "deterministic",
             "reasoning_backend_error": backend_error,
+            "reasoning_backend_skipped_reason": backend_skipped_reason,
+            "phi_hits": phi_hits,
         }
 
 
@@ -304,10 +323,18 @@ class CommunicationAgent:
         # Optional: use an external model to rewrite drafts for clarity.
         # Safety governance and triage decisions remain deterministic.
         backend_error = ""
+        backend_skipped_reason = ""
+        phi_hits = detect_phi_hits(intake.combined_text())
+        if not external_calls_allowed(phi_hits=phi_hits):
+            backend_skipped_reason = f"PHI guard blocked external call: {', '.join(phi_hits)}"
         try:
             from clinicaflow.inference.communication import run_communication_backend
 
-            backend_payload = run_communication_backend(draft_clinician=draft_clinician, draft_patient=draft_patient)
+            backend_payload = (
+                None
+                if backend_skipped_reason
+                else run_communication_backend(draft_clinician=draft_clinician, draft_patient=draft_patient)
+            )
             if backend_payload:
                 backend_payload["communication_backend"] = "external"
                 return backend_payload
@@ -319,6 +346,8 @@ class CommunicationAgent:
             "patient_summary": draft_patient,
             "communication_backend": "deterministic",
             "communication_backend_error": backend_error,
+            "communication_backend_skipped_reason": backend_skipped_reason,
+            "phi_hits": phi_hits,
         }
 
 

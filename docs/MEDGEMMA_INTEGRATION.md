@@ -48,6 +48,8 @@ export CLINICAFLOW_REASONING_MAX_RETRIES=1
 export CLINICAFLOW_REASONING_RETRY_BACKOFF_S=0.5
 export CLINICAFLOW_REASONING_TEMPERATURE=0.2
 export CLINICAFLOW_REASONING_MAX_TOKENS=600
+# optional (privacy guard; enabled by default):
+export CLINICAFLOW_PHI_GUARD=1
 # optional: circuit breaker (prevents repeated long timeouts if the endpoint is down)
 export CLINICAFLOW_INFERENCE_CIRCUIT_FAILS=2
 export CLINICAFLOW_INFERENCE_CIRCUIT_COOLDOWN_S=15
