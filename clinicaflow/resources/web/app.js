@@ -751,7 +751,7 @@ const DIRECTOR_STEPS = [
     do: async () => {
       await workspaceDownloadShiftHandoff();
     },
-    highlight: ["#wsDownloadHandoff", "#wsSummary", "#tab-workspace .tablewrap"],
+    highlight: ["#wsDownloadHandoff", "#wsSummary", "#wsBoardWrap", "#wsTableWrap"],
   },
 ];
 
