@@ -158,6 +158,18 @@ Prepare a Kaggle-friendly submission pack (writeup + tables + docs + cover image
 bash scripts/prepare_submission_pack.sh
 ```
 
+Outputs:
+
+- Folder: `tmp/submission_pack/`
+- Zip: `tmp/submission_pack/clinicaflow_submission_pack_<sha>_<timestamp>.zip`
+
+By default, assets are generated in deterministic mode for reproducibility. If you want to use a configured
+OpenAI-compatible MedGemma endpoint during generation, run:
+
+```bash
+SUBMISSION_USE_EXTERNAL=1 bash scripts/prepare_submission_pack.sh
+```
+
 ## Clinical Vignette Regression Sets (standard n=30, adversarial n=20, extended n=100)
 
 A small **synthetic vignette** regression set is included to catch under-triage regressions and verify red-flag recall.

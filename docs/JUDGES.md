@@ -55,3 +55,12 @@ The top-right backend badge should show `openai_compatible`.
   - (optional) increase `CLINICAFLOW_MAX_REQUEST_BYTES` if your payloads are large.
 
 Privacy posture: redacted audit bundles exclude images; full bundles store images under `images/` in the zip.
+
+## 6) Optional: build a submission pack zip (offline-friendly)
+
+```bash
+bash scripts/prepare_submission_pack.sh
+```
+
+This writes `tmp/submission_pack/clinicaflow_submission_pack_<sha>_<timestamp>.zip` (writeup + tables + docs + cover images),
+plus a `submission_manifest.json` with SHA256 hashes for provenance.
