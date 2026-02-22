@@ -2806,6 +2806,81 @@ async function runTriageStream(intake, opts) {
   return { result: finalResult, requestId: rid };
 }
 
+async function triageStreamCollect(intake, opts) {
+  const meta = opts && typeof opts === "object" ? opts : {};
+  const requestIdHeader = String(meta.requestId || "").trim();
+  const onEvent = typeof meta.onEvent === "function" ? meta.onEvent : null;
+
+  const resp = await fetch("/triage_stream", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...buildAuthHeaders(),
+      ...(requestIdHeader ? { "X-Request-ID": requestIdHeader } : {}),
+    },
+    body: JSON.stringify(intake),
+    signal: meta.signal ? meta.signal : undefined,
+  });
+
+  if (!resp.ok) {
+    let data = null;
+    try {
+      data = await resp.json();
+    } catch (e) {
+      // ignore
+    }
+    const msg = data && data.error ? JSON.stringify(data.error) : `HTTP ${resp.status}`;
+    const err = new Error(msg);
+    err.status = resp.status;
+    throw err;
+  }
+
+  const requestId = resp.headers.get("X-Request-ID") || null;
+  const reader = resp.body && typeof resp.body.getReader === "function" ? resp.body.getReader() : null;
+  if (!reader) {
+    const err = new Error("Streaming unsupported (no response body).");
+    err.status = 0;
+    throw err;
+  }
+
+  const decoder = new TextDecoder();
+  let buf = "";
+  let finalResult = null;
+
+  function handleEvent(ev) {
+    if (!ev || typeof ev !== "object") return;
+    const t = String(ev.type || "").trim();
+    if (onEvent) onEvent(ev);
+    if (t === "final") finalResult = ev.result || null;
+    if (t === "error") {
+      const err = new Error(JSON.stringify(ev.error || { code: "stream_error" }));
+      err.status = 500;
+      throw err;
+    }
+  }
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split("\n");
+    buf = lines.pop() || "";
+    for (const line of lines) {
+      const raw = String(line || "").trim();
+      if (!raw) continue;
+      handleEvent(JSON.parse(raw));
+    }
+  }
+
+  buf += decoder.decode();
+  const tail = buf.trim();
+  if (tail) handleEvent(JSON.parse(tail));
+
+  if (!finalResult) throw new Error("Stream ended without final result.");
+  const rid = requestId || finalResult.request_id || requestIdHeader || null;
+  return { result: finalResult, requestId: rid };
+}
+
 async function runTriage() {
   setError("runError", "");
   setError("intakeError", "");
@@ -5307,15 +5382,44 @@ async function workspaceRunTriage(item) {
     if (!String(intake.chief_complaint || "").trim()) throw new Error("Saved intake is missing chief_complaint.");
 
     const requestId = String(item?.result?.request_id || item.id || "").trim();
-    const { data, headers } = await postJson(
-      "/triage",
-      intake,
-      requestId ? { "X-Request-ID": requestId } : null,
-    );
-    const rid = headers.get("X-Request-ID") || data?.request_id || requestId || item.id;
+    let data = null;
+    let rid = null;
+    let streamed = false;
+
+    if (window.ReadableStream && window.TextDecoder) {
+      try {
+        streamed = true;
+        const { result, requestId: streamRid } = await triageStreamCollect(intake, {
+          requestId,
+          onEvent: (ev) => {
+            if (!status) return;
+            const t = String(ev?.type || "").trim();
+            if (t !== "step_start") return;
+            const agent = String(ev?.agent || "").trim();
+            const label = WORKFLOW_LABELS[agent] || agent.replaceAll("_", " ");
+            status.textContent = `Running ${label}…`;
+          },
+        });
+        data = result;
+        rid = streamRid || requestId || item.id;
+      } catch (e) {
+        streamed = false;
+        if (!_streamFallbackOk(e)) throw e;
+      }
+    }
+
+    if (!data) {
+      const { data: out, headers } = await postJson("/triage", intake, requestId ? { "X-Request-ID": requestId } : null);
+      data = out;
+      rid = headers.get("X-Request-ID") || data?.request_id || requestId || item.id;
+    }
+
     const nextStatus = suggestStatusFromResult(data);
     workspaceUpdateItem(item.id, { result: data, checklist: null, status: nextStatus });
-    setText("wsStatus", `Triaged: ${rid} • tier=${data?.risk_tier || "—"} • status=${nextStatus}`);
+    setText(
+      "wsStatus",
+      `Triaged: ${rid} • tier=${data?.risk_tier || "—"} • status=${nextStatus} • stream=${streamed ? "on" : "off"}`,
+    );
     // Keep UI state in sync for quick report downloads.
     state.lastIntake = intake;
     state.lastResult = data;

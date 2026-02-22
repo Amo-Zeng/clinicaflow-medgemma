@@ -3,7 +3,7 @@
 // IMPORTANT: This cache name must change whenever bundled UI assets change,
 // otherwise existing installs can remain stuck on stale JS/CSS indefinitely.
 // Keep it human-readable so it's easy to instruct judges/users to clear it.
-const CACHE_NAME = "clinicaflow-static-0.1.4";
+const CACHE_NAME = "clinicaflow-static-0.1.5";
 
 const STATIC_ASSETS = [
   "/",
