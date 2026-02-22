@@ -4979,6 +4979,31 @@ function renderWorkspaceBoard(itemsAll, filteredItems) {
         ccEl.className = "kanban-cc";
         ccEl.textContent = cc.slice(0, 160);
 
+        const tags = document.createElement("div");
+        tags.className = "kanban-tags";
+
+        function addChip(text, level) {
+          const t = String(text || "").trim();
+          if (!t) return;
+          const span = document.createElement("span");
+          span.className = `chip compact${level ? ` ${level}` : ""}`;
+          span.textContent = t;
+          tags.appendChild(span);
+        }
+
+        if (result) {
+          const tier = String(result.risk_tier || "").trim().toLowerCase();
+          const level = tier === "critical" ? "bad" : tier === "urgent" ? "warn" : tier === "routine" ? "ok" : "";
+          const flags = Array.isArray(result.red_flags) ? result.red_flags.map((x) => String(x || "").trim()).filter((x) => x) : [];
+          flags.slice(0, 2).forEach((f) => addChip(f.length > 34 ? `${f.slice(0, 34)}…` : f, level));
+          if (flags.length > 2) addChip(`+${flags.length - 2} more`, "");
+
+          const actions = Array.isArray(result.recommended_next_actions)
+            ? result.recommended_next_actions.map((x) => String(x || "").trim()).filter((x) => x)
+            : [];
+          if (actions.length) addChip(actions[0].length > 38 ? `${actions[0].slice(0, 38)}…` : actions[0], "");
+        }
+
         const meta = document.createElement("div");
         meta.className = "kanban-meta";
 
@@ -5005,6 +5030,7 @@ function renderWorkspaceBoard(itemsAll, filteredItems) {
 
         card.appendChild(top);
         card.appendChild(ccEl);
+        if (tags.childNodes.length) card.appendChild(tags);
         card.appendChild(meta);
         list.appendChild(card);
       });

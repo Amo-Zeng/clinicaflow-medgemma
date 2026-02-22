@@ -784,6 +784,18 @@ textarea.mono { font-size: 12px; }
 }
 .kanban-meta .mono { font-size: 11px; }
 
+.kanban-tags {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip.compact {
+  font-size: 11px;
+  padding: 2px 7px;
+}
+
 .citations table {
   margin-top: 10px;
   font-size: 12px;
