@@ -742,6 +742,38 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                 status_code = HTTPStatus.OK
                 return
 
+            if path == "/review_packet":
+                from clinicaflow.benchmarks.review_packet import build_review_packet_markdown
+
+                set_name = _normalize_vignette_set(str(query.get("set", ["standard"])[0]))
+                include_gold = str(query.get("include_gold", ["0"])[0]).strip().lower() in {"1", "true", "yes"}
+                limit_raw = str(query.get("limit", ["30"])[0]).strip()
+                try:
+                    limit = int(limit_raw or "30")
+                except ValueError:
+                    limit = 30
+                limit = max(1, min(limit, 200))
+
+                rows = _load_vignettes(set_name)[:limit]
+                md = build_review_packet_markdown(
+                    rows=rows,
+                    set_name=set_name,
+                    include_gold=include_gold,
+                    pipeline=self.server.pipeline,
+                )
+                filename = f"clinicaflow_clinician_review_packet_{set_name}.md"
+                self._write_bytes(
+                    md.encode("utf-8"),
+                    content_type="text/markdown; charset=utf-8",
+                    request_id=request_id,
+                    extra_headers={
+                        "Cache-Control": "no-store",
+                        "Content-Disposition": f'attachment; filename="{filename}"',
+                    },
+                )
+                status_code = HTTPStatus.OK
+                return
+
             if path == "/bench/synthetic":
                 from clinicaflow.benchmarks.synthetic import run_benchmark
 
@@ -1525,6 +1557,13 @@ def _openapi_spec() -> dict:
             "/vignettes": {"get": {"summary": "List vignettes", "responses": {"200": {"description": "list"}}}},
             "/vignettes/{id}": {"get": {"summary": "Get vignette input", "responses": {"200": {"description": "input"}}}},
             "/bench/vignettes": {"get": {"summary": "Run vignette benchmark", "responses": {"200": {"description": "benchmark"}}}},
+            "/review_packet": {
+                "get": {
+                    "summary": "Clinician review packet (markdown)",
+                    "description": "Generates a markdown packet for qualitative review of synthetic vignettes (no PHI).",
+                    "responses": {"200": {"description": "markdown (text/markdown)"}},
+                }
+            },
             "/bench/synthetic": {"get": {"summary": "Run synthetic proxy benchmark", "responses": {"200": {"description": "benchmark"}}}},
             "/triage": {
                 "post": {

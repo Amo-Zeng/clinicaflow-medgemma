@@ -146,6 +146,27 @@ class DemoServerTests(unittest.TestCase):
         finally:
             _stop_server(server, thread)
 
+    def test_review_packet_endpoint(self) -> None:
+        settings = Settings(
+            debug=False,
+            log_level="INFO",
+            json_logs=False,
+            max_request_bytes=262144,
+            policy_top_k=2,
+            policy_pack_path="",
+            cors_allow_origin="*",
+            api_key="",
+        )
+        server, thread, base_url = _start_server(settings=settings)
+        try:
+            status, _, raw = _http("GET", base_url + "/review_packet?set=standard&limit=3&include_gold=1")
+            self.assertEqual(status, 200)
+            text = raw.decode("utf-8")
+            self.assertIn("Clinician Review Packet", text)
+            self.assertIn("## Cases", text)
+        finally:
+            _stop_server(server, thread)
+
     def test_judge_pack_endpoint(self) -> None:
         settings = Settings(
             debug=False,

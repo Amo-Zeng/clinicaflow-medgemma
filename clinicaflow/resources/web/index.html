@@ -572,6 +572,21 @@
             </div>
             <input id="wsImportFile" class="hidden" type="file" accept="application/json" />
 
+            <div class="callout">
+              <div class="k">Queue runner</div>
+              <div class="small muted">Runs triage sequentially for matching workspace items (local-only).</div>
+              <div class="row" style="margin-top: 10px;">
+                <button id="wsRunQueue" class="btn primary" type="button">Run queue</button>
+                <button id="wsStopQueue" class="btn subtle hidden" type="button">Stop</button>
+                <label class="check"><input id="wsQueueRerun" type="checkbox" /> Re-run triaged</label>
+                <span id="wsQueueStatus" class="small"></span>
+              </div>
+              <div id="wsQueueProgress" class="row hidden" style="margin-top: 8px;">
+                <div class="bar" style="max-width: 260px;"><div id="wsQueueBar" class="bar-fill policy"></div></div>
+                <span id="wsQueueProgressText" class="small muted">—</span>
+              </div>
+            </div>
+
             <div id="wsSummary" class="callout">
               <div class="k">Workspace summary</div>
               <div id="wsSummaryText" class="small muted">—</div>
@@ -923,6 +938,17 @@
               <button id="reviewLoadCase" class="btn subtle" type="button">Load case</button>
               <button id="reviewRunTriage" class="btn primary" type="button">Run triage</button>
               <label class="check"><input id="reviewShowGold" type="checkbox" /> Show gold labels</label>
+            </div>
+
+            <div class="callout">
+              <div class="k">Offline review packet</div>
+              <div class="small muted">Download a clinician-friendly markdown packet (synthetic only; no PHI).</div>
+              <div class="row" style="margin-top: 10px;">
+                <input id="reviewPacketLimit" type="number" min="1" step="1" value="20" title="Number of cases to include" style="width: 100px;" />
+                <button id="reviewDownloadPacket" class="btn subtle" type="button">Download packet.md</button>
+                <span id="reviewPacketStatus" class="small"></span>
+              </div>
+              <div class="small muted" style="margin-top: 8px;">Uses current vignette set + “Show gold labels” toggle.</div>
             </div>
 
             <div class="review-split">

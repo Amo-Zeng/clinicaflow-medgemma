@@ -28,20 +28,14 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
-    args = build_parser().parse_args()
-    if args.path:
-        rows = load_vignettes(args.path)
-        set_name = "custom"
-    else:
-        set_name = args.set
-        rows: list[dict[str, Any]] = []
-        for p in load_default_vignette_paths(args.set):
-            rows.extend(load_vignettes(p))
-    rows = rows[: max(0, args.limit)]
-
-    pipeline = ClinicaFlowPipeline()
-
+def build_review_packet_markdown(
+    *,
+    rows: list[dict[str, Any]],
+    set_name: str,
+    include_gold: bool,
+    pipeline: ClinicaFlowPipeline,
+) -> str:
+    rows = rows or []
     lines: list[str] = []
     lines.append("# ClinicaFlow — Clinician Review Packet (No PHI)")
     lines.append("")
@@ -68,7 +62,8 @@ def main() -> None:
         labels = dict(row.get("labels") or {})
 
         intake = PatientIntake.from_mapping(case_input)
-        result = pipeline.run(intake, request_id=f"review-{case_id}")
+        req_id = f"review-{case_id}" if case_id else None
+        result = pipeline.run(intake, request_id=req_id)
 
         lines.append(f"### {case_id}")
         lines.append("")
@@ -78,7 +73,7 @@ def main() -> None:
         lines.append(json.dumps(case_input, indent=2, ensure_ascii=False))
         lines.append("```")
         lines.append("")
-        if args.include_gold:
+        if include_gold:
             lines.append("**Gold label (for regression):**")
             lines.append("")
             lines.append("```json")
@@ -110,8 +105,31 @@ def main() -> None:
         lines.append("----")
         lines.append("")
 
+    return "\n".join(lines).strip() + "\n"
+
+
+def main() -> None:
+    args = build_parser().parse_args()
+    if args.path:
+        rows = load_vignettes(args.path)
+        set_name = "custom"
+    else:
+        set_name = args.set
+        rows: list[dict[str, Any]] = []
+        for p in load_default_vignette_paths(args.set):
+            rows.extend(load_vignettes(p))
+    rows = rows[: max(0, args.limit)]
+
+    pipeline = ClinicaFlowPipeline()
+
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+    md = build_review_packet_markdown(
+        rows=rows,
+        set_name=set_name,
+        include_gold=bool(args.include_gold),
+        pipeline=pipeline,
+    )
+    args.out.write_text(md, encoding="utf-8")
 
 
 if __name__ == "__main__":

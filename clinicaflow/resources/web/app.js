@@ -83,6 +83,14 @@ async function fetchJson(url) {
   return await resp.json();
 }
 
+async function fetchText(url) {
+  const resp = await fetch(url);
+  if (!resp.ok) {
+    throw new Error(`HTTP ${resp.status} for ${url}`);
+  }
+  return await resp.text();
+}
+
 async function postJson(url, payload, extraHeaders, opts) {
   const meta = opts && typeof opts === "object" ? opts : {};
   const resp = await fetch(url, {
@@ -136,6 +144,10 @@ const state = {
   workspace: {
     selectedId: null,
     view: "board",
+    queue: {
+      abortController: null,
+      running: false,
+    },
   },
   ops: {
     intervalId: null,
@@ -5066,6 +5078,15 @@ function renderWorkspaceBoard(itemsAll, filteredItems) {
           tags.appendChild(span);
         }
 
+        const triageErr = String(item.triage_error || "").trim();
+        if (triageErr) {
+          const span = document.createElement("span");
+          span.className = "chip compact bad";
+          span.textContent = "triage error";
+          span.title = triageErr;
+          tags.appendChild(span);
+        }
+
         if (result) {
           const tier = String(result.risk_tier || "").trim().toLowerCase();
           const level = tier === "critical" ? "bad" : tier === "urgent" ? "warn" : tier === "routine" ? "ok" : "";
@@ -5430,6 +5451,176 @@ async function workspaceRunTriage(item) {
   }
 }
 
+function workspaceQueueSetRunning(running) {
+  state.workspace.queue.running = Boolean(running);
+  const runBtn = $("wsRunQueue");
+  const stopBtn = $("wsStopQueue");
+  if (runBtn) runBtn.disabled = state.workspace.queue.running;
+  if (stopBtn) stopBtn.disabled = !state.workspace.queue.running;
+  show("wsStopQueue", state.workspace.queue.running);
+  show("wsQueueProgress", state.workspace.queue.running);
+
+  // Disable mutating actions while queue runner is active to avoid confusing races.
+  const ids = ["wsSaveIntake", "wsSaveRun", "wsExport", "wsImport", "wsReset", "wsRunTriage", "wsUpdateStatus", "wsDeleteSelected"];
+  ids.forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    el.disabled = state.workspace.queue.running;
+  });
+}
+
+function workspaceQueueUpdateProgress({ done, total, ok, err, startedAt, note } = {}) {
+  const fill = $("wsQueueBar");
+  const text = $("wsQueueProgressText");
+  const status = $("wsQueueStatus");
+
+  const d = Number(done) || 0;
+  const t = Math.max(1, Number(total) || 1);
+  const pct = Math.max(0, Math.min(1, d / t));
+  if (fill) fill.style.width = `${Math.round(pct * 100)}%`;
+
+  const started = Number(startedAt) || 0;
+  const elapsedMs = started ? Date.now() - started : 0;
+  const avgMs = d > 0 ? elapsedMs / d : 0;
+  const remainMs = avgMs * Math.max(0, t - d);
+  const eta = d < t && avgMs > 0 ? formatUptime(Math.round(remainMs / 1000)) : "—";
+
+  if (text) {
+    text.textContent = `progress: ${d}/${t} • ok=${Number(ok) || 0} • err=${Number(err) || 0} • eta=${eta}`;
+  }
+  if (status && note) status.textContent = String(note);
+}
+
+function workspaceQueueStop() {
+  const ctrl = state.workspace.queue.abortController;
+  if (!ctrl) return;
+  setText("wsQueueStatus", "Stopping…");
+  const btn = $("wsStopQueue");
+  if (btn) btn.disabled = true;
+  try {
+    ctrl.abort();
+  } catch (e) {
+    // ignore
+  }
+}
+
+async function workspaceRunQueue() {
+  setError("wsError", "");
+  if (state.workspace.queue.running) return;
+
+  const itemsAll = loadWorkspaceItems();
+  const includeTriaged = Boolean($("wsQueueRerun")?.checked);
+  const { items, filters } = workspaceFilterAndSort(itemsAll);
+  const runnable = items.filter((item) => {
+    if (!item || typeof item !== "object") return false;
+    if (workspaceStatus(item) === "closed") return false;
+    if (!includeTriaged && item.result) return false;
+    return true;
+  });
+
+  if (!runnable.length) {
+    setText("wsQueueStatus", `No runnable items in view (filters: status=${filters.status} q=${filters.q || ""}).`);
+    return;
+  }
+
+  const ctrl = typeof AbortController === "function" ? new AbortController() : null;
+  state.workspace.queue.abortController = ctrl;
+  workspaceQueueSetRunning(true);
+
+  const startedAt = Date.now();
+  const total = runnable.length;
+  let done = 0;
+  let ok = 0;
+  let err = 0;
+
+  workspaceQueueUpdateProgress({ done, total, ok, err, startedAt, note: `Queue started (n=${total}).` });
+
+  try {
+    for (let i = 0; i < runnable.length; i += 1) {
+      const item = runnable[i];
+      if (ctrl?.signal?.aborted) throw new DOMException("aborted", "AbortError");
+
+      const intake = item.intake || {};
+      const requestId = String(item?.result?.request_id || item.id || "").trim();
+      const prefix = `Running ${i + 1}/${total}: ${String(item.id || "").slice(0, 12)}`;
+
+      try {
+        if (!String(intake.chief_complaint || "").trim()) throw new Error("Missing chief_complaint.");
+
+        let streamed = false;
+        let data = null;
+        let rid = null;
+
+        if (window.ReadableStream && window.TextDecoder) {
+          try {
+            streamed = true;
+            const { result, requestId: streamRid } = await triageStreamCollect(intake, {
+              requestId,
+              signal: ctrl?.signal,
+              onEvent: (ev) => {
+                const t = String(ev?.type || "").trim();
+                if (t !== "step_start") return;
+                const agent = String(ev?.agent || "").trim();
+                const label = WORKFLOW_LABELS[agent] || agent.replaceAll("_", " ");
+                setText("wsQueueStatus", `${prefix} • ${label}…`);
+              },
+            });
+            data = result;
+            rid = streamRid || requestId || item.id;
+          } catch (e) {
+            streamed = false;
+            if (!_streamFallbackOk(e)) throw e;
+          }
+        }
+
+        if (!data) {
+          const { data: out, headers } = await postJson(
+            "/triage",
+            intake,
+            requestId ? { "X-Request-ID": requestId } : null,
+            { signal: ctrl?.signal },
+          );
+          data = out;
+          rid = headers.get("X-Request-ID") || data?.request_id || requestId || item.id;
+        }
+
+        const nextStatus = suggestStatusFromResult(data);
+        workspaceUpdateItem(item.id, {
+          result: data,
+          checklist: null,
+          status: nextStatus,
+          triage_error: "",
+          triage_error_at: "",
+        });
+        ok += 1;
+        setText("wsQueueStatus", `${prefix} • done tier=${data?.risk_tier || "—"} • status=${nextStatus} • stream=${streamed ? "on" : "off"}`);
+      } catch (e) {
+        if (e && String(e?.name || "") === "AbortError") throw e;
+        err += 1;
+        workspaceUpdateItem(item.id, {
+          triage_error: String(e || "").slice(0, 220),
+          triage_error_at: new Date().toISOString(),
+        });
+        setText("wsQueueStatus", `${prefix} • ERROR: ${String(e || "").slice(0, 120)}`);
+      } finally {
+        done += 1;
+        workspaceQueueUpdateProgress({ done, total, ok, err, startedAt });
+      }
+    }
+  } catch (e) {
+    if (e && String(e?.name || "") === "AbortError") {
+      setText("wsQueueStatus", `Queue cancelled (done=${done}/${total}).`);
+    } else {
+      setError("wsError", e);
+      setText("wsQueueStatus", `Queue error: ${e}`);
+    }
+  } finally {
+    state.workspace.queue.abortController = null;
+    workspaceQueueSetRunning(false);
+    workspaceQueueUpdateProgress({ done, total, ok, err, startedAt });
+  }
+}
+
 async function workspaceExport() {
   const items = loadWorkspaceItems();
   downloadText("clinicaflow_workspace.json", fmtJson(items), "application/json");
@@ -5457,6 +5648,8 @@ async function workspaceImportFromFile(file) {
           result: x.result || null,
           checklist: x.checklist || null,
           status,
+          triage_error: String(x.triage_error || ""),
+          triage_error_at: String(x.triage_error_at || ""),
         };
       });
     saveWorkspaceItems(sanitized);
@@ -5783,6 +5976,35 @@ async function reviewRunTriage() {
     $("reviewOutput").textContent = fmtJson(preview);
   } catch (e) {
     setError("reviewError", e);
+  }
+}
+
+async function reviewDownloadPacket() {
+  setError("reviewError", "");
+  const btn = $("reviewDownloadPacket");
+  const status = $("reviewPacketStatus");
+  const setName = String($("reviewSet")?.value || "standard").trim() || "standard";
+  const include = $("reviewShowGold")?.checked ? 1 : 0;
+  const limitRaw = String($("reviewPacketLimit")?.value || "").trim();
+  let limit = 20;
+  if (limitRaw) {
+    const n = Number(limitRaw);
+    if (Number.isFinite(n)) limit = Math.max(1, Math.min(200, Math.floor(n)));
+  }
+
+  if (btn) btn.disabled = true;
+  if (status) status.textContent = "Generating…";
+  try {
+    const md = await fetchText(
+      `/review_packet?set=${encodeURIComponent(setName)}&limit=${encodeURIComponent(String(limit))}&include_gold=${include}`,
+    );
+    downloadText(`clinician_review_packet_${setName}.md`, md, "text/markdown; charset=utf-8");
+    if (status) status.textContent = `Downloaded (${limit} cases).`;
+  } catch (e) {
+    setError("reviewError", e);
+    if (status) status.textContent = `Error: ${String(e).slice(0, 80)}`;
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -6301,6 +6523,8 @@ function wireEvents() {
   if (reviewLoad) reviewLoad.addEventListener("click", () => reviewLoadCase());
   const reviewRun = $("reviewRunTriage");
   if (reviewRun) reviewRun.addEventListener("click", () => reviewRunTriage());
+  const reviewPacket = $("reviewDownloadPacket");
+  if (reviewPacket) reviewPacket.addEventListener("click", () => reviewDownloadPacket());
   const reviewGold = $("reviewShowGold");
   if (reviewGold)
     reviewGold.addEventListener("change", () => {
@@ -6551,6 +6775,8 @@ function wireEvents() {
   $("wsFilterStatus")?.addEventListener("change", () => renderWorkspaceTable());
   $("wsSort")?.addEventListener("change", () => renderWorkspaceTable());
   $("wsDownloadHandoff")?.addEventListener("click", () => workspaceDownloadShiftHandoff());
+  $("wsRunQueue")?.addEventListener("click", () => workspaceRunQueue());
+  $("wsStopQueue")?.addEventListener("click", () => workspaceQueueStop());
 
   $("wsUpdateStatus")?.addEventListener("click", () => {
     setError("wsError", "");
