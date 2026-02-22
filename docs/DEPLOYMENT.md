@@ -19,7 +19,7 @@ python -m clinicaflow.demo_server
 - Metrics: `http://127.0.0.1:8000/metrics`
 - Probes: `GET /health`, `GET /ready`, `GET /live`
 
-If `CLINICAFLOW_API_KEY` is set, `POST /triage` requires auth via `Authorization: Bearer ...` or `X-API-Key`.
+If `CLINICAFLOW_API_KEY` is set, `POST /triage` and `POST /triage_stream` require auth via `Authorization: Bearer ...` or `X-API-Key`.
 
 ## Docker
 
@@ -50,7 +50,7 @@ Notes:
 - `CLINICAFLOW_POLICY_PACK_PATH=/path/to/site_policy_pack.json`
 - `CLINICAFLOW_POLICY_TOPK=2`
 - `CLINICAFLOW_CORS_ALLOW_ORIGIN=*`
-- `CLINICAFLOW_API_KEY=` (optional; protects `POST /triage`)
+- `CLINICAFLOW_API_KEY=` (optional; protects `POST /triage` + `POST /triage_stream`)
 
 ## Model serving
 

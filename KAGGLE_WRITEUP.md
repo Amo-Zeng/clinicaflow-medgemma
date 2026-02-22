@@ -63,6 +63,7 @@ REQUIRE_MEDGEMMA=1 MEDGEMMA_MODEL='<HF_ID_OR_LOCAL_PATH>' bash scripts/demo_one_
 - request IDs (`X-Request-ID`) + probes (`/health`, `/ready`, `/live`)
 - `/openapi.json` + `/metrics` (JSON + Prometheus)
 - optional API key auth for POST endpoints (`CLINICAFLOW_API_KEY`)
+- streaming triage endpoint (`POST /triage_stream`, NDJSON) powering **real-time agent stepper + progressive trace render**
 - policy pack endpoint + sha256 (`/policy_pack`) for governance
 - deterministic safety rulebook endpoint (`/safety_rules`) for transparency
 - **audit bundles** (redacted/full) and **judge pack.zip** exports from the UI
@@ -112,4 +113,3 @@ Labeling rubric + red-flag categories: `docs/VIGNETTE_REGRESSION.md`.
 - **Video (≤3 min):** https://www.youtube.com/watch?v=vZgvNssSSGk *(placeholder; replace before final submission)*  
 - **Public code repository:** https://github.com/Amo-Zeng/clinicaflow-medgemma  
 - **Bonus: public interactive demo:** run locally via `bash scripts/demo_one_click.sh` (local-first)  
-

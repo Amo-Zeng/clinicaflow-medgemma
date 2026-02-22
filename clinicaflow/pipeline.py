@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import asdict
 import time
+from typing import Any
 
 from clinicaflow.version import __version__
 from clinicaflow.agents import (
@@ -25,7 +28,13 @@ class ClinicaFlowPipeline:
         self.safety_escalation = SafetyEscalationAgent()
         self.communication = CommunicationAgent()
 
-    def run(self, intake: PatientIntake, *, request_id: str | None = None) -> TriageResult:
+    def run(
+        self,
+        intake: PatientIntake,
+        *,
+        request_id: str | None = None,
+        emit: Callable[[dict[str, Any]], None] | None = None,
+    ) -> TriageResult:
         """Run the triage workflow.
 
         Production posture (demo-safe): this pipeline attempts to **fail safe**.
@@ -43,6 +52,25 @@ class ClinicaFlowPipeline:
 
         total_start = time.perf_counter()
         trace: list[AgentTrace] = []
+
+        if emit:
+            emit(
+                {
+                    "type": "meta",
+                    "run_id": run_id,
+                    "request_id": request_id,
+                    "created_at": created_at,
+                    "pipeline_version": __version__,
+                    "safety_rules_version": SAFETY_RULES_VERSION,
+                    "workflow": [
+                        self.intake_structuring.name,
+                        self.multimodal_reasoning.name,
+                        self.evidence_policy.name,
+                        self.safety_escalation.name,
+                        self.communication.name,
+                    ],
+                }
+            )
 
         def missing_fields_for(i: PatientIntake) -> list[str]:
             missing: list[str] = []
@@ -66,6 +94,18 @@ class ClinicaFlowPipeline:
                 )
             )
 
+        def emit_step_start(*, index: int, agent: str) -> None:
+            if not emit:
+                return
+            emit({"type": "step_start", "index": index, "agent": agent})
+
+        def emit_step_end(*, index: int, step: AgentTrace) -> None:
+            if not emit:
+                return
+            emit({"type": "step_end", "index": index, "agent": step.agent, "trace": asdict(step)})
+
+        step_index = 0
+        emit_step_start(index=step_index, agent=self.intake_structuring.name)
         start = time.perf_counter()
         structured_error = None
         try:
@@ -84,9 +124,12 @@ class ClinicaFlowPipeline:
                 "data_quality_warnings": intake_quality_warnings(intake),
             }
         append_trace(agent=self.intake_structuring.name, output=structured_payload, started=start, error=structured_error)
+        emit_step_end(index=step_index, step=trace[-1])
 
         structured = StructuredIntake(**structured_payload)
 
+        step_index += 1
+        emit_step_start(index=step_index, agent=self.multimodal_reasoning.name)
         start = time.perf_counter()
         reasoning_error = None
         try:
@@ -105,7 +148,10 @@ class ClinicaFlowPipeline:
                 "reasoning_prompt_version": "",
             }
         append_trace(agent=self.multimodal_reasoning.name, output=reasoning_payload, started=start, error=reasoning_error)
+        emit_step_end(index=step_index, step=trace[-1])
 
+        step_index += 1
+        emit_step_start(index=step_index, agent=self.evidence_policy.name)
         start = time.perf_counter()
         policy_error = None
         try:
@@ -124,7 +170,10 @@ class ClinicaFlowPipeline:
                 "evidence_note": "Evidence/policy step unavailable (system error); using minimal default actions.",
             }
         append_trace(agent=self.evidence_policy.name, output=policy_payload, started=start, error=policy_error)
+        emit_step_end(index=step_index, step=trace[-1])
 
+        step_index += 1
+        emit_step_start(index=step_index, agent=self.safety_escalation.name)
         start = time.perf_counter()
         safety_error = None
         recommended_actions = policy_payload.get("recommended_next_actions") if isinstance(policy_payload, dict) else None
@@ -168,7 +217,10 @@ class ClinicaFlowPipeline:
                 "actions_added_by_safety": base_actions,
             }
         append_trace(agent=self.safety_escalation.name, output=safety_payload, started=start, error=safety_error)
+        emit_step_end(index=step_index, step=trace[-1])
 
+        step_index += 1
+        emit_step_start(index=step_index, agent=self.communication.name)
         start = time.perf_counter()
         communication_error = None
         try:
@@ -200,6 +252,7 @@ class ClinicaFlowPipeline:
                 "communication_backend_error": communication_error,
             }
         append_trace(agent=self.communication.name, output=communication_payload, started=start, error=communication_error)
+        emit_step_end(index=step_index, step=trace[-1])
 
         total_latency_ms = round((time.perf_counter() - total_start) * 1000, 2)
         return TriageResult(

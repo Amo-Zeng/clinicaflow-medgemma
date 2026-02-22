@@ -284,6 +284,14 @@ curl -s -X POST http://127.0.0.1:8000/triage \
   --data @examples/sample_case.json | python -m json.tool
 ```
 
+Streaming triage (NDJSON events):
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/triage_stream \
+  -H 'Content-Type: application/json' \
+  --data @examples/sample_case.json
+```
+
 Request tracing:
 
 - Send `X-Request-ID` to correlate logs and outputs.
@@ -297,7 +305,7 @@ Request tracing:
 - `CLINICAFLOW_POLICY_PACK_PATH` — replace demo policy pack with site protocols
 - `CLINICAFLOW_POLICY_TOPK` (default: `2`)
 - `CLINICAFLOW_CORS_ALLOW_ORIGIN` (default: `*`)
-- `CLINICAFLOW_API_KEY` (default: empty) — if set, `POST /triage` requires auth (`Authorization: Bearer ...` or `X-API-Key`)
+- `CLINICAFLOW_API_KEY` (default: empty) — if set, `POST /triage` and `POST /triage_stream` require auth (`Authorization: Bearer ...` or `X-API-Key`)
 - `CLINICAFLOW_PHI_GUARD` (default: `true`) — blocks external model calls if obvious identifiers are detected (demo-safe default)
 - `CLINICAFLOW_REASONING_SEND_IMAGES` (default: `false`) — if `true`, send `image_data_urls` to the OpenAI-compatible backend (vision models)
 - `CLINICAFLOW_REASONING_MAX_IMAGES` (default: `2`)

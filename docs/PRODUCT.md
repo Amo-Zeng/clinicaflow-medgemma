@@ -54,7 +54,7 @@ Out of the box (stdlib server):
 - Minimal metrics: `GET /metrics`
 - Ops dashboard (Console UI): **Ops** tab renders live `/metrics` plus per-agent latency/errors (demo-only UI; no secrets)
 - Optional structured JSON logs: `CLINICAFLOW_JSON_LOGS=true`
-- Optional API auth for `POST /triage`: set `CLINICAFLOW_API_KEY` and send `Authorization: Bearer ...` or `X-API-Key`
+- Optional API auth for `POST /triage` and `POST /triage_stream`: set `CLINICAFLOW_API_KEY` and send `Authorization: Bearer ...` or `X-API-Key`
 - Config sanity check: `clinicaflow doctor`
 
 ## Privacy posture

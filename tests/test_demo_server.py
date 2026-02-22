@@ -256,6 +256,51 @@ class DemoServerTests(unittest.TestCase):
         finally:
             _stop_server(server, thread)
 
+    def test_triage_stream_happy_path(self) -> None:
+        settings = Settings(
+            debug=False,
+            log_level="INFO",
+            json_logs=False,
+            max_request_bytes=262144,
+            policy_top_k=2,
+            policy_pack_path="",
+            cors_allow_origin="*",
+            api_key="",
+        )
+        server, thread, base_url = _start_server(settings=settings)
+        try:
+            case = {
+                "chief_complaint": "Chest tightness and can't catch breath for 30 minutes",
+                "history": "history of diabetes",
+                "vitals": {"heart_rate": 142, "systolic_bp": 82, "spo2": 90, "temperature_c": 37.2},
+            }
+            body = json.dumps(case).encode("utf-8")
+            status, headers, raw = _http(
+                "POST",
+                base_url + "/triage_stream",
+                body=body,
+                headers={"Content-Type": "application/json", "X-Request-ID": "triage_stream1"},
+            )
+            self.assertEqual(status, 200)
+            self.assertEqual(headers.get("X-Request-ID"), "triage_stream1")
+            self.assertIn("ndjson", (headers.get("Content-Type") or "").lower())
+
+            events = [json.loads(line) for line in raw.decode("utf-8").splitlines() if line.strip()]
+            self.assertGreaterEqual(len(events), 3)
+
+            types = [str(e.get("type") or "") for e in events]
+            self.assertIn("meta", types)
+            self.assertIn("final", types)
+            self.assertEqual(sum(1 for t in types if t == "step_end"), 5)
+
+            final = next(e for e in events if e.get("type") == "final")
+            result = final.get("result") or {}
+            self.assertIn(result.get("risk_tier"), {"routine", "urgent", "critical"})
+            self.assertTrue(isinstance(result.get("trace"), list))
+            self.assertGreaterEqual(len(result["trace"]), 5)
+        finally:
+            _stop_server(server, thread)
+
     def test_triage_unsupported_media_type(self) -> None:
         settings = Settings(
             debug=False,

@@ -66,3 +66,4 @@ The stdlib demo server (`clinicaflow/demo_server.py`) exposes:
 
 - `GET /health`
 - `POST /triage` (body: `examples/sample_case.json`-compatible)
+- `POST /triage_stream` (NDJSON stream of per-agent events + final result; powers the UI stepper)

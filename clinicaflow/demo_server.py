@@ -801,7 +801,7 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
             path = parsed.path
             query = parse_qs(parsed.query)
 
-            if path not in {"/triage", "/audit_bundle", "/judge_pack", "/fhir_bundle"}:
+            if path not in {"/triage", "/triage_stream", "/audit_bundle", "/judge_pack", "/fhir_bundle"}:
                 self._write_json({"error": {"code": "not_found"}}, code=HTTPStatus.NOT_FOUND, request_id=request_id)
                 status_code = HTTPStatus.NOT_FOUND
                 return
@@ -848,7 +848,7 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
             try:
                 payload = json.loads(raw.decode("utf-8"))
             except json.JSONDecodeError as exc:
-                if path == "/triage":
+                if path in {"/triage", "/triage_stream"}:
                     self.server.stats["triage_errors_total"] += 1
                 elif path == "/audit_bundle":
                     self.server.stats["audit_bundle_errors_total"] += 1
@@ -865,7 +865,7 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                 return
 
             if not isinstance(payload, dict):
-                if path == "/triage":
+                if path in {"/triage", "/triage_stream"}:
                     self.server.stats["triage_errors_total"] += 1
                 elif path == "/audit_bundle":
                     self.server.stats["audit_bundle_errors_total"] += 1
@@ -884,7 +884,7 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
             try:
                 intake_payload, result_payload, checklist = _unwrap_intake_payload(payload)
             except ValueError as exc:
-                if path == "/triage":
+                if path in {"/triage", "/triage_stream"}:
                     self.server.stats["triage_errors_total"] += 1
                 elif path == "/audit_bundle":
                     self.server.stats["audit_bundle_errors_total"] += 1
@@ -906,6 +906,113 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                 existing_result = TriageResult.from_mapping(result_payload)
                 if not existing_result.request_id:
                     existing_result.request_id = request_id
+
+            if path == "/triage_stream":
+                self.server.stats["triage_requests_total"] += 1
+                triage_started = time.perf_counter()
+
+                self._set_headers(
+                    HTTPStatus.OK,
+                    content_type="application/x-ndjson; charset=utf-8",
+                    request_id=request_id,
+                    extra_headers={
+                        "Cache-Control": "no-store",
+                        # Helpful when users run behind reverse proxies that buffer responses.
+                        "X-Accel-Buffering": "no",
+                    },
+                )
+                if getattr(self, "_head_only", False):
+                    status_code = HTTPStatus.OK
+                    return
+
+                def emit(event: dict) -> None:
+                    self.wfile.write(json.dumps(event, ensure_ascii=False).encode("utf-8") + b"\n")
+                    try:
+                        self.wfile.flush()
+                    except Exception:  # noqa: BLE001
+                        pass
+
+                try:
+                    result_obj = self.server.pipeline.run(intake, request_id=request_id, emit=emit)
+                except (BrokenPipeError, ConnectionResetError):  # pragma: no cover
+                    # Client disconnected; stop work quietly.
+                    logger.info("triage_stream_client_disconnected", extra={"event": "triage_stream_client_disconnected", "request_id": request_id})
+                    status_code = HTTPStatus.OK
+                    return
+                except Exception as exc:  # noqa: BLE001
+                    self.server.stats["triage_errors_total"] += 1
+                    logger.exception("triage_stream_error", extra={"event": "triage_stream_error", "request_id": request_id})
+                    msg = str(exc) if self.server.settings.debug else ""
+                    try:
+                        emit({"type": "error", "error": {"code": "internal_error", "message": msg}})
+                    except Exception:  # noqa: BLE001
+                        pass
+                    status_code = HTTPStatus.OK
+                    return
+
+                result = result_obj.to_dict()
+                result["server_latency_ms"] = round((time.perf_counter() - triage_started) * 1000, 2)
+                emit({"type": "final", "result": result})
+
+                self.server.stats["triage_success_total"] += 1
+                risk_tier = str(result.get("risk_tier") or "")
+                if risk_tier in self.server.stats["triage_risk_tier_total"]:
+                    self.server.stats["triage_risk_tier_total"][risk_tier] += 1
+
+                backend = _extract_reasoning_backend(result)
+                if backend in self.server.stats["triage_reasoning_backend_total"]:
+                    self.server.stats["triage_reasoning_backend_total"][backend] += 1
+
+                latency = float(result.get("total_latency_ms") or 0.0)
+                self.server.stats["triage_latency_ms_sum"] += latency
+                self.server.stats["triage_latency_ms_count"] += 1
+
+                trace_rows = result.get("trace") or []
+                if isinstance(trace_rows, list):
+                    for step in trace_rows:
+                        if not isinstance(step, dict):
+                            continue
+                        agent = str(step.get("agent") or "").strip()
+                        if not agent:
+                            continue
+
+                        if agent not in self.server.stats["triage_agent_latency_ms_sum"]:
+                            self.server.stats["triage_agent_latency_ms_sum"][agent] = 0.0
+                            self.server.stats["triage_agent_latency_ms_count"][agent] = 0
+                            self.server.stats["triage_agent_errors_total"][agent] = 0
+
+                        latency_ms = step.get("latency_ms")
+                        if isinstance(latency_ms, (int, float)):
+                            self.server.stats["triage_agent_latency_ms_sum"][agent] += float(latency_ms)
+                            self.server.stats["triage_agent_latency_ms_count"][agent] += 1
+
+                        err = step.get("error")
+                        if isinstance(err, str) and err.strip():
+                            self.server.stats["triage_agent_errors_total"][agent] += 1
+                        else:
+                            out = step.get("output") or {}
+                            derived = ""
+                            if isinstance(out, dict) and agent == "multimodal_reasoning":
+                                derived = str(out.get("reasoning_backend_error") or "").strip()
+                            elif isinstance(out, dict) and agent == "communication":
+                                derived = str(out.get("communication_backend_error") or "").strip()
+                            if derived:
+                                self.server.stats["triage_agent_errors_total"][agent] += 1
+
+                logger.info(
+                    "triage_stream_complete",
+                    extra={
+                        "event": "triage_stream_complete",
+                        "request_id": request_id,
+                        "risk_tier": result.get("risk_tier"),
+                        "escalation_required": result.get("escalation_required"),
+                        "latency_ms": result.get("total_latency_ms"),
+                        "reasoning_backend": backend,
+                    },
+                )
+
+                status_code = HTTPStatus.OK
+                return
 
             if path == "/triage":
                 self.server.stats["triage_requests_total"] += 1
@@ -1186,7 +1293,7 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
             self._write_json(bundle, request_id=bundle_request_id)
             status_code = HTTPStatus.OK
         except Exception as exc:  # noqa: BLE001
-            if urlparse(self.path).path == "/triage":
+            if urlparse(self.path).path in {"/triage", "/triage_stream"}:
                 self.server.stats["triage_errors_total"] += 1
             elif urlparse(self.path).path == "/audit_bundle":
                 self.server.stats["audit_bundle_errors_total"] += 1
@@ -1372,6 +1479,18 @@ def _openapi_spec() -> dict:
                     },
                     "required": ["error"],
                 },
+                "TriageStreamEvent": {
+                    "type": "object",
+                    "properties": {
+                        "type": {"type": "string"},
+                        "index": {"type": "integer", "nullable": True},
+                        "agent": {"type": "string", "nullable": True},
+                        "trace": {"$ref": "#/components/schemas/AgentTrace"},
+                        "result": {"$ref": "#/components/schemas/TriageResult"},
+                        "error": {"type": "object", "nullable": True},
+                    },
+                    "required": ["type"],
+                },
             },
         },
         "paths": {
@@ -1416,6 +1535,35 @@ def _openapi_spec() -> dict:
                     },
                     "responses": {
                         "200": {"description": "triage result", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TriageResult"}}}},
+                        "400": {"description": "bad request", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                        "401": {"description": "unauthorized", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                    },
+                    "security": [{"ApiKeyHeader": []}, {"BearerAuth": []}],
+                }
+            },
+            "/triage_stream": {
+                "post": {
+                    "summary": "Run triage pipeline (streaming)",
+                    "description": "Returns an NDJSON stream of agent events ending with a final TriageResult.",
+                    "requestBody": {
+                        "required": True,
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PatientIntake"}}},
+                    },
+                    "responses": {
+                        "200": {
+                            "description": "NDJSON stream (one JSON object per line)",
+                            "content": {
+                                "application/x-ndjson": {
+                                    "schema": {"type": "string"},
+                                    "example": (
+                                        '{"type":"meta","request_id":"example"}\\n'
+                                        '{"type":"step_start","index":0,"agent":"intake_structuring"}\\n'
+                                        '{"type":"step_end","index":0,"agent":"intake_structuring","trace":{...}}\\n'
+                                        '{"type":"final","result":{...}}\\n'
+                                    ),
+                                }
+                            },
+                        },
                         "400": {"description": "bad request", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
                         "401": {"description": "unauthorized", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
                     },

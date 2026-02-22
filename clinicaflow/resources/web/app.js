@@ -1496,7 +1496,9 @@ function renderTraceMini(trace, opts) {
   const meta = opts && typeof opts === "object" ? opts : {};
   const runningIndexRaw = meta.runningIndex;
   const runningIndex =
-    typeof runningIndexRaw === "number" && Number.isFinite(runningIndexRaw) ? Math.max(0, runningIndexRaw) : null;
+    typeof runningIndexRaw === "number" && Number.isFinite(runningIndexRaw) && runningIndexRaw >= 0 && runningIndexRaw < WORKFLOW_ORDER.length
+      ? runningIndexRaw
+      : null;
 
   const wrap = document.createElement("div");
   wrap.className = "trace-stepper";
@@ -1517,9 +1519,18 @@ function renderTraceMini(trace, opts) {
     }
   }
 
-  if (!steps.length) {
-    WORKFLOW_ORDER.forEach((agentName, idx) => {
-      const label = WORKFLOW_LABELS[agentName] || agentName.replaceAll("_", " ");
+  const byAgent = new Map();
+  steps.forEach((step) => {
+    if (!step || typeof step !== "object") return;
+    const agent = String(step.agent || "").trim();
+    if (!agent || byAgent.has(agent)) return;
+    byAgent.set(agent, step);
+  });
+
+  WORKFLOW_ORDER.forEach((agentName, idx) => {
+    const label = WORKFLOW_LABELS[agentName] || agentName.replaceAll("_", " ");
+    const step = byAgent.get(agentName);
+    if (!step) {
       const isRunning = runningIndex != null && idx === runningIndex;
 
       const btn = document.createElement("button");
@@ -1544,16 +1555,9 @@ function renderTraceMini(trace, opts) {
       btn.appendChild(dot);
       btn.appendChild(body);
       wrap.appendChild(btn);
-    });
+      return;
+    }
 
-    root.innerHTML = "";
-    root.appendChild(wrap);
-    return;
-  }
-
-  steps.forEach((step) => {
-    const agentName = String(step.agent || "agent");
-    const label = WORKFLOW_LABELS[agentName] || agentName.replaceAll("_", " ");
     const latency = step.latency_ms != null ? `${step.latency_ms} ms` : "—";
     const hasErr = Boolean(String(step.error || "").trim());
     const out = step.output && typeof step.output === "object" ? step.output : {};
@@ -1669,7 +1673,7 @@ function renderDecisionBanner(result) {
   el.appendChild(meta);
 }
 
-function renderResult(result, requestIdFromHeader) {
+function renderResult(result, requestIdFromHeader, opts) {
   state.lastResult = result;
   state.lastRequestId = requestIdFromHeader || result.request_id || null;
   state.lastFhirBundle = null;
@@ -1686,8 +1690,10 @@ function renderResult(result, requestIdFromHeader) {
     `request_id: ${state.lastRequestId || "—"} • latency: ${result.total_latency_ms ?? "—"} ms • reasoning: ${backend} • comm: ${commBackend}`,
   );
 
-  const escalation = result.escalation_required ? "required" : "not required";
-  setText("escalationPill", `escalation: ${escalation}`);
+  const hasTier = Boolean(String(result?.risk_tier || "").trim());
+  const esc =
+    !hasTier || result.escalation_required == null ? "—" : result.escalation_required ? "required" : "not required";
+  setText("escalationPill", `escalation: ${esc}`);
 
   const safety = traceOutput(result, "safety_escalation");
   const tierRationale = safety.risk_tier_rationale || "—";
@@ -1751,7 +1757,7 @@ function renderResult(result, requestIdFromHeader) {
   setText("commInfo", commBits.length ? `Communication: ${commBits.join(" • ")}` : "Communication: —");
 
   renderSafetyTriggers(safety?.safety_triggers || []);
-  renderTraceMini(result.trace || []);
+  renderTraceMini(result.trace || [], opts);
   renderTrace(result.trace || []);
 
   $("rawResult").textContent = fmtJson(result);
@@ -2134,7 +2140,7 @@ function renderOpsDashboard() {
   addCard(
     "API auth",
     authRequired ? (authHasKey ? "enabled (key set)" : "enabled (key missing)") : "disabled",
-    "POST: /triage • /audit_bundle • /fhir_bundle",
+    "POST: /triage • /triage_stream • /audit_bundle • /fhir_bundle",
   );
 
   const riskTotals = m.triage_risk_tier_total || {};
@@ -2620,6 +2626,178 @@ async function loadPreset() {
   setText("statusLine", `Loaded preset: ${id}`);
 }
 
+function _asListStrings(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((x) => String(x || "").trim()).filter((x) => x);
+}
+
+function buildPartialResultFromTrace(trace, requestId, meta) {
+  const steps = Array.isArray(trace) ? trace : [];
+  const metaObj = meta && typeof meta === "object" ? meta : {};
+  const rid = String(requestId || metaObj.request_id || "").trim();
+
+  const outByAgent = new Map();
+  steps.forEach((s) => {
+    if (!s || typeof s !== "object") return;
+    const agent = String(s.agent || "").trim();
+    if (!agent || outByAgent.has(agent)) return;
+    const out = s.output && typeof s.output === "object" ? s.output : {};
+    outByAgent.set(agent, out);
+  });
+
+  const reasoning = outByAgent.get("multimodal_reasoning") || {};
+  const evidence = outByAgent.get("evidence_policy") || {};
+  const safety = outByAgent.get("safety_escalation") || {};
+  const comm = outByAgent.get("communication") || {};
+
+  const tier = String(safety.risk_tier || "").trim().toLowerCase();
+  const escalationRequired = typeof safety.escalation_required === "boolean" ? safety.escalation_required : null;
+
+  const totalLatency = steps.reduce((acc, step) => {
+    const v = step && typeof step.latency_ms === "number" ? step.latency_ms : 0;
+    return acc + v;
+  }, 0);
+
+  const actions = _asListStrings(safety.recommended_next_actions || evidence.recommended_next_actions);
+  const differential = _asListStrings(reasoning.differential_considerations);
+  const redFlags = _asListStrings(safety.red_flags);
+  const uncertainty = _asListStrings(safety.uncertainty_reasons);
+  const confidence = typeof safety.confidence === "number" ? safety.confidence : null;
+
+  return {
+    run_id: String(metaObj.run_id || "").trim(),
+    request_id: rid,
+    created_at: String(metaObj.created_at || "").trim(),
+    pipeline_version: String(metaObj.pipeline_version || "").trim(),
+    total_latency_ms: steps.length ? Math.round(totalLatency * 100) / 100 : null,
+    risk_tier: tier,
+    escalation_required: escalationRequired,
+    differential_considerations: differential,
+    red_flags: redFlags,
+    recommended_next_actions: actions,
+    clinician_handoff: String(comm.clinician_handoff || "").trim(),
+    patient_summary: String(comm.patient_summary || "").trim(),
+    confidence: confidence,
+    uncertainty_reasons: uncertainty,
+    trace: steps,
+  };
+}
+
+function _streamFallbackOk(err) {
+  const status = err && typeof err === "object" ? err.status : null;
+  if (status === 404 || status === 405) return true;
+  const msg = String(err?.message || "");
+  return msg.includes("Streaming unsupported") || msg.includes("Stream ended without final");
+}
+
+async function runTriageStream(intake) {
+  stopRunStepper();
+
+  const resp = await fetch("/triage_stream", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...buildAuthHeaders(),
+    },
+    body: JSON.stringify(intake),
+  });
+
+  if (!resp.ok) {
+    let data = null;
+    try {
+      data = await resp.json();
+    } catch (e) {
+      // ignore
+    }
+    const msg = data && data.error ? JSON.stringify(data.error) : `HTTP ${resp.status}`;
+    const err = new Error(msg);
+    err.status = resp.status;
+    throw err;
+  }
+
+  const requestId = resp.headers.get("X-Request-ID") || null;
+  const reader = resp.body && typeof resp.body.getReader === "function" ? resp.body.getReader() : null;
+  if (!reader) {
+    const err = new Error("Streaming unsupported (no response body).");
+    err.status = 0;
+    throw err;
+  }
+
+  let meta = { request_id: requestId || "" };
+  let runningIndex = 0;
+  const trace = [];
+
+  renderResult(buildPartialResultFromTrace(trace, requestId, meta), requestId, { runningIndex });
+
+  const decoder = new TextDecoder();
+  let buf = "";
+  let finalResult = null;
+
+  function updateStatusForStep(agentName, verb) {
+    const label = WORKFLOW_LABELS[String(agentName || "")] || String(agentName || "").replaceAll("_", " ");
+    setText("statusLine", `${verb} ${label}…`);
+  }
+
+  function handleEvent(ev) {
+    if (!ev || typeof ev !== "object") return;
+    const t = String(ev.type || "").trim();
+
+    if (t === "meta") {
+      meta = ev;
+      return;
+    }
+
+    if (t === "step_start") {
+      const idx = typeof ev.index === "number" ? ev.index : null;
+      if (idx != null) runningIndex = idx;
+      updateStatusForStep(ev.agent, "Running");
+      renderTraceMini(trace, { runningIndex });
+      return;
+    }
+
+    if (t === "step_end") {
+      const step = ev.trace;
+      if (step && typeof step === "object") trace.push(step);
+      runningIndex = null;
+      const partial = buildPartialResultFromTrace(trace, requestId, meta);
+      renderResult(partial, requestId, { runningIndex });
+      return;
+    }
+
+    if (t === "final") {
+      finalResult = ev.result || null;
+      return;
+    }
+
+    if (t === "error") {
+      const err = new Error(JSON.stringify(ev.error || { code: "stream_error" }));
+      err.status = 500;
+      throw err;
+    }
+  }
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split("\n");
+    buf = lines.pop() || "";
+    for (const line of lines) {
+      const raw = String(line || "").trim();
+      if (!raw) continue;
+      handleEvent(JSON.parse(raw));
+    }
+  }
+
+  buf += decoder.decode();
+  const tail = buf.trim();
+  if (tail) handleEvent(JSON.parse(tail));
+
+  if (!finalResult) throw new Error("Stream ended without final result.");
+  const rid = requestId || String(meta?.request_id || "").trim() || finalResult.request_id || null;
+  return { result: finalResult, requestId: rid };
+}
+
 async function runTriage() {
   setError("runError", "");
   setError("intakeError", "");
@@ -2657,14 +2835,28 @@ async function runTriage() {
     runBtn.classList.add("loading");
     runBtn.textContent = "Running…";
   }
-  startRunStepper();
 
   try {
+    let streamed = false;
+    if (window.ReadableStream && window.TextDecoder) {
+      try {
+        streamed = true;
+        const { result, requestId } = await runTriageStream(intake);
+        renderResult(result, requestId);
+        setText("statusLine", `Done. risk=${result.risk_tier} • backend=${extractBackend(result)} • stream=on`);
+        return;
+      } catch (e) {
+        streamed = false;
+        if (!_streamFallbackOk(e)) throw e;
+      }
+    }
+
+    if (!streamed) startRunStepper();
     const { data, headers } = await postJson("/triage", intake, {});
     stopRunStepper();
     const reqId = headers.get("X-Request-ID") || null;
     renderResult(data, reqId);
-    setText("statusLine", `Done. risk=${data.risk_tier} • backend=${extractBackend(data)}`);
+    setText("statusLine", `Done. risk=${data.risk_tier} • backend=${extractBackend(data)} • stream=off`);
   } catch (e) {
     stopRunStepper();
     renderTraceMini([]);
