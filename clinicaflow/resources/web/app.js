@@ -83,7 +83,8 @@ async function fetchJson(url) {
   return await resp.json();
 }
 
-async function postJson(url, payload, extraHeaders) {
+async function postJson(url, payload, extraHeaders, opts) {
+  const meta = opts && typeof opts === "object" ? opts : {};
   const resp = await fetch(url, {
     method: "POST",
     headers: {
@@ -92,6 +93,7 @@ async function postJson(url, payload, extraHeaders) {
       ...(extraHeaders || {}),
     },
     body: JSON.stringify(payload),
+    signal: meta.signal ? meta.signal : undefined,
   });
 
   let data = null;
@@ -150,6 +152,9 @@ const state = {
   },
   auth: {
     apiKey: null,
+  },
+  triage: {
+    abortController: null,
   },
 };
 
@@ -2690,16 +2695,19 @@ function _streamFallbackOk(err) {
   return msg.includes("Streaming unsupported") || msg.includes("Stream ended without final");
 }
 
-async function runTriageStream(intake) {
+async function runTriageStream(intake, opts) {
   stopRunStepper();
+  const meta = opts && typeof opts === "object" ? opts : {};
 
   const resp = await fetch("/triage_stream", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...buildAuthHeaders(),
+      ...(meta.requestId ? { "X-Request-ID": String(meta.requestId) } : {}),
     },
     body: JSON.stringify(intake),
+    signal: meta.signal ? meta.signal : undefined,
   });
 
   if (!resp.ok) {
@@ -2830,10 +2838,24 @@ async function runTriage() {
 
   const runBtn = $("runTriage");
   const runBtnLabel = runBtn ? runBtn.textContent : "";
+  const cancelBtn = $("cancelTriage");
+  if (state.triage?.abortController) {
+    try {
+      state.triage.abortController.abort();
+    } catch (e) {
+      // ignore
+    }
+  }
+  const abortController = typeof AbortController === "function" ? new AbortController() : null;
+  if (abortController) state.triage.abortController = abortController;
   if (runBtn) {
     runBtn.disabled = true;
     runBtn.classList.add("loading");
     runBtn.textContent = "Running…";
+  }
+  if (cancelBtn) {
+    cancelBtn.disabled = false;
+    show("cancelTriage", true);
   }
 
   try {
@@ -2841,7 +2863,7 @@ async function runTriage() {
     if (window.ReadableStream && window.TextDecoder) {
       try {
         streamed = true;
-        const { result, requestId } = await runTriageStream(intake);
+        const { result, requestId } = await runTriageStream(intake, { signal: abortController?.signal });
         renderResult(result, requestId);
         setText("statusLine", `Done. risk=${result.risk_tier} • backend=${extractBackend(result)} • stream=on`);
         return;
@@ -2852,7 +2874,7 @@ async function runTriage() {
     }
 
     if (!streamed) startRunStepper();
-    const { data, headers } = await postJson("/triage", intake, {});
+    const { data, headers } = await postJson("/triage", intake, {}, { signal: abortController?.signal });
     stopRunStepper();
     const reqId = headers.get("X-Request-ID") || null;
     renderResult(data, reqId);
@@ -2860,13 +2882,22 @@ async function runTriage() {
   } catch (e) {
     stopRunStepper();
     renderTraceMini([]);
+    if (e && String(e?.name || "") === "AbortError") {
+      setText("statusLine", "Cancelled.");
+      return;
+    }
     setError("runError", e);
     setText("statusLine", "Error.");
   } finally {
+    state.triage.abortController = null;
     if (runBtn) {
       runBtn.disabled = false;
       runBtn.classList.remove("loading");
       runBtn.textContent = runBtnLabel || "Run triage";
+    }
+    if (cancelBtn) {
+      cancelBtn.disabled = true;
+      show("cancelTriage", false);
     }
   }
 }
@@ -5973,6 +6004,18 @@ function wireEvents() {
 
   $("loadPreset").addEventListener("click", () => loadPreset().catch((e) => setError("intakeError", e)));
   $("runTriage").addEventListener("click", () => runTriage());
+  $("cancelTriage")?.addEventListener("click", () => {
+    const ctrl = state.triage?.abortController;
+    if (!ctrl) return;
+    setText("statusLine", "Cancelling…");
+    const btn = $("cancelTriage");
+    if (btn) btn.disabled = true;
+    try {
+      ctrl.abort();
+    } catch (e) {
+      // ignore
+    }
+  });
   $("copyResult").addEventListener("click", () => copyResult());
   $("copyHandoff").addEventListener("click", () => copyText($("handoff").textContent || "", "Copied handoff."));
   $("copyPatient").addEventListener("click", () => copyText($("patientSummary").textContent || "", "Copied precautions."));
