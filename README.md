@@ -25,6 +25,7 @@ It implements a deterministic, auditable 5-agent triage pipeline aligned with th
 - `examples/` — sample payloads
 - `docs/` — architecture + benchmark + safety + video script
 - `docs/JUDGES.md` — 3-minute judge quickstart
+- `docs/EVIDENCE_APIS.md` — optional free evidence citations (PubMed/MedlinePlus)
 - `KAGGLE_WRITEUP.md` — paste-ready Kaggle writeup (≤3 pages)
 - `champion_writeup_medgemma.md` — extended writeup draft (longer form)
 
@@ -42,6 +43,45 @@ One-click demo (starts the demo server; optionally starts a local MedGemma vLLM 
 bash scripts/demo_one_click.sh
 ```
 
+Free hosted MedGemma (no local GPU; best-effort demo-only):
+
+```bash
+USE_FREE_MEDGEMMA=1 bash scripts/demo_one_click.sh
+```
+
+Hugging Face router inference (token required; demo-only but often more stable than random Spaces):
+
+```bash
+CLINICAFLOW_REASONING_BACKEND=hf_inference \
+CLINICAFLOW_REASONING_BASE_URL='https://router.huggingface.co/hf-inference' \
+CLINICAFLOW_REASONING_MODEL='google/medgemma-4b-it' \
+CLINICAFLOW_REASONING_API_KEY='<HF_TOKEN>' \
+bash scripts/demo_one_click.sh
+```
+
+One-click shortcut:
+
+```bash
+USE_HF_ROUTER_MEDGEMMA=1 HF_ROUTER_TOKEN='<HF_TOKEN>' bash scripts/demo_one_click.sh
+```
+
+Optional: attach free external evidence links (no API key; demo-only)
+
+```bash
+CLINICAFLOW_EVIDENCE_BACKEND=auto bash scripts/demo_one_click.sh
+```
+
+This adds best-effort citations from **PubMed / MedlinePlus / Crossref / OpenAlex / ClinicalTrials.gov**
+(no PHI; subject to network/rate limits).
+
+Optional: override the free Space pool (comma-separated; per-entry `api_name` override via `|`):
+
+```bash
+USE_FREE_MEDGEMMA=1 \
+FREE_MEDGEMMA_SPACE_URLS='https://senthil3226w-medgemma-4b-it.hf.space,https://eminkarka1-cortix-medgemma.hf.space|predict' \
+bash scripts/demo_one_click.sh
+```
+
 Then open `http://127.0.0.1:8000/` and click `Director: off` (top right) for a step-by-step 3-minute demo overlay
 (teleprompter + UI highlights; hotkeys: `N`/`P`/`D`/`Esc`).
 
@@ -49,6 +89,12 @@ Recording-friendly mode (auto-starts Director mode + clears local-only demo stor
 
 ```bash
 DEMO_RECORD=1 bash scripts/demo_one_click.sh
+```
+
+Optional: auto-run a vignette at page load (no Director; useful for quick screen recordings):
+
+```bash
+DEMO_RESET=1 DEMO_AUTORUN=critical bash scripts/demo_one_click.sh
 ```
 
 If the UI renders as a “legacy fallback” 2-box page, you likely have a stale install. Fix with:
@@ -243,7 +289,7 @@ Console features:
 - Workspace filters + **shift handoff** export (`shift_handoff.md`)
 - Built-in vignette presets (standard/adversarial/extended)
 - Agent trace viewer (audit-friendly)
-- Downloadable audit bundle zip (redacted/full)
+- Downloadable audit bundle zip (redacted/full; redacted bundles scrub obvious PHI patterns and record `phi_scrubbed_patterns` in `manifest.json`)
 - Downloadable **judge pack** zip (audit bundle + benchmarks + governance + ops snapshots)
 - Downloadable printable triage report (`report.html`)
 - Downloadable minimal FHIR bundle JSON (redacted)
@@ -251,7 +297,7 @@ Console features:
 - Vignette regression tab + markdown table export (copy/download)
 - Governance tab (safety gate dashboard + trigger coverage + action provenance + markdown export)
 - Rules tab (deterministic safety rulebook via `/safety_rules`)
-- Ops tab (live `/metrics` + per-agent latency/errors + markdown export)
+- Ops tab (live `/metrics` + rolling p50/p95 + per-agent latency/errors + markdown export)
 - Failure analysis packet export (includes safety triggers + provenance + workflow mini)
 - Clinician review tab (local-only storage + JSON/Markdown export for writeup)
 
@@ -260,6 +306,7 @@ API spec & metrics:
 - OpenAPI: http://127.0.0.1:8000/openapi.json
 - Metrics: http://127.0.0.1:8000/metrics
   - Prometheus: http://127.0.0.1:8000/metrics?format=prometheus
+  - Rolling window (p50/p95): `CLINICAFLOW_METRICS_WINDOW` (default 200)
 - Doctor (no secrets): http://127.0.0.1:8000/doctor
 - Policy pack: http://127.0.0.1:8000/policy_pack
 - Benchmarks: http://127.0.0.1:8000/bench/synthetic , http://127.0.0.1:8000/bench/vignettes
@@ -319,6 +366,18 @@ Quick config sanity check:
 clinicaflow doctor
 ```
 
+Deep ping (no PHI; validates backends can serve inference):
+
+```bash
+clinicaflow ping --which all --pretty
+```
+
+One-click script equivalent:
+
+```bash
+PING_INFERENCE=1 bash scripts/demo_one_click.sh
+```
+
 ## Integrating Real MedGemma Inference
 
 Current code uses deterministic logic to keep the project runnable everywhere.
@@ -336,6 +395,37 @@ Optional (human-centered language polish): reuse the same endpoint to rewrite dr
 - `CLINICAFLOW_COMMUNICATION_BACKEND=openai_compatible`
 
 See `docs/MEDGEMMA_INTEGRATION.md` for details.
+
+### Free hosted MedGemma (demo-only; best-effort)
+
+If you don’t want to run a local GPU server, you can point ClinicaFlow at a **public Hugging Face Space**
+that exposes a Gradio ChatInterface (or a simple Gradio Interface) for MedGemma.
+
+This is convenient for recording a demo video, but it is **not production-grade**:
+Spaces can change, sleep, rate-limit, or disappear without notice.
+
+Example:
+
+```bash
+export CLINICAFLOW_REASONING_BACKEND=gradio_space
+export CLINICAFLOW_REASONING_BASE_URL='https://senthil3226w-medgemma-4b-it.hf.space'
+# optional (defaults to "chat"):
+export CLINICAFLOW_REASONING_GRADIO_API_NAME=chat
+
+bash scripts/demo_one_click.sh
+```
+
+Or shorter:
+
+```bash
+USE_FREE_MEDGEMMA=1 bash scripts/demo_one_click.sh
+```
+
+By default, `scripts/demo_one_click.sh` will probe a small pool of public Spaces and pick the first one that responds
+(demo-only; subject to quotas/sleep).
+
+Multimodal (images): upload images in the Console UI, then set `CLINICAFLOW_REASONING_SEND_IMAGES=1`
+(best-effort; uploads images to the Space via Gradio).
 
 One-click demo script options:
 

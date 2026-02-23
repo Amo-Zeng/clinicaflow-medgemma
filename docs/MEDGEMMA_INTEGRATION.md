@@ -20,7 +20,110 @@ This will:
 - run `clinicaflow doctor`,
 - start the ClinicaFlow demo server on `http://127.0.0.1:8000`.
 
+Optional: verify the backend actually serves inference (no PHI):
+
+```bash
+clinicaflow ping --which reasoning --pretty
+```
+
 If you are running an already-hosted endpoint, set `CLINICAFLOW_REASONING_BACKEND=openai_compatible` and related env vars directly; the script will not override them.
+
+## Free hosted MedGemma (demo-only; best-effort)
+
+If you don’t want to run a local GPU server, you can use a **public Hugging Face Space**
+that exposes a Gradio ChatInterface (or a simple Gradio Interface) for MedGemma.
+
+Example (no API key required; subject to uptime/quotas):
+
+```bash
+export CLINICAFLOW_REASONING_BACKEND=gradio_space
+export CLINICAFLOW_REASONING_BASE_URL='https://senthil3226w-medgemma-4b-it.hf.space'
+# optional (defaults to "chat"):
+export CLINICAFLOW_REASONING_GRADIO_API_NAME=chat
+```
+
+Optional: configure a failover pool (comma-separated; per-entry `api_name` override via `|`):
+
+```bash
+export CLINICAFLOW_REASONING_BASE_URLS='https://senthil3226w-medgemma-4b-it.hf.space,https://eminkarka1-cortix-medgemma.hf.space|predict'
+```
+
+Then run:
+
+```bash
+bash scripts/demo_one_click.sh
+```
+
+Shortcut:
+
+```bash
+USE_FREE_MEDGEMMA=1 bash scripts/demo_one_click.sh
+```
+
+Notes:
+
+- Treat this as **demo infrastructure** only (no PHI). Keep `CLINICAFLOW_PHI_GUARD=1`.
+- Public Spaces are volatile. The endpoints below were observed to return a valid Gradio `/config` on **2026-02-22**,
+  but can change / sleep / rate-limit any time:
+  - `https://senthil3226w-medgemma-4b-it.hf.space` (`api_name=chat`)
+  - `https://majweldon-medgemma-4b-it.hf.space` (`api_name=chat`)
+  - `https://echo3700-google-medgemma-4b-it.hf.space` (`api_name=chat`)
+  - `https://noumanjavaid-google-medgemma-4b-it.hf.space` (`api_name=chat`)
+  - `https://shiveshk1-google-medgemma-4b-it.hf.space` (`api_name=chat`)
+  - `https://myopicoracle-google-medgemma-4b-it-chatbot.hf.space` (`api_name=chat`)
+  - `https://qazi-musa-med-gemma-3.hf.space` (`api_name=chat`)
+  - `https://warshanks-medgemma-4b-it.hf.space` (`api_name=chat`, often ZeroGPU-quota limited)
+  - `https://warshanks-medgemma-1-5-4b-it.hf.space` (`api_name=chat`, often ZeroGPU-quota limited)
+  - `https://warshanks-medgemma-27b-it.hf.space` (`api_name=chat`, often ZeroGPU-quota limited)
+  - `https://eminkarka1-cortix-medgemma.hf.space` (`api_name=predict`, supports optional image input)
+- Multimodal (images): if the Space supports it, you can upload images in the Console UI and set:
+  - `CLINICAFLOW_REASONING_SEND_IMAGES=1`
+  - `CLINICAFLOW_REASONING_MAX_IMAGES=2` (default)
+  - `CLINICAFLOW_REASONING_MAX_IMAGE_BYTES=2000000` (default; per image)
+  The backend will upload images to the Space via `.../gradio_api/upload` and include them in the ChatInterface request.
+  This is best-effort and may be slower / quota-limited.
+
+### Auto-select from a free Space pool (demo script)
+
+The one-click script can probe a list of Spaces and pick the first one that responds:
+
+```bash
+USE_FREE_MEDGEMMA=1 \
+FREE_MEDGEMMA_SPACE_URLS='https://senthil3226w-medgemma-4b-it.hf.space,https://eminkarka1-cortix-medgemma.hf.space|predict' \
+bash scripts/demo_one_click.sh
+```
+
+## Free-ish hosted MedGemma via Hugging Face router (token required)
+
+Hugging Face has deprecated the old `api-inference.huggingface.co` host and now routes serverless inference via:
+
+- `https://router.huggingface.co/hf-inference`
+
+ClinicaFlow supports this as a backend:
+
+```bash
+export CLINICAFLOW_REASONING_BACKEND=hf_inference
+export CLINICAFLOW_REASONING_BASE_URL='https://router.huggingface.co/hf-inference'
+export CLINICAFLOW_REASONING_MODEL='google/medgemma-4b-it'
+export CLINICAFLOW_REASONING_API_KEY='<HF_TOKEN>'
+```
+
+Then run:
+
+```bash
+bash scripts/demo_one_click.sh
+```
+
+One-click shortcut (sets the env vars for you):
+
+```bash
+USE_HF_ROUTER_MEDGEMMA=1 HF_ROUTER_TOKEN='<HF_TOKEN>' bash scripts/demo_one_click.sh
+```
+
+Notes:
+
+- This is still **demo-only** infrastructure (rate limits, auth, routing changes).
+- If your token has not accepted the model license / gating, the backend will return an auth error and ClinicaFlow will fall back to deterministic reasoning.
 
 ## 1) Start a local model server (example: vLLM)
 

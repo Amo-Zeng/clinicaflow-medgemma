@@ -30,12 +30,14 @@ Structured triage result + trace
 2. **(Multi)modal Reasoning Agent** (`clinicaflow/agents.py`)
    - Produces a short differential and a reasoning rationale.
    - Optional OpenAI-compatible inference backend (`CLINICAFLOW_REASONING_BACKEND=openai_compatible`).
+   - Optional Gradio Space backend for quick demos (`CLINICAFLOW_REASONING_BACKEND=gradio_space`; e.g. a public HF Space).
    - Optional image payloads via `image_data_urls` (data URLs). To send images to a vision-capable endpoint, set `CLINICAFLOW_REASONING_SEND_IMAGES=1`.
    - Intended integration point for MedGemma inference.
 
 3. **Evidence & Policy Agent** (`clinicaflow/agents.py`)
    - Converts the reasoning output into concrete next actions.
    - Uses a lightweight **policy pack** (`clinicaflow/resources/policy_pack.json`) to attach protocol-like citations.
+   - Optional external citations from **free public APIs** (no API keys): set `CLINICAFLOW_EVIDENCE_BACKEND=auto|pubmed|medlineplus|crossref|openalex|clinicaltrials`.
    - In production, this should be replaced with site protocols and IDs.
    - Emits `policy_pack_sha256` + `policy_pack_source` for governance (so changes to protocols are auditable).
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import os
 import re
 
 from clinicaflow.models import PatientIntake, StructuredIntake, Vitals
@@ -204,11 +205,50 @@ class EvidencePolicyAgent:
         for policy in matched[: settings.policy_top_k]:
             action_pool.extend(policy.recommended_actions)
 
+        evidence_backend = os.environ.get("CLINICAFLOW_EVIDENCE_BACKEND", "local").strip().lower() or "local"
+        phi_hits = [str(x) for x in (structured.phi_hits or []) if str(x).strip()]
+        evidence_backend_skipped_reason = ""
+        if evidence_backend not in {"", "local", "policy", "policy_pack", "off", "none", "disabled"}:
+            if not external_calls_allowed(phi_hits=phi_hits):
+                evidence_backend_skipped_reason = f"PHI guard blocked external call: {', '.join(phi_hits)}"
+
+        external_citations: list[dict] = []
+        external_meta: dict = {}
+        evidence_backend_error = ""
+        if evidence_backend_skipped_reason:
+            external_meta = {"backend": evidence_backend, "ok": None, "error": "", "queries": {}}
+        elif evidence_backend in {"", "local", "policy", "policy_pack", "off", "none", "disabled"}:
+            external_meta = {"backend": "local", "ok": None, "error": "", "queries": {}}
+        else:
+            try:
+                from clinicaflow.evidence import collect_external_citations
+
+                symptoms = [str(x) for x in (structured.symptoms or []) if str(x).strip()]
+                differential = [str(x) for x in (reasoning.get("differential_considerations") or []) if str(x).strip()]
+                external_citations, external_meta = collect_external_citations(
+                    backend=evidence_backend,
+                    symptoms=symptoms,
+                    differential=differential,
+                )
+            except Exception as exc:  # noqa: BLE001
+                evidence_backend_error = str(exc)
+                external_citations = []
+                external_meta = {"backend": evidence_backend, "ok": False, "error": evidence_backend_error, "queries": {}}
+
         return {
             **meta,
-            "protocol_citations": [policy.to_dict() for policy in matched[: settings.policy_top_k]],
+            "protocol_citations": [policy.to_dict() for policy in matched[: settings.policy_top_k]] + external_citations,
             "recommended_next_actions": _dedupe(action_pool)[:6],
-            "evidence_note": "Recommendations are grounded in a demo policy pack; replace with site protocol IDs and citations.",
+            "evidence_backend": external_meta.get("backend", "local"),
+            "evidence_backend_ok": external_meta.get("ok"),
+            "evidence_backend_error": str(external_meta.get("error") or evidence_backend_error or "").strip(),
+            "evidence_backend_skipped_reason": evidence_backend_skipped_reason,
+            "evidence_queries": external_meta.get("queries") or {},
+            "evidence_latency_ms": external_meta.get("latency_ms"),
+            "evidence_note": (
+                "Recommendations are grounded in a demo policy pack; replace with site protocol IDs and citations. "
+                "Optional external citations may be fetched from free public APIs (PubMed / MedlinePlus / Crossref / OpenAlex / ClinicalTrials.gov) when enabled."
+            ),
         }
 
 

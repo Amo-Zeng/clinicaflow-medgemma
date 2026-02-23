@@ -30,7 +30,7 @@ ClinicaFlow runs a 5-agent workflow with a full trace:
 
 1) **Intake Structuring Agent**: normalizes text into a compact schema; flags missing critical fields; emits data-quality warnings and PHI-pattern hits (heuristic).  
 2) **Multimodal Clinical Reasoning Agent (MedGemma)**: produces a short differential + rationale from structured intake (and optional images). Falls back safely if unreachable.  
-3) **Evidence & Policy Agent**: maps the case to a lightweight protocol pack (demo) with citations and suggested actions (replace with site protocols).  
+3) **Evidence & Policy Agent**: maps the case to a lightweight protocol pack (demo) with citations and suggested actions; optionally attaches free external citations (PubMed / MedlinePlus / Crossref / OpenAlex / ClinicalTrials.gov) when enabled (replace with site protocols).  
 4) **Safety & Escalation Agent (deterministic)**: red-flag rules + vitals thresholds + conservative escalation to prevent under-triage; produces explainable `safety_triggers`.  
 5) **Communication Agent**: drafts SBAR clinician handoff + patient return precautions; optional MedGemma rewrite-only polish (no new facts).
 
@@ -59,6 +59,22 @@ DEMO_RECORD=1 bash scripts/demo_one_click.sh
 REQUIRE_MEDGEMMA=1 MEDGEMMA_MODEL='<HF_ID_OR_LOCAL_PATH>' bash scripts/demo_one_click.sh
 ```
 
+**No GPU? Demo-only hosted MedGemma (best-effort; subject to quotas/uptime):**
+
+```bash
+USE_FREE_MEDGEMMA=1 REQUIRE_MEDGEMMA=1 bash scripts/demo_one_click.sh
+```
+
+**Alternative (token required): Hugging Face router inference (demo-only):**
+
+```bash
+CLINICAFLOW_REASONING_BACKEND=hf_inference \
+CLINICAFLOW_REASONING_BASE_URL='https://router.huggingface.co/hf-inference' \
+CLINICAFLOW_REASONING_MODEL='google/medgemma-4b-it' \
+CLINICAFLOW_REASONING_API_KEY='<HF_TOKEN>' \
+bash scripts/demo_one_click.sh
+```
+
 **Production-ish scaffolding included (stdlib-only server):**
 - request IDs (`X-Request-ID`) + probes (`/health`, `/ready`, `/live`)
 - `/openapi.json` + `/metrics` (JSON + Prometheus)
@@ -66,8 +82,9 @@ REQUIRE_MEDGEMMA=1 MEDGEMMA_MODEL='<HF_ID_OR_LOCAL_PATH>' bash scripts/demo_one_
 - streaming triage endpoint (`POST /triage_stream`, NDJSON) powering **real-time agent stepper + progressive trace render**
 - policy pack endpoint + sha256 (`/policy_pack`) for governance
 - deterministic safety rulebook endpoint (`/safety_rules`) for transparency
-- **audit bundles** (redacted/full) and **judge pack.zip** exports from the UI
-- minimal FHIR Bundle export (`/fhir_bundle`) for interoperability demos
+- governance report includes benchmark-derived **Ops SLO** stats (end-to-end p95 latency + per-agent errors)
+- **audit bundles** (redacted/full; redacted bundles scrub obvious PHI patterns and record `phi_scrubbed_patterns` in `manifest.json`) and **judge pack.zip** exports from the UI
+- minimal FHIR Bundle export (`/fhir_bundle`) for interoperability demos (also included as `fhir_bundle.json` inside audit bundles + judge packs)
 
 **Reproducibility (one command):**
 

@@ -63,32 +63,103 @@ def run_reasoning_backend(
     if backend in {"", "deterministic"}:
         return None
 
-    if backend not in {"openai", "openai_compatible"}:
+    if backend not in {"openai", "openai_compatible", "gradio_space", "hf_inference"}:
         raise ValueError(f"Unsupported CLINICAFLOW_REASONING_BACKEND: {backend}")
 
-    config = load_openai_compatible_config_from_env()
+    if backend == "gradio_space":
+        from clinicaflow.inference.gradio_space import gradio_chat_completion, load_gradio_space_configs_from_env
 
-    send_images = os.environ.get("CLINICAFLOW_REASONING_SEND_IMAGES", "0").strip().lower() in {"1", "true", "yes"}
-    max_images = int(os.environ.get("CLINICAFLOW_REASONING_MAX_IMAGES", "2").strip() or "2")
+        configs = load_gradio_space_configs_from_env()
+        send_images = os.environ.get("CLINICAFLOW_REASONING_SEND_IMAGES", "0").strip().lower() in {"1", "true", "yes"}
+        max_images = int(os.environ.get("CLINICAFLOW_REASONING_MAX_IMAGES", "2").strip() or "2")
+        max_image_bytes = int(os.environ.get("CLINICAFLOW_REASONING_MAX_IMAGE_BYTES", "2000000").strip() or "2000000")
 
-    raw_urls = image_data_urls or []
-    valid_urls = [str(x).strip() for x in raw_urls if isinstance(x, str) and str(x).strip().startswith("data:image/")]
-    n_images_present = len(valid_urls)
+        raw_urls = image_data_urls or []
+        valid_urls = [str(x).strip() for x in raw_urls if isinstance(x, str) and str(x).strip().startswith("data:image/")]
+        n_images_present = len(valid_urls)
 
-    system, user = build_reasoning_prompt(structured=structured, vitals=vitals, n_images=n_images_present)
-    if send_images and valid_urls:
-        from clinicaflow.inference.openai_compatible import chat_completion_messages
+        system, user = build_reasoning_prompt(structured=structured, vitals=vitals, n_images=n_images_present)
+        errors: list[str] = []
+        chosen = None
+        text = ""
+        for config in configs:
+            try:
+                if send_images and valid_urls:
+                    text = gradio_chat_completion(
+                        config=config,
+                        system=system,
+                        user=user,
+                        image_data_urls=valid_urls,
+                        max_images=max_images,
+                        max_image_bytes=max_image_bytes,
+                    )
+                else:
+                    text = gradio_chat_completion(config=config, system=system, user=user)
+                chosen = config
+                break
+            except InferenceError as exc:
+                errors.append(f"{config.base_url} ({config.api_name}): {exc}")
+                continue
 
-        image_parts = [{"type": "image_url", "image_url": {"url": u}} for u in valid_urls[: max(0, max_images)]]
-        messages = [
-            {"role": "system", "content": system},
-            {"role": "user", "content": [{"type": "text", "text": user}, *image_parts]},
-        ]
-        text = chat_completion_messages(config=config, messages=messages)
-        n_images_sent = len(image_parts)
-    else:
-        text = chat_completion(config=config, system=system, user=user)
+        if not chosen:
+            raise InferenceError("All Gradio Spaces failed. " + "; ".join(errors[:3]))
+
+        if send_images and valid_urls:
+            n_images_sent = len(valid_urls[: max(0, max_images)])
+        else:
+            n_images_sent = 0
+        reasoning_model = f"gradio_space:{chosen.api_name}"
+        reasoning_base_url = chosen.base_url
+    elif backend == "hf_inference":
+        from clinicaflow.inference.hf_inference import hf_generate_text, load_hf_inference_config_from_env_prefix
+
+        config = load_hf_inference_config_from_env_prefix("CLINICAFLOW_REASONING")
+        raw_urls = image_data_urls or []
+        valid_urls = [str(x).strip() for x in raw_urls if isinstance(x, str) and str(x).strip().startswith("data:image/")]
+        n_images_present = len(valid_urls)
+
+        system, user = build_reasoning_prompt(structured=structured, vitals=vitals, n_images=0)
+        prompt = "\n".join(
+            [
+                "SYSTEM:",
+                system.strip(),
+                "",
+                "USER:",
+                user.strip(),
+                "",
+                "ASSISTANT:",
+            ]
+        ).strip()
+        text = hf_generate_text(config=config, prompt=prompt)
         n_images_sent = 0
+        reasoning_model = config.model
+        reasoning_base_url = config.base_url
+    else:
+        config = load_openai_compatible_config_from_env()
+
+        send_images = os.environ.get("CLINICAFLOW_REASONING_SEND_IMAGES", "0").strip().lower() in {"1", "true", "yes"}
+        max_images = int(os.environ.get("CLINICAFLOW_REASONING_MAX_IMAGES", "2").strip() or "2")
+
+        raw_urls = image_data_urls or []
+        valid_urls = [str(x).strip() for x in raw_urls if isinstance(x, str) and str(x).strip().startswith("data:image/")]
+        n_images_present = len(valid_urls)
+
+        system, user = build_reasoning_prompt(structured=structured, vitals=vitals, n_images=n_images_present)
+        if send_images and valid_urls:
+            from clinicaflow.inference.openai_compatible import chat_completion_messages
+
+            image_parts = [{"type": "image_url", "image_url": {"url": u}} for u in valid_urls[: max(0, max_images)]]
+            messages = [
+                {"role": "system", "content": system},
+                {"role": "user", "content": [{"type": "text", "text": user}, *image_parts]},
+            ]
+            text = chat_completion_messages(config=config, messages=messages)
+            n_images_sent = len(image_parts)
+        else:
+            text = chat_completion(config=config, system=system, user=user)
+            n_images_sent = 0
+        reasoning_model = config.model
+        reasoning_base_url = config.base_url
 
     try:
         payload = extract_first_json_object(text)
@@ -112,6 +183,7 @@ def run_reasoning_backend(
         "uses_multimodal_context": uses_multimodal,
         "images_present": n_images_present,
         "images_sent": n_images_sent,
-        "reasoning_backend_model": config.model,
+        "reasoning_backend_model": reasoning_model,
+        "reasoning_backend_base_url": reasoning_base_url,
         "reasoning_prompt_version": REASONING_PROMPT_VERSION,
     }

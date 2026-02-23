@@ -19,8 +19,10 @@
         <span id="backendBadge" class="pill">backend: loading…</span>
         <span id="commBadge" class="pill subtle">comm: loading…</span>
         <span id="policyBadge" class="pill subtle">policy: loading…</span>
+        <span id="evidenceBadge" class="pill subtle">evidence: loading…</span>
         <span id="versionBadge" class="pill subtle">v—</span>
         <span id="authBadge" class="pill subtle">auth: loading…</span>
+        <button id="themeToggle" class="btn subtle" type="button" title="Toggle light/dark theme. Stored locally.">Theme: —</button>
         <button id="directorToggle" class="btn subtle" type="button">Director: off</button>
         <button id="privacyReset" class="btn subtle" type="button" title="Clears local-only demo storage (workspace, checklists, reviews).">Clear demo data</button>
         <a class="btn subtle" href="/openapi.json" target="_blank" rel="noreferrer">OpenAPI</a>
@@ -473,7 +475,7 @@
               </li>
               <li>
                 <div class="k">Governance dashboard (safety gate)</div>
-                <div class="small muted">Show the “under-triage=0” hard gate + trigger coverage.</div>
+                <div class="small muted">Show the “under-triage=0” hard gate + trigger coverage + Ops SLO.</div>
                 <div class="row">
                   <button id="demoGoGovernance" class="btn subtle" type="button">Open Governance tab</button>
                   <button id="demoGovMega" class="btn primary" type="button">Run mega governance</button>
@@ -768,8 +770,11 @@
             </div>
 
             <div id="govProvenance" class="callout"></div>
+            <div id="govOps" class="callout"></div>
             <div id="govTriggers" class="callout"></div>
             <div id="govUnder" class="callout"></div>
+            <div id="govMismatch" class="callout"></div>
+            <div id="govOver" class="callout"></div>
           </section>
         </div>
       </section>
@@ -849,6 +854,7 @@
             <div class="row">
               <button id="opsRefresh" class="btn primary" type="button">Refresh</button>
               <button id="opsSmoke" class="btn subtle" type="button">Smoke check</button>
+              <button id="opsPing" class="btn subtle" type="button" title="Runs a tiny no-PHI inference call to verify the configured backend actually responds.">Ping inference</button>
               <label class="check"><input id="opsAuto" type="checkbox" /> Auto refresh (5s)</label>
               <button id="opsDownloadMd" class="btn subtle" type="button">Download ops report</button>
               <a class="btn subtle" href="/metrics?format=prometheus" target="_blank" rel="noreferrer">Prometheus</a>
@@ -865,6 +871,7 @@
             </div>
 
             <div id="opsSmokeOut" class="callout"></div>
+            <div id="opsPingOut" class="callout"></div>
             <div id="opsAlerts" class="callout"></div>
 
             <div class="callout">
@@ -902,7 +909,9 @@
                 <thead>
                   <tr>
                     <th>Agent</th>
-                    <th>Avg latency (ms)</th>
+                    <th>Avg (ms)</th>
+                    <th>p50 (ms)</th>
+                    <th>p95 (ms)</th>
                     <th>Calls</th>
                     <th>Errors</th>
                   </tr>

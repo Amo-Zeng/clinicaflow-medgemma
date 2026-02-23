@@ -14,12 +14,27 @@ MEDGEMMA_MODEL="${MEDGEMMA_MODEL:-}"
 MEDGEMMA_VLLM_ARGS="${MEDGEMMA_VLLM_ARGS:-}"
 MEDGEMMA_SERVED_MODEL_NAME="${MEDGEMMA_SERVED_MODEL_NAME:-}"
 
+USE_FREE_MEDGEMMA="${USE_FREE_MEDGEMMA:-0}"
+USE_HF_ROUTER_MEDGEMMA="${USE_HF_ROUTER_MEDGEMMA:-0}"
+HF_ROUTER_BASE_URL="${HF_ROUTER_BASE_URL:-https://router.huggingface.co/hf-inference}"
+HF_ROUTER_MODEL="${HF_ROUTER_MODEL:-google/medgemma-4b-it}"
+HF_ROUTER_TOKEN="${HF_ROUTER_TOKEN:-}"
+FREE_MEDGEMMA_SPACE_URL="${FREE_MEDGEMMA_SPACE_URL:-https://senthil3226w-medgemma-4b-it.hf.space}"
+FREE_MEDGEMMA_SPACE_URLS="${FREE_MEDGEMMA_SPACE_URLS:-https://senthil3226w-medgemma-4b-it.hf.space,https://majweldon-medgemma-4b-it.hf.space,https://echo3700-google-medgemma-4b-it.hf.space,https://noumanjavaid-google-medgemma-4b-it.hf.space,https://shiveshk1-google-medgemma-4b-it.hf.space,https://myopicoracle-google-medgemma-4b-it-chatbot.hf.space,https://qazi-musa-med-gemma-3.hf.space,https://warshanks-medgemma-4b-it.hf.space,https://warshanks-medgemma-1-5-4b-it.hf.space,https://warshanks-medgemma-27b-it.hf.space,https://eminkarka1-cortix-medgemma.hf.space|predict}"
+FREE_MEDGEMMA_API_NAME="${FREE_MEDGEMMA_API_NAME:-chat}"
+
 RUN_BENCHMARKS="${RUN_BENCHMARKS:-0}"
 OPEN_BROWSER="${OPEN_BROWSER:-0}"
 DEMO_RECORD="${DEMO_RECORD:-0}"
+DEMO_RESET="${DEMO_RESET:-0}"
+DEMO_AUTORUN="${DEMO_AUTORUN:-}"
+DEMO_AUTORUN_SET="${DEMO_AUTORUN_SET:-}"
+ALLOW_LEGACY_UI="${ALLOW_LEGACY_UI:-0}"
+PING_INFERENCE="${PING_INFERENCE:-0}"
 
 VLLM_PID=""
 SERVER_PID=""
+DOCTOR_JSON=""
 
 cleanup() {
   if [[ -n "${VLLM_PID:-}" ]]; then
@@ -31,6 +46,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
+cf() {
+  python -m clinicaflow.cli "$@"
+}
+
 ensure_venv() {
   if [[ ! -d "$VENV_DIR" ]]; then
     echo "[demo] Creating venv at: $VENV_DIR"
@@ -38,9 +57,14 @@ ensure_venv() {
   fi
   # shellcheck disable=SC1091
   source "$VENV_DIR/bin/activate"
-  echo "[demo] Installing/refreshing dependencies (pip)…"
-  python -m pip install -q -U pip
-  python -m pip install -q -e .
+  # No third-party deps required for the CPU-only demo. We run the CLI via
+  # `python -m clinicaflow.cli` so an editable install is optional.
+  #
+  # Best-effort: if setuptools is available, install editable so users can
+  # also invoke the `clinicaflow` entrypoint.
+  if python -c 'import setuptools' >/dev/null 2>&1; then
+    python -m pip install -q -e . >/dev/null 2>&1 || true
+  fi
 }
 
 wait_for_http_200() {
@@ -101,9 +125,93 @@ find_free_port() {
   return 1
 }
 
+select_free_medgemma_space() {
+  local urls_csv="${FREE_MEDGEMMA_SPACE_URLS:-${FREE_MEDGEMMA_SPACE_URL}}"
+  local entries=()
+  IFS=',' read -ra entries <<< "$urls_csv"
+
+  for entry in "${entries[@]}"; do
+    entry="$(echo "$entry" | xargs)"
+    [[ -z "$entry" ]] && continue
+
+    local url="$entry"
+    local api_name="${FREE_MEDGEMMA_API_NAME}"
+    if [[ "$entry" == *"|"* ]]; then
+      url="$(echo "${entry%%|*}" | xargs)"
+      api_name="$(echo "${entry##*|}" | xargs)"
+    fi
+
+    [[ -z "$url" ]] && continue
+    api_name="${api_name:-chat}"
+
+    echo "[demo] Probing free Space: ${url} (api_name=${api_name})"
+    export CLINICAFLOW_REASONING_BACKEND="gradio_space"
+    export CLINICAFLOW_REASONING_BASE_URL="$url"
+    export CLINICAFLOW_REASONING_BASE_URLS=""
+    export CLINICAFLOW_REASONING_GRADIO_API_NAME="$api_name"
+
+    local dj=""
+    if ! dj="$(cf doctor 2>/dev/null)"; then
+      echo "[demo]   -> doctor failed"
+      continue
+    fi
+
+    local ready=""
+    ready="$(python - <<'PY' <<<"$dj"
+import json
+import sys
+
+payload = json.loads(sys.stdin.read())
+rb = payload.get("reasoning_backend") or {}
+ok = rb.get("connectivity_ok") is True
+gr = rb.get("gradio") or {}
+api_ok = gr.get("api_name_found")
+ready = ok and (api_ok is not False)
+sys.stdout.write("1" if ready else "0")
+PY
+)"
+    if [[ "${ready}" == "1" ]]; then
+      DOCTOR_JSON="$dj"
+      export CLINICAFLOW_REASONING_BASE_URLS="${entry},${urls_csv}"
+      echo "[demo] Selected free Space: ${url} (api_name=${api_name})"
+      return 0
+    fi
+
+    echo "[demo]   -> not ready"
+  done
+
+  echo "[demo] WARNING: No free Spaces were ready; falling back to: ${FREE_MEDGEMMA_SPACE_URL}"
+  export CLINICAFLOW_REASONING_BACKEND="gradio_space"
+  export CLINICAFLOW_REASONING_BASE_URL="${FREE_MEDGEMMA_SPACE_URL}"
+  export CLINICAFLOW_REASONING_BASE_URLS="${urls_csv}"
+  export CLINICAFLOW_REASONING_GRADIO_API_NAME="${FREE_MEDGEMMA_API_NAME}"
+  return 1
+}
+
 maybe_start_medgemma_vllm() {
   if [[ -n "${CLINICAFLOW_REASONING_BACKEND:-}" && "${CLINICAFLOW_REASONING_BACKEND}" != "deterministic" ]]; then
     echo "[demo] Using existing CLINICAFLOW_REASONING_BACKEND=${CLINICAFLOW_REASONING_BACKEND}"
+    return 0
+  fi
+
+  if [[ "${USE_HF_ROUTER_MEDGEMMA}" == "1" ]]; then
+    echo "[demo] Using Hugging Face router inference (token required; demo-only)."
+    export CLINICAFLOW_REASONING_BACKEND="hf_inference"
+    export CLINICAFLOW_REASONING_BASE_URL="${HF_ROUTER_BASE_URL}"
+    export CLINICAFLOW_REASONING_MODEL="${HF_ROUTER_MODEL}"
+    if [[ -n "${HF_ROUTER_TOKEN:-}" ]]; then
+      export CLINICAFLOW_REASONING_API_KEY="${HF_ROUTER_TOKEN}"
+    fi
+    return 0
+  fi
+
+  if [[ "${USE_FREE_MEDGEMMA}" == "1" ]]; then
+    echo "[demo] Using free hosted MedGemma Space (best-effort; demo-only)."
+    export CLINICAFLOW_REASONING_BACKEND="gradio_space"
+    export CLINICAFLOW_REASONING_BASE_URL=""
+    export CLINICAFLOW_REASONING_BASE_URLS="${FREE_MEDGEMMA_SPACE_URLS:-${FREE_MEDGEMMA_SPACE_URL}}"
+    export CLINICAFLOW_REASONING_GRADIO_API_NAME="${FREE_MEDGEMMA_API_NAME}"
+    select_free_medgemma_space || true
     return 0
   fi
 
@@ -176,12 +284,28 @@ fi
 
 echo ""
 echo "[demo] Sanity check:"
-doctor_json="$(clinicaflow doctor)"
+doctor_json="${DOCTOR_JSON:-}"
+if [[ -z "${doctor_json:-}" ]]; then
+  doctor_json="$(cf doctor)"
+fi
 echo "$doctor_json" | python -m json.tool
+
+if [[ "${PING_INFERENCE}" == "1" ]]; then
+  echo ""
+  echo "[demo] Deep ping (no PHI):"
+  if ! cf ping --which all --pretty; then
+    echo ""
+    echo "[demo] WARNING: Inference ping failed."
+    if [[ "${REQUIRE_MEDGEMMA:-0}" == "1" ]]; then
+      echo "       REQUIRE_MEDGEMMA=1 is set; refusing to continue."
+      exit 2
+    fi
+  fi
+fi
 
 echo ""
 echo "[demo] Resource validation (policy pack + vignettes):"
-clinicaflow validate --pretty | python -m json.tool >/dev/null
+cf validate --pretty | python -m json.tool >/dev/null
 echo "[demo] Resource validation: OK"
 
 if [[ "${REQUIRE_MEDGEMMA:-0}" == "1" ]]; then
@@ -194,13 +318,26 @@ rb = payload.get("reasoning_backend") or {}
 backend = str(rb.get("backend") or "").strip().lower()
 ok = rb.get("connectivity_ok")
 model = str(rb.get("model") or "").strip()
+base_url = str(rb.get("base_url") or "").strip()
 
-if backend not in {"openai", "openai_compatible"} or ok is not True or not model:
+ready = False
+if backend in {"openai", "openai_compatible"}:
+    ready = ok is True and bool(model)
+elif backend == "gradio_space":
+    ready = ok is True and bool(base_url)
+elif backend == "hf_inference":
+    ready = ok is True and bool(model) and bool(base_url)
+
+if not ready:
     print("")
     print("[demo] ERROR: REQUIRE_MEDGEMMA=1 but the reasoning backend is not ready.")
-    print(f"       backend={backend!r} connectivity_ok={ok!r} model={model!r}")
+    print(f"       backend={backend!r} connectivity_ok={ok!r} model={model!r} base_url={base_url!r}")
     print("       Fix by setting a real MedGemma endpoint, e.g.:")
     print("         MEDGEMMA_MODEL='<HF_ID_OR_LOCAL_PATH>' bash scripts/demo_one_click.sh")
+    print("       Or use a free hosted Hugging Face Space (best-effort), e.g.:")
+    print("         CLINICAFLOW_REASONING_BACKEND=gradio_space \\")
+    print("         CLINICAFLOW_REASONING_BASE_URL='https://senthil3226w-medgemma-4b-it.hf.space' \\")
+    print("         bash scripts/demo_one_click.sh")
     sys.exit(2)
 PY
 fi
@@ -214,7 +351,7 @@ fi
 echo ""
 echo "[demo] Starting ClinicaFlow demo server..."
 set -x
-clinicaflow serve --host "$CLINICAFLOW_HOST" --port "$CLINICAFLOW_PORT" &
+cf serve --host "$CLINICAFLOW_HOST" --port "$CLINICAFLOW_PORT" &
 set +x
 SERVER_PID="$!"
 
@@ -246,12 +383,20 @@ ui_header="$(
     | tail -n 1
 )"
 if [[ "${ui_header:-}" == "legacy" ]]; then
-  echo "[demo] WARNING: Legacy 2-box fallback UI detected."
-  echo "       Make sure you opened: http://127.0.0.1:${CLINICAFLOW_PORT}/"
-  echo "       If you previously loaded the UI, you may have a stale service-worker cache."
-  echo "       Try: http://127.0.0.1:${CLINICAFLOW_PORT}/?reset=1"
-  echo "       If it persists, delete the venv and re-run:"
-  echo "         rm -rf .venv && bash scripts/demo_one_click.sh"
+  echo "[demo] ERROR: Legacy 2-box fallback UI detected."
+  echo "       This repo ships a richer Console UI; legacy mode usually means:"
+  echo "         - you opened the wrong port, OR"
+  echo "         - a stale service-worker cache, OR"
+  echo "         - a stale venv/install."
+  echo ""
+  echo "       Fix:"
+  echo "         1) Open: http://127.0.0.1:${CLINICAFLOW_PORT}/?reset=1"
+  echo "         2) If it persists: rm -rf .venv && bash scripts/demo_one_click.sh"
+  echo ""
+  echo "       Override (not recommended): ALLOW_LEGACY_UI=1 bash scripts/demo_one_click.sh"
+  if [[ "${ALLOW_LEGACY_UI}" != "1" ]]; then
+    exit 3
+  fi
 fi
 
 UI_URL="http://127.0.0.1:${CLINICAFLOW_PORT}/"
@@ -262,6 +407,20 @@ if [[ "${DEMO_RECORD}" == "1" ]]; then
   echo "[demo] Recording mode enabled (DEMO_RECORD=1)."
   echo "       - Auto-starts Director mode in the browser"
   echo "       - Resets local-only demo storage for a clean recording"
+else
+  qs=""
+  if [[ "${DEMO_RESET}" == "1" ]]; then
+    qs="reset=1"
+  fi
+  if [[ -n "${DEMO_AUTORUN:-}" ]]; then
+    qs="${qs:+${qs}&}autorun=${DEMO_AUTORUN}"
+  fi
+  if [[ -n "${DEMO_AUTORUN_SET:-}" ]]; then
+    qs="${qs:+${qs}&}set=${DEMO_AUTORUN_SET}"
+  fi
+  if [[ -n "${qs:-}" ]]; then
+    UI_URL="http://127.0.0.1:${CLINICAFLOW_PORT}/?${qs}"
+  fi
 fi
 
 echo ""

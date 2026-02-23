@@ -27,13 +27,15 @@ In the UI, start from **Home** (or the welcome modal), then:
 - Or open the **Demo** tab and click through manually:
 
 1. Ops readiness (`/doctor`, `/metrics`, `/openapi.json`, `/policy_pack`)
+   - Optional: deep inference ping (`/ping`) to prove the configured backend actually responds (no PHI).
 2. High-acuity case (critical) + download a **redacted** audit bundle (or **Judge pack.zip**)
+   - In redacted exports, open `manifest.json` to see SHA256 hashes and `phi_scrubbed_patterns` (category labels only).
 3. Neuro red-flag case (urgent)
 4. Routine case
 5. Benchmarks (synthetic proxy + vignette regression; try `standard` or `mega`)
-6. Governance tab (safety gate + trigger coverage + export report)
+6. Governance tab (safety gate + trigger coverage + **Ops SLO** + export report)
 7. Rules tab (deterministic safety rulebook)
-8. Ops tab (live metrics + per-agent latency/errors)
+8. Ops tab (live metrics + rolling p50/p95 + per-agent latency/errors)
 9. Adversarial vignette (abbrev/negation/injection-like strings)
 10. Clinician review tooling (export local review JSON/markdown)
 
@@ -54,6 +56,30 @@ REQUIRE_MEDGEMMA=1 MEDGEMMA_MODEL='<HF_ID_OR_LOCAL_PATH>' bash scripts/demo_one_
 ```
 
 The top-right backend badge should show `openai_compatible`.
+
+If you **don’t** have a GPU machine, you can try a **public Hugging Face Space** (Gradio) as a demo-only backend:
+
+```bash
+USE_FREE_MEDGEMMA=1 REQUIRE_MEDGEMMA=1 bash scripts/demo_one_click.sh
+```
+
+This is best-effort (Spaces can be rate-limited/sleep/change).
+
+If you have a Hugging Face token, you can also use the **Hugging Face router inference API** (demo-only):
+
+```bash
+USE_HF_ROUTER_MEDGEMMA=1 HF_ROUTER_TOKEN='<HF_TOKEN>' REQUIRE_MEDGEMMA=1 bash scripts/demo_one_click.sh
+```
+
+## Optional: free evidence links (PubMed / MedlinePlus / Crossref / OpenAlex / ClinicalTrials.gov)
+
+Attach best-effort external citations (no API keys; demo-only):
+
+```bash
+CLINICAFLOW_EVIDENCE_BACKEND=auto bash scripts/demo_one_click.sh
+```
+
+See `docs/EVIDENCE_APIS.md` for backend options and tuning.
 
 ## 5) Optional: multimodal images in the demo UI
 

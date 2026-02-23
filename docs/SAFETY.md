@@ -57,6 +57,9 @@ python -m clinicaflow.benchmarks.vignettes --set adversarial --print-markdown
 - **PHI guard (demo-safe default):** ClinicaFlow blocks external model calls when it detects obvious identifiers
   (email/phone/SSN/MRN/DOB) in the intake text. This is best-effort and can be disabled with `CLINICAFLOW_PHI_GUARD=0`
   only when you are certain you are using synthetic or properly de-identified data.
+- **Redacted audit bundles** (`redact=1`) additionally apply best-effort scrubbing of the same PHI patterns in exported
+  JSON artifacts and record *which pattern classes were detected* in `manifest.json` as `phi_scrubbed_patterns`
+  (category labels only; no identifiers).
 - If writing audit bundles (`clinicaflow audit`), store them securely and follow retention/access controls.
 - If using image uploads (`image_data_urls`) in the demo UI, treat them as sensitive:
   - redacted audit bundles exclude images,

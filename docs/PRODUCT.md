@@ -42,6 +42,7 @@ Design choices intended for real-world deployment:
 - Safety-critical escalation is deterministic (rules + conservative thresholds).
 - Each run includes an auditable trace and timing metadata.
 - Evidence agent emits `policy_pack_sha256` + `policy_pack_source` so protocol updates are traceable.
+- Evidence agent can optionally attach external citations from free public APIs (PubMed / MedlinePlus / Crossref / OpenAlex / ClinicalTrials.gov) when enabled, but must remain PHI-safe.
 - External reasoning emits `reasoning_backend_model` + `reasoning_prompt_version` so model/prompt changes are traceable.
 - `clinicaflow audit` writes a run bundle (input + output + doctor diagnostics + manifest with hashes).
 
@@ -52,7 +53,9 @@ Out of the box (stdlib server):
 - Request correlation via `X-Request-ID`
 - Health probes: `GET /health`, `GET /ready`, `GET /live`
 - Minimal metrics: `GET /metrics`
+- Rolling window metrics (p50/p95 + recent error rate): `CLINICAFLOW_METRICS_WINDOW` (default 200)
 - Ops dashboard (Console UI): **Ops** tab renders live `/metrics` plus per-agent latency/errors (demo-only UI; no secrets)
+- Governance report includes benchmark-derived **Ops SLO** stats (end-to-end p50/p95 + per-agent latency/errors) for incident-readiness.
 - Optional structured JSON logs: `CLINICAFLOW_JSON_LOGS=true`
 - Optional API auth for `POST /triage` and `POST /triage_stream`: set `CLINICAFLOW_API_KEY` and send `Authorization: Bearer ...` or `X-API-Key`
 - Config sanity check: `clinicaflow doctor`

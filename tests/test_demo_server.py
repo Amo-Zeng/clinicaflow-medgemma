@@ -51,6 +51,35 @@ def _sockets_permitted() -> bool:
 
 @unittest.skipUnless(_sockets_permitted(), "Sockets are not permitted in this execution environment")
 class DemoServerTests(unittest.TestCase):
+    def test_console_ui_is_served_by_default(self) -> None:
+        settings = Settings(
+            debug=False,
+            log_level="INFO",
+            json_logs=False,
+            max_request_bytes=262144,
+            policy_top_k=2,
+            policy_pack_path="",
+            cors_allow_origin="*",
+            api_key="",
+        )
+        server, thread, base_url = _start_server(settings=settings)
+        try:
+            status, headers, raw = _http("HEAD", base_url + "/", headers={"X-Request-ID": "ui1"})
+            self.assertEqual(status, 200)
+            self.assertEqual(headers.get("X-Request-ID"), "ui1")
+            self.assertEqual(headers.get("X-ClinicaFlow-UI"), "console")
+            self.assertEqual(headers.get("X-Content-Type-Options"), "nosniff")
+            self.assertEqual(headers.get("X-Frame-Options"), "DENY")
+            self.assertEqual(headers.get("Referrer-Policy"), "no-referrer")
+            self.assertIn("camera=()", headers.get("Permissions-Policy") or "")
+            csp = headers.get("Content-Security-Policy") or ""
+            self.assertIn("default-src 'self'", csp)
+            self.assertIn("frame-ancestors 'none'", csp)
+            self.assertIn("script-src 'self'", csp)
+            self.assertEqual(raw, b"")
+        finally:
+            _stop_server(server, thread)
+
     def test_health_and_request_id_echo(self) -> None:
         settings = Settings(
             debug=False,
@@ -69,6 +98,54 @@ class DemoServerTests(unittest.TestCase):
             self.assertEqual(headers.get("X-Request-ID"), "req123")
             payload = json.loads(raw.decode("utf-8"))
             self.assertEqual(payload["status"], "ok")
+        finally:
+            _stop_server(server, thread)
+
+    def test_ping_endpoint_deterministic(self) -> None:
+        settings = Settings(
+            debug=False,
+            log_level="INFO",
+            json_logs=False,
+            max_request_bytes=262144,
+            policy_top_k=2,
+            policy_pack_path="",
+            cors_allow_origin="*",
+            api_key="",
+        )
+        server, thread, base_url = _start_server(settings=settings)
+        try:
+            status, headers, raw = _http("GET", base_url + "/ping?which=all", headers={"X-Request-ID": "ping1"})
+            self.assertEqual(status, 200)
+            self.assertEqual(headers.get("X-Request-ID"), "ping1")
+            payload = json.loads(raw.decode("utf-8"))
+            self.assertIn("ok", payload)
+            self.assertIn("reasoning", payload)
+            self.assertIn("communication", payload)
+            self.assertTrue(payload["reasoning"]["ok"])
+            self.assertTrue(payload["communication"]["ok"])
+        finally:
+            _stop_server(server, thread)
+
+    def test_ping_endpoint_requires_auth_when_api_key_configured(self) -> None:
+        settings = Settings(
+            debug=False,
+            log_level="INFO",
+            json_logs=False,
+            max_request_bytes=262144,
+            policy_top_k=2,
+            policy_pack_path="",
+            cors_allow_origin="*",
+            api_key="secret",
+        )
+        server, thread, base_url = _start_server(settings=settings)
+        try:
+            status, _, _ = _http("GET", base_url + "/ping?which=reasoning")
+            self.assertEqual(status, 401)
+
+            status2, _, raw2 = _http("GET", base_url + "/ping?which=reasoning", headers={"X-API-Key": "secret"})
+            self.assertEqual(status2, 200)
+            payload = json.loads(raw2.decode("utf-8"))
+            self.assertIn("reasoning", payload)
         finally:
             _stop_server(server, thread)
 
@@ -204,6 +281,7 @@ class DemoServerTests(unittest.TestCase):
                 self.assertIn("judge_pack_manifest.json", names)
                 self.assertIn("triage/intake.json", names)
                 self.assertIn("triage/triage_result.json", names)
+                self.assertIn("triage/fhir_bundle.json", names)
                 self.assertIn("system/doctor.json", names)
                 self.assertIn("system/metrics.json", names)
                 self.assertIn("resources/policy_pack.json", names)
@@ -504,6 +582,7 @@ class DemoServerTests(unittest.TestCase):
                 names = set(zf.namelist())
                 self.assertIn("triage_result.json", names)
                 self.assertIn("actions_checklist.json", names)
+                self.assertIn("fhir_bundle.json", names)
                 self.assertIn("note.md", names)
                 self.assertIn("report.html", names)
                 triage_result = json.loads(zf.read("triage_result.json").decode("utf-8"))

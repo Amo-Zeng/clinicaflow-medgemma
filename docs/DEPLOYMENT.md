@@ -17,6 +17,7 @@ python -m clinicaflow.demo_server
 - Demo UI: `http://127.0.0.1:8000/`
 - OpenAPI: `http://127.0.0.1:8000/openapi.json`
 - Metrics: `http://127.0.0.1:8000/metrics`
+- Deep ping (inference; no PHI): `http://127.0.0.1:8000/ping?which=all`
 - Probes: `GET /health`, `GET /ready`, `GET /live`
 
 If `CLINICAFLOW_API_KEY` is set, `POST /triage` and `POST /triage_stream` require auth via `Authorization: Bearer ...` or `X-API-Key`.

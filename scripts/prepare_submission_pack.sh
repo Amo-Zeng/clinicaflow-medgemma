@@ -34,18 +34,22 @@ ensure_venv() {
   fi
   # shellcheck disable=SC1091
   source "$VENV_DIR/bin/activate"
-  python -m pip install -q -U pip
-  python -m pip install -q -e .
+  # No third-party deps required for deterministic pack generation in this repo.
+  # Best-effort editable install (only if setuptools exists) so the
+  # `clinicaflow` entrypoint works for users.
+  if python -c 'import setuptools' >/dev/null 2>&1; then
+    python -m pip install -q -e . >/dev/null 2>&1 || true
+  fi
 }
 
 echo "[pack] Generating clinician review packet (synthetic; no PHI)..."
 ensure_venv >/dev/null
-clinicaflow benchmark review_packet --set standard --limit 30 --include-gold --out "$OUT_DIR/clinician_review_packet_standard.md" >/dev/null
+python -m clinicaflow benchmark review_packet --set standard --limit 30 --include-gold --out "$OUT_DIR/clinician_review_packet_standard.md" >/dev/null
 
 if [[ -f "reviews/clinician_reviews.json" ]]; then
   echo "[pack] Including clinician review notes..."
   cp -f "reviews/clinician_reviews.json" "$OUT_DIR/clinician_reviews.json"
-  clinicaflow benchmark review_summary --in "reviews/clinician_reviews.json" --out "$OUT_DIR/clinician_review_summary.md" --max-quotes 3 >/dev/null || true
+  python -m clinicaflow benchmark review_summary --in "reviews/clinician_reviews.json" --out "$OUT_DIR/clinician_review_summary.md" --max-quotes 3 >/dev/null || true
 else
   echo "[pack] No clinician review JSON found at reviews/clinician_reviews.json (skipping)."
 fi
@@ -58,8 +62,10 @@ cp -f docs/JUDGES.md "$OUT_DIR/JUDGES.md"
 cp -f docs/VIDEO_SCRIPT.md "$OUT_DIR/VIDEO_SCRIPT.md"
 cp -f docs/SAFETY.md "$OUT_DIR/SAFETY.md"
 cp -f docs/MEDGEMMA_INTEGRATION.md "$OUT_DIR/MEDGEMMA_INTEGRATION.md"
+if [[ -f "docs/EVIDENCE_APIS.md" ]]; then cp -f docs/EVIDENCE_APIS.md "$OUT_DIR/EVIDENCE_APIS.md"; fi
 cp -f docs/VIGNETTE_REGRESSION.md "$OUT_DIR/VIGNETTE_REGRESSION.md"
 cp -f docs/CLINICIAN_REVIEW_TEMPLATE.md "$OUT_DIR/CLINICIAN_REVIEW_TEMPLATE.md"
+if [[ -f "docs/PRODUCT.md" ]]; then cp -f docs/PRODUCT.md "$OUT_DIR/PRODUCT.md"; fi
 
 if [[ -f "cover_560x280.png" ]]; then cp -f cover_560x280.png "$OUT_DIR/cover_560x280.png"; fi
 if [[ -f "cover_560x280.jpg" ]]; then cp -f cover_560x280.jpg "$OUT_DIR/cover_560x280.jpg"; fi

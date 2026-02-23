@@ -42,7 +42,7 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
 
 1. **Intake Structuring Agent**: normalizes free-text into a compact schema and flags missing critical fields.
 2. **(Multi)modal Reasoning Agent**: generates a short differential + rationale **powered by MedGemma** (served via an OpenAI-compatible endpoint; falls back safely if unreachable).
-3. **Evidence & Policy Agent**: translates reasoning into concrete next actions and attaches lightweight protocol-style citations (demo policy pack; replace with site protocols).
+3. **Evidence & Policy Agent**: translates reasoning into concrete next actions and attaches lightweight protocol-style citations (demo policy pack; replace with site protocols). Optional: attach best-effort free external citations (PubMed / MedlinePlus / Crossref / OpenAlex / ClinicalTrials.gov) via `CLINICAFLOW_EVIDENCE_BACKEND=auto`.
 4. **Safety & Escalation Agent**: applies deterministic red-flag rules + uncertainty thresholds to prevent under-triage.
 5. **Communication Agent**: produces a clinician handoff summary and patient-facing return precautions in plain language (optionally rewritten by MedGemma for clarity; rewrite-only, no new facts).
    - Clinician handoff is formatted as an SBAR-style draft for faster review.
@@ -66,7 +66,7 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
 
 - **Runnable everywhere**: the open-source scaffold runs without GPUs and includes a local demo server.
 - **Reproducible evaluation**: we ship a synthetic benchmark + baseline so improvements are measurable and repeatable.
-- **Safety governance gate**: `clinicaflow benchmark governance --set mega --gate` generates an exportable governance report + failure packet and fails CI if under-triage regresses.
+- **Safety governance gate**: `clinicaflow benchmark governance --set mega --gate` generates an exportable governance report + failure packet and fails CI if under-triage regresses; the report also includes benchmark-derived **Ops SLO** stats (end-to-end p50/p95 + per-agent latency/errors).
 - **Auditability**: every run records a 5-step trace that can be logged and inspected.
 - **Ops readiness**: the Console UI includes an Ops dashboard backed by `/metrics` (JSON + Prometheus) with per-agent latency/error breakdowns.
 - **Production-ready scaffolding**:
@@ -110,6 +110,8 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
 - **Local-first**: ClinicaFlow can run on a clinic workstation or small on-prem server; the reasoning model can be served as a separate on-prem service.
 - **Human-in-the-loop**: clinicians confirm escalation/disposition; ClinicaFlow drafts the note + checklist and highlights safety triggers.
 - **QA/compliance workflow**: `clinicaflow audit --input ... --out-dir ...` writes an audit bundle (input + output + doctor diagnostics + manifest with hashes + checklist + human-readable note/report). Use `--redact` to drop demographics/notes/images from the saved bundle.
+  Redacted bundles also apply best-effort scrubbing of obvious identifiers in remaining text fields and record detected pattern classes in `manifest.json` as `phi_scrubbed_patterns` (category labels only; no identifiers).
+  Audit bundles also include a minimal **FHIR R4 Bundle** export (`fhir_bundle.json`) for interoperability demos.
 
 **Code entry points**
 
@@ -118,6 +120,8 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
   - UI: ClinicaFlow Console at `/` (triage + checklist with action provenance tags + printable report + workspace + regression + governance + failure packet export + clinician review + audit bundle download)
   - API: `POST /triage` / `POST /triage_stream`, `POST /audit_bundle`, `POST /judge_pack`, `GET /doctor`, `GET /policy_pack`, `GET /bench/vignettes`
   - With real MedGemma via vLLM (GPU machine): `REQUIRE_MEDGEMMA=1 MEDGEMMA_MODEL='<HF_ID_OR_LOCAL_PATH>' bash scripts/demo_one_click.sh`
+  - No GPU? demo-only hosted MedGemma (best-effort): `USE_FREE_MEDGEMMA=1 REQUIRE_MEDGEMMA=1 bash scripts/demo_one_click.sh`
+  - Alternative (token required): Hugging Face router inference: `CLINICAFLOW_REASONING_BACKEND=hf_inference CLINICAFLOW_REASONING_BASE_URL='https://router.huggingface.co/hf-inference' CLINICAFLOW_REASONING_MODEL='google/medgemma-4b-it' CLINICAFLOW_REASONING_API_KEY='<HF_TOKEN>' bash scripts/demo_one_click.sh`
 
 ### Results (internal synthetic proxy benchmark, n=220)
 

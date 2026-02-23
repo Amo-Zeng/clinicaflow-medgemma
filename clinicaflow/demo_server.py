@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from collections import deque
 import io
-import logging
 import json
+import logging
+import math
+import os
+import statistics
 import time
 import uuid
 import zipfile
@@ -459,12 +463,195 @@ def _new_stats() -> dict:
         "fhir_bundle_errors_total": 0,
         "triage_risk_tier_total": {"routine": 0, "urgent": 0, "critical": 0},
         "triage_reasoning_backend_total": {"deterministic": 0, "external": 0},
+        "triage_communication_backend_total": {"deterministic": 0, "external": 0},
+        "triage_evidence_backend_total": {"local": 0},
         "triage_latency_ms_sum": 0.0,
         "triage_latency_ms_count": 0,
         "triage_agent_latency_ms_sum": {a: 0.0 for a in agents},
         "triage_agent_latency_ms_count": {a: 0 for a in agents},
         "triage_agent_errors_total": {a: 0 for a in agents},
     }
+
+
+def _metrics_window_size() -> int:
+    raw = str(os.environ.get("CLINICAFLOW_METRICS_WINDOW", "200") or "").strip()
+    try:
+        value = int(raw or "200")
+    except ValueError:
+        value = 200
+    return max(20, min(value, 5000))
+
+
+def _new_recent_metrics(window: int) -> dict[str, object]:
+    return {
+        "triage_ok": deque(maxlen=window),
+        "triage_latency_ms": deque(maxlen=window),
+        "triage_agent_latency_ms": {},
+    }
+
+
+def _record_recent_triage(
+    server: object,
+    *,
+    ok: bool,
+    latency_ms: float | None = None,
+    trace_rows: list[dict] | None = None,
+) -> None:
+    """Record best-effort rolling-window metrics (non-JSON)."""
+
+    recent = getattr(server, "recent", None)
+    if not isinstance(recent, dict):
+        return
+
+    try:
+        okq = recent.get("triage_ok")
+        if isinstance(okq, deque):
+            okq.append(1 if ok else 0)
+
+        if ok and latency_ms is not None:
+            lq = recent.get("triage_latency_ms")
+            if isinstance(lq, deque) and isinstance(latency_ms, (int, float)) and math.isfinite(float(latency_ms)):
+                lq.append(float(latency_ms))
+
+        if ok and trace_rows and isinstance(trace_rows, list):
+            agent_lat = recent.get("triage_agent_latency_ms")
+            if not isinstance(agent_lat, dict):
+                agent_lat = {}
+                recent["triage_agent_latency_ms"] = agent_lat
+            window = int(getattr(server, "metrics_window", 200) or 200)
+            for step in trace_rows:
+                if not isinstance(step, dict):
+                    continue
+                agent = str(step.get("agent") or "").strip()
+                if not agent:
+                    continue
+                v = step.get("latency_ms")
+                if not isinstance(v, (int, float)) or not math.isfinite(float(v)):
+                    continue
+                dq = agent_lat.get(agent)
+                if not isinstance(dq, deque):
+                    dq = deque(maxlen=window)
+                    agent_lat[agent] = dq
+                dq.append(float(v))
+    except Exception:  # noqa: BLE001
+        return
+
+
+def _finite_floats(values: object) -> list[float]:
+    out: list[float] = []
+    if not values:
+        return out
+    try:
+        for item in values:
+            if not isinstance(item, (int, float)):
+                continue
+            value = float(item)
+            if math.isfinite(value):
+                out.append(value)
+    except TypeError:
+        return out
+    return out
+
+
+def _percentile_nearest_rank(values: list[float], p: float) -> float | None:
+    vals = _finite_floats(values)
+    if not vals:
+        return None
+    pp = float(p)
+    if pp <= 0.0:
+        return float(min(vals))
+    if pp >= 1.0:
+        return float(max(vals))
+    vals.sort()
+    idx = max(0, min(len(vals) - 1, int(math.ceil(pp * len(vals))) - 1))
+    return float(vals[idx])
+
+
+def _safe_median(values: list[float]) -> float | None:
+    vals = _finite_floats(values)
+    if not vals:
+        return None
+    return float(statistics.median(vals))
+
+
+def _compute_recent_metrics(server: object) -> dict[str, object]:
+    recent = getattr(server, "recent", None)
+    if not isinstance(recent, dict):
+        return {}
+
+    ok_hist = recent.get("triage_ok")
+    ok_list = list(ok_hist) if isinstance(ok_hist, deque) else []
+    recent_total = len(ok_list)
+    recent_errors = sum(1 for x in ok_list if not x)
+    err_rate = (float(recent_errors) / float(recent_total)) if recent_total else None
+
+    lat_hist = recent.get("triage_latency_ms")
+    lats = list(lat_hist) if isinstance(lat_hist, deque) else []
+
+    agent_lat = recent.get("triage_agent_latency_ms")
+    agent_p50: dict[str, float] = {}
+    agent_p95: dict[str, float] = {}
+    agent_avg: dict[str, float] = {}
+    agent_n: dict[str, int] = {}
+    if isinstance(agent_lat, dict):
+        for agent, dq in agent_lat.items():
+            if not isinstance(dq, deque) or not dq:
+                continue
+            agent_name = str(agent)
+            values = list(dq)
+            agent_n[agent_name] = len(values)
+            try:
+                agent_avg[agent_name] = round(float(statistics.mean(_finite_floats(values))), 2)
+            except statistics.StatisticsError:
+                pass
+            p50 = _safe_median(values)
+            p95 = _percentile_nearest_rank(values, 0.95)
+            if p50 is not None:
+                agent_p50[agent_name] = round(float(p50), 2)
+            if p95 is not None:
+                agent_p95[agent_name] = round(float(p95), 2)
+
+    p50_total = _safe_median(lats)
+    p95_total = _percentile_nearest_rank(lats, 0.95)
+    avg_window = None
+    try:
+        avg_window = round(float(statistics.mean(_finite_floats(lats))), 2) if lats else None
+    except statistics.StatisticsError:
+        avg_window = None
+
+    return {
+        "triage_recent_window_n": recent_total,
+        "triage_recent_error_rate": round(float(err_rate), 4) if isinstance(err_rate, float) else None,
+        "triage_latency_ms_window_n": len(lats),
+        "triage_latency_ms_avg_window": avg_window,
+        "triage_latency_ms_p50": round(float(p50_total), 2) if p50_total is not None else None,
+        "triage_latency_ms_p95": round(float(p95_total), 2) if p95_total is not None else None,
+        "triage_agent_latency_ms_window_n": agent_n,
+        "triage_agent_latency_ms_avg_window": agent_avg,
+        "triage_agent_latency_ms_p50": agent_p50,
+        "triage_agent_latency_ms_p95": agent_p95,
+    }
+
+
+def _build_metrics_payload(server: object) -> dict[str, object]:
+    stats = getattr(server, "stats", None)
+    start = getattr(server, "start_time", None)
+
+    uptime_s = int(time.time() - float(start or time.time()))
+    count = int((stats or {}).get("triage_latency_ms_count") or 0) if isinstance(stats, dict) else 0
+    total = float((stats or {}).get("triage_latency_ms_sum") or 0.0) if isinstance(stats, dict) else 0.0
+    avg = round(total / count, 2) if count else 0.0
+
+    payload: dict[str, object] = {
+        "uptime_s": uptime_s,
+        "version": __version__,
+        "metrics_window_max_n": int(getattr(server, "metrics_window", 0) or 0),
+        "triage_latency_ms_avg": avg,
+    }
+    if isinstance(stats, dict):
+        payload.update(stats)
+    payload.update(_compute_recent_metrics(server))
+    return payload
 
 
 class ClinicaFlowHTTPServer(ThreadingHTTPServer):
@@ -481,6 +668,8 @@ class ClinicaFlowHTTPServer(ThreadingHTTPServer):
         self.settings = settings
         self.start_time = time.time()
         self.stats = _new_stats()
+        self.metrics_window = _metrics_window_size()
+        self.recent = _new_recent_metrics(self.metrics_window)
 
 
 class ClinicaFlowHandler(BaseHTTPRequestHandler):
@@ -489,6 +678,26 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: object) -> None:  # noqa: N802
         # Suppress BaseHTTPRequestHandler's default access logs; we emit structured logs instead.
         return
+
+    def _content_security_policy(self, *, ui: str) -> str:
+        ui = str(ui or "").strip().lower() or "console"
+        script_src = "'self'" if ui == "console" else "'self' 'unsafe-inline'"
+        # Keep the policy compatible with:
+        # - data/blob images (synthetic uploads)
+        # - service worker
+        # - inline style attributes (small UI tweaks); prefer removing over time.
+        return (
+            "default-src 'self'; "
+            "base-uri 'self'; "
+            "frame-ancestors 'none'; "
+            "object-src 'none'; "
+            f"script-src {script_src}; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data: blob:; "
+            "connect-src 'self'; "
+            "manifest-src 'self'; "
+            "worker-src 'self'"
+        )
 
     def _get_request_id(self) -> str:
         existing = self.headers.get("X-Request-ID") or self.headers.get("X-Request-Id")
@@ -508,6 +717,16 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
         # Light hardening; safe defaults for a local demo.
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
+        self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+        self.send_header("X-Permitted-Cross-Domain-Policies", "none")
+        if str(content_type or "").lower().startswith("text/html"):
+            ui = "console"
+            if extra_headers and isinstance(extra_headers, dict):
+                ui = str(extra_headers.get("X-ClinicaFlow-UI") or ui)
+            self.send_header("Content-Security-Policy", self._content_security_policy(ui=ui))
         if request_id:
             self.send_header("X-Request-ID", request_id)
         allow_origin = getattr(self.server, "settings", None)
@@ -620,6 +839,48 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                 status_code = HTTPStatus.OK
                 return
 
+            if path == "/ping":
+                # Deep ping: runs a tiny inference call (no PHI) to verify the
+                # configured backend can actually serve requests. This can be
+                # slower than `/doctor` (which is mostly a config/connectivity check).
+                if self.server.settings.api_key and not is_authorized(headers=self.headers, expected_api_key=self.server.settings.api_key):
+                    self._write_json(
+                        {"error": {"code": "unauthorized"}},
+                        code=HTTPStatus.UNAUTHORIZED,
+                        request_id=request_id,
+                        extra_headers={"WWW-Authenticate": "Bearer"},
+                    )
+                    status_code = HTTPStatus.UNAUTHORIZED
+                    return
+
+                which_raw = str(query.get("which", ["all"])[0]).strip().lower() or "all"
+                if which_raw not in {"reasoning", "communication", "all"}:
+                    self._write_json(
+                        {"error": {"code": "bad_request", "message": "which must be reasoning|communication|all"}},
+                        code=HTTPStatus.BAD_REQUEST,
+                        request_id=request_id,
+                    )
+                    status_code = HTTPStatus.BAD_REQUEST
+                    return
+
+                from clinicaflow.inference.ping import ping_inference_backend
+
+                payload: dict[str, object] = {"ok": True, "which": which_raw, "version": __version__}
+                ok = True
+                if which_raw in {"reasoning", "all"}:
+                    res = ping_inference_backend(env_prefix="CLINICAFLOW_REASONING")
+                    payload["reasoning"] = res
+                    ok = ok and bool(res.get("ok"))
+                if which_raw in {"communication", "all"}:
+                    res = ping_inference_backend(env_prefix="CLINICAFLOW_COMMUNICATION")
+                    payload["communication"] = res
+                    ok = ok and bool(res.get("ok"))
+                payload["ok"] = ok
+
+                self._write_json(payload, request_id=request_id)
+                status_code = HTTPStatus.OK
+                return
+
             if path == "/policy_pack":
                 from importlib.resources import files
 
@@ -661,16 +922,7 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                 return
 
             if path == "/metrics":
-                uptime_s = int(time.time() - self.server.start_time)
-                count = int(self.server.stats.get("triage_latency_ms_count") or 0)
-                total = float(self.server.stats.get("triage_latency_ms_sum") or 0.0)
-                avg = round(total / count, 2) if count else 0.0
-                payload = {
-                    "uptime_s": uptime_s,
-                    "version": __version__,
-                    "triage_latency_ms_avg": avg,
-                    **self.server.stats,
-                }
+                payload = _build_metrics_payload(self.server)
                 fmt = str(query.get("format", ["json"])[0]).strip().lower()
                 accept = (self.headers.get("Accept") or "").lower()
                 wants_prometheus = fmt in {"prometheus", "prom"} or "text/plain" in accept
@@ -973,6 +1225,7 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                     return
                 except Exception as exc:  # noqa: BLE001
                     self.server.stats["triage_errors_total"] += 1
+                    _record_recent_triage(self.server, ok=False)
                     logger.exception("triage_stream_error", extra={"event": "triage_stream_error", "request_id": request_id})
                     msg = str(exc) if self.server.settings.debug else ""
                     try:
@@ -994,6 +1247,16 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                 backend = _extract_reasoning_backend(result)
                 if backend in self.server.stats["triage_reasoning_backend_total"]:
                     self.server.stats["triage_reasoning_backend_total"][backend] += 1
+
+                comm_backend = _extract_communication_backend(result)
+                if comm_backend in self.server.stats["triage_communication_backend_total"]:
+                    self.server.stats["triage_communication_backend_total"][comm_backend] += 1
+
+                evidence_backend = _extract_evidence_backend(result)
+                if evidence_backend:
+                    self.server.stats["triage_evidence_backend_total"][evidence_backend] = (
+                        int(self.server.stats["triage_evidence_backend_total"].get(evidence_backend) or 0) + 1
+                    )
 
                 latency = float(result.get("total_latency_ms") or 0.0)
                 self.server.stats["triage_latency_ms_sum"] += latency
@@ -1031,6 +1294,13 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                             if derived:
                                 self.server.stats["triage_agent_errors_total"][agent] += 1
 
+                _record_recent_triage(
+                    self.server,
+                    ok=True,
+                    latency_ms=latency,
+                    trace_rows=trace_rows if isinstance(trace_rows, list) else None,
+                )
+
                 logger.info(
                     "triage_stream_complete",
                     extra={
@@ -1040,6 +1310,8 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                         "escalation_required": result.get("escalation_required"),
                         "latency_ms": result.get("total_latency_ms"),
                         "reasoning_backend": backend,
+                        "communication_backend": comm_backend,
+                        "evidence_backend": evidence_backend,
                     },
                 )
 
@@ -1060,6 +1332,16 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                 backend = _extract_reasoning_backend(result)
                 if backend in self.server.stats["triage_reasoning_backend_total"]:
                     self.server.stats["triage_reasoning_backend_total"][backend] += 1
+
+                comm_backend = _extract_communication_backend(result)
+                if comm_backend in self.server.stats["triage_communication_backend_total"]:
+                    self.server.stats["triage_communication_backend_total"][comm_backend] += 1
+
+                evidence_backend = _extract_evidence_backend(result)
+                if evidence_backend:
+                    self.server.stats["triage_evidence_backend_total"][evidence_backend] = (
+                        int(self.server.stats["triage_evidence_backend_total"].get(evidence_backend) or 0) + 1
+                    )
 
                 latency = float(result.get("total_latency_ms") or 0.0)
                 self.server.stats["triage_latency_ms_sum"] += latency
@@ -1101,6 +1383,13 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                             if derived:
                                 self.server.stats["triage_agent_errors_total"][agent] += 1
 
+                _record_recent_triage(
+                    self.server,
+                    ok=True,
+                    latency_ms=latency,
+                    trace_rows=trace_rows if isinstance(trace_rows, list) else None,
+                )
+
                 logger.info(
                     "triage_complete",
                     extra={
@@ -1110,6 +1399,8 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                         "escalation_required": result.get("escalation_required"),
                         "latency_ms": result.get("total_latency_ms"),
                         "reasoning_backend": backend,
+                        "communication_backend": comm_backend,
+                        "evidence_backend": evidence_backend,
                     },
                 )
 
@@ -1209,11 +1500,7 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
 
                 files["system/doctor.json"] = json.dumps(collect_diagnostics(), indent=2, ensure_ascii=False).encode("utf-8")
 
-                uptime_s = int(time.time() - self.server.start_time)
-                count = int(self.server.stats.get("triage_latency_ms_count") or 0)
-                total = float(self.server.stats.get("triage_latency_ms_sum") or 0.0)
-                avg = round(total / count, 2) if count else 0.0
-                metrics_payload = {"uptime_s": uptime_s, "version": __version__, "triage_latency_ms_avg": avg, **self.server.stats}
+                metrics_payload = _build_metrics_payload(self.server)
                 files["system/metrics.json"] = json.dumps(metrics_payload, indent=2, ensure_ascii=False).encode("utf-8")
 
                 from clinicaflow.rules import safety_rules_catalog
@@ -1251,6 +1538,7 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                 from clinicaflow.benchmarks.governance import (
                     compute_action_provenance,
                     compute_gate,
+                    compute_ops_slo,
                     compute_trigger_coverage,
                     to_failure_packet_markdown,
                     to_governance_markdown,
@@ -1259,12 +1547,14 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                 gate = compute_gate(summary, min_red_flag_recall=99.9)
                 provenance = compute_action_provenance(per_case)
                 triggers = compute_trigger_coverage(per_case, top_k=20)
+                ops = compute_ops_slo(per_case)
                 files[f"governance/governance_report_{set_name}.md"] = to_governance_markdown(
                     set_name=set_name,
                     summary=summary,
                     gate=gate,
                     provenance=provenance,
                     triggers=triggers,
+                    ops=ops,
                 ).encode("utf-8")
                 files[f"governance/failure_packet_{set_name}.md"] = to_failure_packet_markdown(
                     set_name=set_name,
@@ -1327,6 +1617,7 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
         except Exception as exc:  # noqa: BLE001
             if urlparse(self.path).path in {"/triage", "/triage_stream"}:
                 self.server.stats["triage_errors_total"] += 1
+                _record_recent_triage(self.server, ok=False)
             elif urlparse(self.path).path == "/audit_bundle":
                 self.server.stats["audit_bundle_errors_total"] += 1
             elif urlparse(self.path).path == "/judge_pack":
@@ -1537,6 +1828,14 @@ def _openapi_spec() -> dict:
                     "responses": {"200": {"description": "diagnostics payload"}},
                 }
             },
+            "/ping": {
+                "get": {
+                    "summary": "Deep ping (inference backends)",
+                    "description": "Runs a tiny no-PHI inference call to validate the configured backends can serve requests.",
+                    "responses": {"200": {"description": "ping JSON"}},
+                    "security": [{"ApiKeyHeader": []}, {"BearerAuth": []}],
+                }
+            },
             "/policy_pack": {"get": {"summary": "Policy pack", "responses": {"200": {"description": "policy pack JSON"}}}},
             "/safety_rules": {"get": {"summary": "Safety rulebook", "responses": {"200": {"description": "rulebook JSON"}}}},
             "/metrics": {
@@ -1629,6 +1928,31 @@ def _extract_reasoning_backend(result_payload: dict) -> str:
     return "deterministic"
 
 
+def _extract_communication_backend(result_payload: dict) -> str:
+    try:
+        for step in result_payload.get("trace", []):
+            if step.get("agent") == "communication":
+                output = step.get("output") or {}
+                backend = output.get("communication_backend")
+                if backend in {"deterministic", "external"}:
+                    return backend
+    except Exception:  # noqa: BLE001
+        return "deterministic"
+    return "deterministic"
+
+
+def _extract_evidence_backend(result_payload: dict) -> str:
+    try:
+        for step in result_payload.get("trace", []):
+            if step.get("agent") == "evidence_policy":
+                output = step.get("output") or {}
+                backend = str(output.get("evidence_backend") or "").strip().lower()
+                return backend or "local"
+    except Exception:  # noqa: BLE001
+        return "local"
+    return "local"
+
+
 def _format_prometheus_metrics(payload: dict) -> str:
     lines: list[str] = []
 
@@ -1669,12 +1993,22 @@ def _format_prometheus_metrics(payload: dict) -> str:
     metric("clinicaflow_fhir_bundle_errors_total", payload.get("fhir_bundle_errors_total"))
 
     metric("clinicaflow_triage_latency_ms_avg", payload.get("triage_latency_ms_avg"))
+    metric("clinicaflow_triage_latency_ms_avg_window", payload.get("triage_latency_ms_avg_window"))
+    metric("clinicaflow_triage_latency_ms_p50", payload.get("triage_latency_ms_p50"))
+    metric("clinicaflow_triage_latency_ms_p95", payload.get("triage_latency_ms_p95"))
+    metric("clinicaflow_triage_latency_ms_window_n", payload.get("triage_latency_ms_window_n"))
+    metric("clinicaflow_triage_recent_error_rate", payload.get("triage_recent_error_rate"))
+    metric("clinicaflow_triage_recent_window_n", payload.get("triage_recent_window_n"))
 
     # Nested breakdowns
     for tier, count in dict(payload.get("triage_risk_tier_total") or {}).items():
         metric("clinicaflow_triage_risk_tier_total", count, {"tier": str(tier)})
     for backend, count in dict(payload.get("triage_reasoning_backend_total") or {}).items():
         metric("clinicaflow_triage_reasoning_backend_total", count, {"backend": str(backend)})
+    for backend, count in dict(payload.get("triage_communication_backend_total") or {}).items():
+        metric("clinicaflow_triage_communication_backend_total", count, {"backend": str(backend)})
+    for backend, count in dict(payload.get("triage_evidence_backend_total") or {}).items():
+        metric("clinicaflow_triage_evidence_backend_total", count, {"backend": str(backend)})
 
     for agent, total in dict(payload.get("triage_agent_latency_ms_sum") or {}).items():
         metric("clinicaflow_triage_agent_latency_ms_sum", total, {"agent": str(agent)})
@@ -1682,6 +2016,15 @@ def _format_prometheus_metrics(payload: dict) -> str:
         metric("clinicaflow_triage_agent_latency_ms_count", count, {"agent": str(agent)})
     for agent, count in dict(payload.get("triage_agent_errors_total") or {}).items():
         metric("clinicaflow_triage_agent_errors_total", count, {"agent": str(agent)})
+
+    for agent, value in dict(payload.get("triage_agent_latency_ms_avg_window") or {}).items():
+        metric("clinicaflow_triage_agent_latency_ms_avg_window", value, {"agent": str(agent)})
+    for agent, value in dict(payload.get("triage_agent_latency_ms_p50") or {}).items():
+        metric("clinicaflow_triage_agent_latency_ms_p50", value, {"agent": str(agent)})
+    for agent, value in dict(payload.get("triage_agent_latency_ms_p95") or {}).items():
+        metric("clinicaflow_triage_agent_latency_ms_p95", value, {"agent": str(agent)})
+    for agent, value in dict(payload.get("triage_agent_latency_ms_window_n") or {}).items():
+        metric("clinicaflow_triage_agent_latency_ms_window_n", value, {"agent": str(agent)})
 
     return "\n".join(lines).strip() + "\n"
 

@@ -100,6 +100,36 @@ def main() -> None:
         )
         return
 
+    if len(sys.argv) > 1 and sys.argv[1] in {"ping"}:
+        ping_parser = argparse.ArgumentParser(description="Ping configured inference backends (no PHI).")
+        ping_parser.add_argument(
+            "--which",
+            choices=["reasoning", "communication", "all"],
+            default="reasoning",
+            help="Which backend(s) to ping (default: reasoning)",
+        )
+        ping_parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON output")
+        args = ping_parser.parse_args(sys.argv[2:])
+
+        from clinicaflow.inference.ping import ping_inference_backend
+
+        which = str(args.which or "reasoning").strip().lower()
+        payload: dict[str, object] = {"ok": True, "which": which, "version": __version__}
+
+        ok = True
+        if which in {"reasoning", "all"}:
+            res = ping_inference_backend(env_prefix="CLINICAFLOW_REASONING")
+            payload["reasoning"] = res
+            ok = ok and bool(res.get("ok"))
+        if which in {"communication", "all"}:
+            res = ping_inference_backend(env_prefix="CLINICAFLOW_COMMUNICATION")
+            payload["communication"] = res
+            ok = ok and bool(res.get("ok"))
+
+        payload["ok"] = ok
+        print(json.dumps(payload, indent=2 if args.pretty else None, ensure_ascii=False))
+        raise SystemExit(0 if ok else 2)
+
     if len(sys.argv) > 1 and sys.argv[1] in {"benchmark", "bench"}:
         explicit_sub = len(sys.argv) > 2 and not sys.argv[2].startswith("-")
         sub = sys.argv[2] if explicit_sub else ""

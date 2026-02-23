@@ -14,8 +14,12 @@ ensure_venv() {
   fi
   # shellcheck disable=SC1091
   source "$VENV_DIR/bin/activate"
-  python -m pip install -q -U pip
-  python -m pip install -q -e .
+  # No third-party deps required for deterministic benchmarks in this repo.
+  # Best-effort editable install (only if setuptools exists) so the
+  # `clinicaflow` entrypoint works for users.
+  if python -c 'import setuptools' >/dev/null 2>&1; then
+    python -m pip install -q -e . >/dev/null 2>&1 || true
+  fi
 }
 
 ensure_venv
@@ -50,14 +54,14 @@ python -m clinicaflow.benchmarks.vignettes --set mega --print-markdown | tee "$O
 echo ""
 
 echo "[writeup] Safety governance report + failure packet (mega)"
-clinicaflow benchmark governance --set mega --gate \
+python -m clinicaflow benchmark governance --set mega --gate \
   --bench-out "$OUT_DIR/governance_mega.json" \
   --failure-out "$OUT_DIR/vignette_failure_packet_mega.md" \
   | tee "$OUT_DIR/governance_mega.md"
 echo ""
 
 echo "[writeup] Diagnostics snapshot (no secrets)"
-clinicaflow doctor | tee "$OUT_DIR/doctor.json" >/dev/null
+python -m clinicaflow doctor | tee "$OUT_DIR/doctor.json" >/dev/null
 
 echo ""
 echo "[writeup] Resource validation snapshot"
@@ -76,7 +80,7 @@ fi
 if [[ -n "${REVIEWS_PATH:-}" && -f "${REVIEWS_PATH}" ]]; then
   echo ""
   echo "[writeup] Clinician review summary (${REVIEWS_PATH})"
-  clinicaflow benchmark review_summary --in "${REVIEWS_PATH}" --print-markdown | tee "$OUT_DIR/clinician_review_summary.md"
+  python -m clinicaflow benchmark review_summary --in "${REVIEWS_PATH}" --print-markdown | tee "$OUT_DIR/clinician_review_summary.md"
 fi
 
 echo ""

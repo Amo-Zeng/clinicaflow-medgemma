@@ -11,6 +11,7 @@ from typing import Any
 
 from clinicaflow.diagnostics import collect_diagnostics
 from clinicaflow.models import PatientIntake, TriageResult
+from clinicaflow.privacy import detect_phi_hits, scrub_phi_in_obj
 
 
 def _json_bytes(payload: Any) -> bytes:
@@ -56,22 +57,34 @@ def build_audit_bundle_files(
 
     intake_payload = asdict(intake)
     image_files: dict[str, bytes] = {}
+    phi_hits = detect_phi_hits(intake.combined_text())
+    result_payload = result.to_dict()
     if redact:
         intake_payload["demographics"] = {}
         intake_payload["prior_notes"] = []
         intake_payload["image_descriptions"] = []
         intake_payload["image_data_urls"] = []
+        intake_payload = scrub_phi_in_obj(intake_payload)
+        result_payload = scrub_phi_in_obj(result_payload)
     else:
         intake_payload, image_files = _extract_inline_images(intake_payload)
 
     intake_bytes = _json_bytes(intake_payload)
-    result_bytes = _json_bytes(result.to_dict())
+    result_bytes = _json_bytes(result_payload)
     diagnostics_bytes = _json_bytes(collect_diagnostics())
 
     checklist_payload = _normalize_checklist(checklist, fallback=result.recommended_next_actions)
     checklist_bytes = _json_bytes(checklist_payload)
-    note_bytes = _note_markdown_bytes(intake_payload=intake_payload, result_payload=result.to_dict(), checklist=checklist_payload)
-    report_bytes = _report_html_bytes(intake_payload=intake_payload, result_payload=result.to_dict(), checklist=checklist_payload)
+    note_bytes = _note_markdown_bytes(intake_payload=intake_payload, result_payload=result_payload, checklist=checklist_payload)
+    report_bytes = _report_html_bytes(intake_payload=intake_payload, result_payload=result_payload, checklist=checklist_payload)
+    try:
+        from clinicaflow.fhir_export import build_fhir_bundle
+
+        fhir_payload = build_fhir_bundle(intake=intake, result=result, redact=redact, checklist=checklist_payload)
+        fhir_bytes = _json_bytes(fhir_payload)
+    except Exception:  # noqa: BLE001
+        # Keep audit bundle generation robust even if optional exports fail.
+        fhir_bytes = b""
 
     files: dict[str, bytes] = {
         "intake.json": intake_bytes,
@@ -80,6 +93,7 @@ def build_audit_bundle_files(
         "actions_checklist.json": checklist_bytes,
         "note.md": note_bytes,
         "report.html": report_bytes,
+        **({"fhir_bundle.json": fhir_bytes} if fhir_bytes else {}),
         **image_files,
     }
 
@@ -91,12 +105,14 @@ def build_audit_bundle_files(
         "request_id": result.request_id,
         "pipeline_version": result.pipeline_version,
         "redacted": redact,
+        "phi_scrubbed_patterns": phi_hits if redact else [],
         "file_hashes_sha256": file_hashes,
-        "policy_pack_sha256": _extract_policy_pack_sha256(result.to_dict()),
-        "policy_pack_source": _extract_policy_pack_source(result.to_dict()),
-        "safety_rules_version": _extract_safety_rules_version(result.to_dict()),
-        "reasoning": _extract_reasoning_meta(result.to_dict()),
-        "communication": _extract_communication_meta(result.to_dict()),
+        "policy_pack_sha256": _extract_policy_pack_sha256(result_payload),
+        "policy_pack_source": _extract_policy_pack_source(result_payload),
+        "safety_rules_version": _extract_safety_rules_version(result_payload),
+        "evidence": _extract_evidence_meta(result_payload),
+        "reasoning": _extract_reasoning_meta(result_payload),
+        "communication": _extract_communication_meta(result_payload),
     }
     manifest_bytes = _json_bytes(manifest)
 
@@ -215,6 +231,24 @@ def _extract_safety_rules_version(result_payload: dict) -> str:
     return ""
 
 
+def _extract_evidence_meta(result_payload: dict) -> dict[str, Any]:
+    try:
+        for step in result_payload.get("trace", []):
+            if step.get("agent") == "evidence_policy":
+                output = step.get("output") or {}
+                return {
+                    "backend": str(output.get("evidence_backend") or ""),
+                    "ok": output.get("evidence_backend_ok"),
+                    "latency_ms": output.get("evidence_latency_ms"),
+                    "error": str(output.get("evidence_backend_error") or ""),
+                    "skipped_reason": str(output.get("evidence_backend_skipped_reason") or ""),
+                    "queries": output.get("evidence_queries") or {},
+                }
+    except Exception:  # noqa: BLE001
+        return {}
+    return {}
+
+
 def _extract_reasoning_meta(result_payload: dict) -> dict[str, Any]:
     try:
         for step in result_payload.get("trace", []):
@@ -223,6 +257,7 @@ def _extract_reasoning_meta(result_payload: dict) -> dict[str, Any]:
                 return {
                     "backend": str(output.get("reasoning_backend") or ""),
                     "model": str(output.get("reasoning_backend_model") or ""),
+                    "base_url": str(output.get("reasoning_backend_base_url") or ""),
                     "prompt_version": str(output.get("reasoning_prompt_version") or ""),
                     "error": str(output.get("reasoning_backend_error") or ""),
                 }
@@ -239,6 +274,7 @@ def _extract_communication_meta(result_payload: dict) -> dict[str, Any]:
                 return {
                     "backend": str(output.get("communication_backend") or ""),
                     "model": str(output.get("communication_backend_model") or ""),
+                    "base_url": str(output.get("communication_backend_base_url") or ""),
                     "prompt_version": str(output.get("communication_prompt_version") or ""),
                     "error": str(output.get("communication_backend_error") or ""),
                 }
@@ -326,6 +362,16 @@ def _note_markdown_bytes(
         lines.append(f"- reasoning_backend_error: `{str(reasoning.get('reasoning_backend_error'))}`")
     if evidence.get("policy_pack_sha256"):
         lines.append(f"- policy_pack_sha256: `{str(evidence.get('policy_pack_sha256'))}`")
+    if evidence.get("evidence_backend"):
+        lines.append(f"- evidence_backend: `{str(evidence.get('evidence_backend'))}`")
+    if "evidence_backend_ok" in evidence:
+        lines.append(f"- evidence_backend_ok: `{str(evidence.get('evidence_backend_ok'))}`")
+    if evidence.get("evidence_latency_ms") is not None:
+        lines.append(f"- evidence_latency_ms: `{str(evidence.get('evidence_latency_ms'))}`")
+    if evidence.get("evidence_backend_skipped_reason"):
+        lines.append(f"- evidence_backend_skipped_reason: `{str(evidence.get('evidence_backend_skipped_reason'))}`")
+    if evidence.get("evidence_backend_error"):
+        lines.append(f"- evidence_backend_error: `{str(evidence.get('evidence_backend_error'))}`")
     if communication.get("communication_backend"):
         lines.append(f"- communication_backend: `{str(communication.get('communication_backend'))}`")
     if communication.get("communication_backend_model"):
@@ -459,6 +505,28 @@ def _note_markdown_bytes(
         if safety_set:
             tag = "[SAFETY] " if text in safety_set else "[POLICY] "
         lines.append(f"- [{mark}] {tag}{text}")
+    lines.append("")
+
+    lines.append("## Evidence / protocol citations (demo)")
+    citations = evidence.get("protocol_citations") or []
+    if isinstance(citations, list) and citations:
+        for c in citations[:12]:
+            if not isinstance(c, dict):
+                continue
+            pid = str(c.get("policy_id") or "").strip()
+            title = str(c.get("title") or "").strip()
+            cite = str(c.get("citation") or "").strip()
+            url = str(c.get("url") or "").strip()
+            bits = [b for b in [pid, title] if b]
+            tail = f"({cite})" if cite else ""
+            if tail:
+                bits.append(tail)
+            if url.startswith(("http://", "https://")):
+                bits.append(url)
+            if bits:
+                lines.append(f"- {' — '.join(bits[:2])}{(' ' + ' '.join(bits[2:])) if len(bits) > 2 else ''}".strip())
+    else:
+        lines.append("- (none)")
     lines.append("")
 
     lines.append("## Uncertainty")
@@ -652,13 +720,21 @@ def _report_html_bytes(
                 continue
             pid = str(c.get("policy_id") or "").strip()
             title = str(c.get("title") or "").strip()
+            url = str(c.get("url") or "").strip()
+            title_cell = html.escape(title)
+            if url.startswith(("http://", "https://")) and title_cell:
+                title_cell = (
+                    f'<a href="{html.escape(url)}" target="_blank" rel="noreferrer">'
+                    f"{title_cell}"
+                    "</a>"
+                )
             cite = str(c.get("citation") or "").strip()
             acts = c.get("recommended_actions") or []
             acts_str = "; ".join(str(x) for x in acts if str(x).strip()) if isinstance(acts, list) else ""
             citation_rows += (
                 "<tr>"
                 f"<td class=\"mono\">{html.escape(pid)}</td>"
-                f"<td>{html.escape(title)}</td>"
+                f"<td>{title_cell}</td>"
                 f"<td class=\"mono\">{html.escape(cite)}</td>"
                 f"<td>{html.escape(acts_str)}</td>"
                 "</tr>"
@@ -761,6 +837,11 @@ def _report_html_bytes(
             <li>reasoning_error: <span class="mono">{html.escape(str(reasoning.get('reasoning_backend_error') or ''))}</span></li>
             <li>policy_pack_sha256: <span class="mono">{html.escape(str(evidence.get('policy_pack_sha256') or ''))}</span></li>
             <li>policy_pack_source: <span class="mono">{html.escape(str(evidence.get('policy_pack_source') or ''))}</span></li>
+            <li>evidence_backend: <span class="mono">{html.escape(str(evidence.get('evidence_backend') or ''))}</span></li>
+            <li>evidence_backend_ok: <span class="mono">{html.escape(str(evidence.get('evidence_backend_ok')))}</span></li>
+            <li>evidence_latency_ms: <span class="mono">{html.escape(str(evidence.get('evidence_latency_ms') or ''))}</span></li>
+            <li>evidence_skipped: <span class="mono">{html.escape(str(evidence.get('evidence_backend_skipped_reason') or ''))}</span></li>
+            <li>evidence_error: <span class="mono">{html.escape(str(evidence.get('evidence_backend_error') or ''))}</span></li>
             <li>safety_rules_version: <span class="mono">{html.escape(str(safety.get('safety_rules_version') or ''))}</span></li>
             <li>communication_backend: <span class="mono">{html.escape(str(communication.get('communication_backend') or ''))}</span></li>
             <li>communication_model: <span class="mono">{html.escape(str(communication.get('communication_backend_model') or ''))}</span></li>

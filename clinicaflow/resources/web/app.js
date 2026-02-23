@@ -76,7 +76,7 @@ function toNum(value) {
 }
 
 async function fetchJson(url) {
-  const resp = await fetch(url);
+  const resp = await fetch(url, { headers: { ...buildAuthHeaders() } });
   if (!resp.ok) {
     throw new Error(`HTTP ${resp.status} for ${url}`);
   }
@@ -84,7 +84,7 @@ async function fetchJson(url) {
 }
 
 async function fetchText(url) {
-  const resp = await fetch(url);
+  const resp = await fetch(url, { headers: { ...buildAuthHeaders() } });
   if (!resp.ok) {
     throw new Error(`HTTP ${resp.status} for ${url}`);
   }
@@ -169,6 +169,63 @@ const state = {
     abortController: null,
   },
 };
+
+// ---------------------------
+// Theme (local-only UI pref)
+// ---------------------------
+
+const THEME_STORAGE_KEY = "clinicaflow.ui.theme.v1";
+
+function systemPrefersDark() {
+  try {
+    return Boolean(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  } catch (e) {
+    return false;
+  }
+}
+
+function loadThemePreference() {
+  try {
+    const raw = String(localStorage.getItem(THEME_STORAGE_KEY) || "").trim().toLowerCase();
+    if (raw === "dark" || raw === "light") return raw;
+  } catch (e) {
+    // ignore
+  }
+  return systemPrefersDark() ? "dark" : "light";
+}
+
+function saveThemePreference(theme) {
+  const t = String(theme || "").trim().toLowerCase();
+  try {
+    if (t === "dark" || t === "light") localStorage.setItem(THEME_STORAGE_KEY, t);
+    else localStorage.removeItem(THEME_STORAGE_KEY);
+  } catch (e) {
+    // ignore
+  }
+}
+
+function applyTheme(theme) {
+  const t = String(theme || "").trim().toLowerCase() === "dark" ? "dark" : "light";
+  try {
+    document.body.dataset.theme = t;
+  } catch (e) {
+    // ignore
+  }
+  setText("themeToggle", `Theme: ${t}`);
+}
+
+function setTheme(theme, opts) {
+  const meta = opts && typeof opts === "object" ? opts : {};
+  const persist = meta.persist !== false;
+  const t = String(theme || "").trim().toLowerCase() === "dark" ? "dark" : "light";
+  applyTheme(t);
+  if (persist) saveThemePreference(t);
+}
+
+function toggleTheme() {
+  const cur = String(document.body?.dataset?.theme || "").trim().toLowerCase();
+  setTheme(cur === "dark" ? "light" : "dark");
+}
 
 // ---------------------------
 // Optional API key auth (UI)
@@ -723,18 +780,20 @@ const DIRECTOR_STEPS = [
     id: "governance",
     tab: "governance",
     title: "Regression + governance gate",
-    text: "Run the mega vignette benchmark and show under-triage + red-flag recall metrics.",
+    text: "Run the mega vignette benchmark and show under-triage + red-flag recall + Ops SLO metrics.",
     say: [
       "Next, governance. We run a vignette regression set and track red-flag recall and under-triage.",
       "",
       "The key safety objective is to minimize under-triage of urgent/critical cases; the governance view surfaces failures and exports a failure packet for clinician QA.",
+      "",
+      "We also surface Ops SLO signals (end-to-end p50/p95 + per-agent latency/errors) derived from the audit traces.",
     ].join("\n"),
     doLabel: "Run mega benchmark",
     do: async () => {
       if ($("govBenchSet")) $("govBenchSet").value = "mega";
       await runBenchSet("mega", $("govStatus"));
     },
-    highlight: ["#govRunBench", "#govGate", "#govUnder", "#govDownloadFailure"],
+    highlight: ["#govRunBench", "#govGate", "#govCards", "#govOps", "#govUnder", "#govMismatch", "#govOver", "#govDownloadFailure"],
   },
   {
     id: "rules",
@@ -1009,6 +1068,7 @@ function renderHome() {
   const rb = d.reasoning_backend || {};
   const cb = d.communication_backend || {};
   const pp = d.policy_pack || {};
+  const eb = d.evidence_backend || {};
   const m = state.metrics || {};
 
   if (back) {
@@ -1022,7 +1082,10 @@ function renderHome() {
     if (cb.connectivity_ok === true) cbBits.push("ok");
     else if (cb.connectivity_ok === false) cbBits.push("unreachable");
 
-    back.textContent = `reasoning: ${rbBits.join(" • ")}  |  comm: ${cbBits.join(" • ")}`;
+    const ebBits = [String(eb.backend || "local")];
+    if (eb.connectivity_ok === true) ebBits.push("ok");
+    else if (eb.connectivity_ok === false) ebBits.push("unreachable");
+    back.textContent = `reasoning: ${rbBits.join(" • ")}  |  comm: ${cbBits.join(" • ")}  |  evidence: ${ebBits.join(" • ")}`;
   }
 
   if (policyRules) {
@@ -1032,7 +1095,9 @@ function renderHome() {
     const rulesText = rulesVer ? rulesVer : "(not loaded — open Rules tab)";
     const phi = d?.privacy?.phi_guard_enabled;
     const phiText = phi === false ? "phi_guard: off" : "phi_guard: on";
-    policyRules.textContent = `policy_sha256: ${shaShort}  |  safety_rules: ${rulesText}  |  ${phiText}`;
+    const ev = String(eb.backend || "local").trim();
+    const evText = ev ? `evidence_backend: ${ev}` : "evidence_backend: local";
+    policyRules.textContent = `policy_sha256: ${shaShort}  |  safety_rules: ${rulesText}  |  ${evText}  |  ${phiText}`;
   }
 
   if (ops) {
@@ -1040,8 +1105,9 @@ function renderHome() {
     const req = m.requests_total != null ? String(m.requests_total) : "—";
     const triOk = m.triage_success_total != null ? String(m.triage_success_total) : "—";
     const triErr = m.triage_errors_total != null ? String(m.triage_errors_total) : "—";
-    const avg = typeof m.triage_latency_ms_avg === "number" ? `${m.triage_latency_ms_avg} ms` : "—";
-    ops.textContent = `uptime: ${uptime} • requests: ${req} • triage ok/err: ${triOk}/${triErr} • avg latency: ${avg}`;
+    const p95 = typeof m.triage_latency_ms_p95 === "number" ? `${m.triage_latency_ms_p95} ms` : "—";
+    const errRate = typeof m.triage_recent_error_rate === "number" ? `${(m.triage_recent_error_rate * 100).toFixed(1)}%` : "—";
+    ops.textContent = `uptime: ${uptime} • requests: ${req} • triage ok/err: ${triOk}/${triErr} • p95 latency: ${p95} • recent err: ${errRate}`;
   }
 
   const hasRun = Boolean(state.lastIntake && state.lastResult);
@@ -1749,6 +1815,11 @@ function renderResult(result, requestIdFromHeader, opts) {
   const reasoningBits = [];
   if (reasoning.reasoning_backend) reasoningBits.push(`backend=${reasoning.reasoning_backend}`);
   if (model) reasoningBits.push(`model=${model}`);
+  if (reasoning.reasoning_backend_base_url) {
+    const u = String(reasoning.reasoning_backend_base_url || "");
+    const host = u.replace(/^https?:\/\//, "").split("/")[0];
+    reasoningBits.push(`url=${host || u}`);
+  }
   if (pv) reasoningBits.push(`prompt=${pv}`);
   if (reasoning.images_present != null) reasoningBits.push(`images=${reasoning.images_sent ?? 0}/${reasoning.images_present}`);
   if (reasoning.reasoning_backend_skipped_reason)
@@ -1767,6 +1838,11 @@ function renderResult(result, requestIdFromHeader, opts) {
   const commBits = [];
   if (comm.communication_backend) commBits.push(`backend=${comm.communication_backend}`);
   if (comm.communication_backend_model) commBits.push(`model=${comm.communication_backend_model}`);
+  if (comm.communication_backend_base_url) {
+    const u = String(comm.communication_backend_base_url || "");
+    const host = u.replace(/^https?:\/\//, "").split("/")[0];
+    commBits.push(`url=${host || u}`);
+  }
   if (comm.communication_prompt_version) commBits.push(`prompt=${comm.communication_prompt_version}`);
   if (comm.communication_backend_skipped_reason)
     commBits.push(`skipped=${String(comm.communication_backend_skipped_reason).slice(0, 80)}`);
@@ -1788,9 +1864,29 @@ function renderCitations(evidenceOut) {
   const citations = (evidenceOut || {}).protocol_citations || [];
   const sha = (evidenceOut || {}).policy_pack_sha256 || "";
   const src = (evidenceOut || {}).policy_pack_source || "";
+  const backend = String((evidenceOut || {}).evidence_backend || "").trim();
+  const backendOk = (evidenceOut || {}).evidence_backend_ok;
+  const backendErr = String((evidenceOut || {}).evidence_backend_error || "").trim();
+  const backendSkip = String((evidenceOut || {}).evidence_backend_skipped_reason || "").trim();
+  const evLatency = (evidenceOut || {}).evidence_latency_ms;
+  const note = String((evidenceOut || {}).evidence_note || "").trim();
+
+  function safeHttpUrl(u) {
+    const s = String(u || "").trim();
+    if (!s) return "";
+    if (!/^https?:\/\//i.test(s)) return "";
+    return s;
+  }
 
   if (!Array.isArray(citations) || citations.length === 0) {
-    root.textContent = sha ? `No matched citations. policy_pack_sha256=${sha.slice(0, 12)}…` : "No matched citations.";
+    const bits = [];
+    bits.push("No matched citations.");
+    if (sha) bits.push(`policy_pack_sha256=${sha.slice(0, 12)}…`);
+    if (backend) {
+      const st = backendOk === true ? "ok" : backendOk === false ? "unreachable" : "";
+      bits.push(`evidence=${backend}${st ? `(${st})` : ""}`);
+    }
+    root.textContent = bits.join(" • ");
     return;
   }
 
@@ -1811,9 +1907,14 @@ function renderCitations(evidenceOut) {
   citations.forEach((c) => {
     const tr = document.createElement("tr");
     const actions = Array.isArray(c.recommended_actions) ? c.recommended_actions.join("; ") : "";
+    const url = safeHttpUrl(c.url);
+    const titleText = String(c.title || "");
+    const titleHtml = url
+      ? `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${escapeHtml(titleText)}</a>`
+      : escapeHtml(titleText);
     tr.innerHTML = `
       <td class="mono">${escapeHtml(String(c.policy_id || ""))}</td>
-      <td>${escapeHtml(String(c.title || ""))}</td>
+      <td>${titleHtml}</td>
       <td class="mono">${escapeHtml(String(c.citation || ""))}</td>
       <td>${escapeHtml(actions)}</td>
     `;
@@ -1821,14 +1922,28 @@ function renderCitations(evidenceOut) {
   });
 
   root.innerHTML = "";
-  if (sha || src) {
+  if (sha || src || backend || note || backendErr || backendSkip) {
     const meta = document.createElement("div");
     meta.className = "small muted";
     const bits = [];
     if (sha) bits.push(`policy_pack_sha256=${sha.slice(0, 12)}…`);
     if (src) bits.push(`source=${src}`);
+    if (backend) {
+      const st = backendOk === true ? "ok" : backendOk === false ? "unreachable" : "";
+      bits.push(`evidence=${backend}${st ? `(${st})` : ""}`);
+    }
+    if (typeof evLatency === "number") bits.push(`latency=${Math.round(evLatency)}ms`);
+    if (backendSkip) bits.push(`skip=${backendSkip.slice(0, 90)}`);
+    if (backendErr) bits.push(`error=${backendErr.slice(0, 90)}`);
     meta.textContent = bits.join(" • ");
     root.appendChild(meta);
+  }
+  if (note) {
+    const noteEl = document.createElement("div");
+    noteEl.className = "small muted";
+    noteEl.style.marginTop = "6px";
+    noteEl.textContent = note;
+    root.appendChild(noteEl);
   }
   root.appendChild(table);
 }
@@ -1887,6 +2002,11 @@ async function loadDoctor() {
 
     const policy = (d.policy_pack || {}).sha256 || "";
     setText("policyBadge", policy ? `policy: ${policy.slice(0, 10)}…` : "policy: (none)");
+    const ev = d.evidence_backend || {};
+    const evBackend = String(ev.backend || "local").trim() || "local";
+    const evOk = ev.connectivity_ok;
+    const evStatus = evOk === true ? "ok" : evOk === false ? "unreachable" : "";
+    setText("evidenceBadge", `evidence: ${[evBackend, evStatus].filter((x) => x).join(" • ")}`);
     const ver = String(d.version || "").trim();
     setText("versionBadge", ver ? `v${ver}` : "v—");
     updateAuthBadge();
@@ -1901,6 +2021,7 @@ async function loadDoctor() {
     setText("backendBadge", "backend: unknown");
     setText("commBadge", "comm: unknown");
     setText("policyBadge", "policy: unknown");
+    setText("evidenceBadge", "evidence: unknown");
     setText("versionBadge", "v—");
     setText("authBadge", "auth: unknown");
   }
@@ -1936,10 +2057,18 @@ function recordOpsHistory(metrics) {
   const m = metrics || null;
   if (!m) return;
 
-  const avg = Number(m.triage_latency_ms_avg);
+  const avgWindow = Number(m.triage_latency_ms_avg_window);
+  const avgAll = Number(m.triage_latency_ms_avg);
+  const avg = Number.isFinite(avgWindow) ? avgWindow : Number.isFinite(avgAll) ? avgAll : null;
+  const p50 = Number(m.triage_latency_ms_p50);
+  const p95 = Number(m.triage_latency_ms_p95);
+  const errRate = Number(m.triage_recent_error_rate);
   const entry = {
     ts: Date.now(),
-    avg_latency_ms: Number.isFinite(avg) ? avg : null,
+    avg_latency_ms: avg,
+    p50_latency_ms: Number.isFinite(p50) ? p50 : null,
+    p95_latency_ms: Number.isFinite(p95) ? p95 : null,
+    recent_error_rate: Number.isFinite(errRate) ? errRate : null,
     triage_requests_total: Number(m.triage_requests_total || 0) || 0,
     triage_errors_total: Number(m.triage_errors_total || 0) || 0,
     triage_success_total: Number(m.triage_success_total || 0) || 0,
@@ -1969,13 +2098,26 @@ function renderOpsChart() {
   if (!ctx) return;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  // background
   ctx.clearRect(0, 0, cssWidth, cssHeight);
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, cssWidth, cssHeight);
+
+  function cssVar(name, fallback) {
+    try {
+      const raw = getComputedStyle(document.body).getPropertyValue(name);
+      const v = String(raw || "").trim();
+      return v || fallback;
+    } catch (e) {
+      return fallback;
+    }
+  }
+
+  const colText = cssVar("--text", "#111827");
+  const colMuted = cssVar("--muted", "rgba(17, 24, 39, 0.55)");
+  const colBorder = cssVar("--border", "rgba(17, 24, 39, 0.12)");
+  const colPrimary = cssVar("--primary", "#111827");
+  const colRed = cssVar("--red", "#991b1b");
 
   if (!hist.length) {
-    ctx.fillStyle = "rgba(17, 24, 39, 0.55)";
+    ctx.fillStyle = colMuted;
     ctx.font = "12px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial";
     ctx.fillText("No data yet. Click Refresh.", 12, 22);
     if (legend) legend.textContent = "—";
@@ -1990,8 +2132,12 @@ function renderOpsChart() {
   const yLineBottom = cssHeight - pad - errBand;
   const yErrBottom = cssHeight - pad;
 
-  // Collect latency values
-  const vals = hist.map((r) => (typeof r.avg_latency_ms === "number" ? r.avg_latency_ms : null)).filter((v) => v != null);
+  // Collect latency values (avg + p95)
+  const vals = [];
+  hist.forEach((r) => {
+    if (typeof r.avg_latency_ms === "number") vals.push(r.avg_latency_ms);
+    if (typeof r.p95_latency_ms === "number") vals.push(r.p95_latency_ms);
+  });
   const minV = vals.length ? Math.min(...vals) : 0;
   const maxV0 = vals.length ? Math.max(...vals) : 1;
   const maxV = maxV0 === minV ? minV + 1 : maxV0;
@@ -2004,7 +2150,9 @@ function renderOpsChart() {
   };
 
   // grid
-  ctx.strokeStyle = "rgba(17, 24, 39, 0.08)";
+  ctx.save();
+  ctx.globalAlpha = 0.6;
+  ctx.strokeStyle = colBorder;
   ctx.lineWidth = 1;
   for (let i = 0; i <= 3; i += 1) {
     const y = yTop + (i * (yLineBottom - yTop)) / 3;
@@ -2013,10 +2161,35 @@ function renderOpsChart() {
     ctx.lineTo(x1, y);
     ctx.stroke();
   }
+  ctx.restore();
 
-  // latency line
-  ctx.strokeStyle = "#111827";
+  // p95 dashed line (if present)
+  const hasP95 = hist.some((r) => typeof r.p95_latency_ms === "number");
+  if (hasP95) {
+    ctx.save();
+    ctx.strokeStyle = colPrimary;
+    ctx.globalAlpha = 0.85;
+    ctx.lineWidth = 1.8;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    hist.forEach((r, i) => {
+      const v = typeof r.p95_latency_ms === "number" ? r.p95_latency_ms : null;
+      if (v == null) return;
+      const x = xFor(i);
+      const y = yFor(v);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // avg latency line
+  ctx.save();
+  ctx.strokeStyle = colText;
+  ctx.globalAlpha = 1;
   ctx.lineWidth = 2;
+  ctx.setLineDash([]);
   ctx.beginPath();
   hist.forEach((r, i) => {
     const v = typeof r.avg_latency_ms === "number" ? r.avg_latency_ms : null;
@@ -2027,9 +2200,12 @@ function renderOpsChart() {
     else ctx.lineTo(x, y);
   });
   ctx.stroke();
+  ctx.restore();
 
   // points
-  ctx.fillStyle = "#111827";
+  ctx.save();
+  ctx.fillStyle = colText;
+  ctx.globalAlpha = 1;
   hist.forEach((r, i) => {
     const v = typeof r.avg_latency_ms === "number" ? r.avg_latency_ms : null;
     if (v == null) return;
@@ -2039,6 +2215,7 @@ function renderOpsChart() {
     ctx.arc(x, y, 2.6, 0, Math.PI * 2);
     ctx.fill();
   });
+  ctx.restore();
 
   // error delta bars
   const deltas = hist.map((r, i) => {
@@ -2056,24 +2233,32 @@ function renderOpsChart() {
     if (!d) return;
     const x = xFor(i);
     const h = (Math.min(Math.abs(d), maxDelta) / maxDelta) * errH;
-    ctx.fillStyle = d > 0 ? "rgba(153, 27, 27, 0.65)" : "rgba(17, 24, 39, 0.22)";
+    ctx.save();
+    ctx.fillStyle = d > 0 ? colRed : colMuted;
+    ctx.globalAlpha = d > 0 ? 0.6 : 0.25;
     ctx.fillRect(x - 2, yErrBottom - h, 4, h);
+    ctx.restore();
   });
 
   // labels
-  ctx.fillStyle = "rgba(17, 24, 39, 0.55)";
+  ctx.save();
+  ctx.fillStyle = colMuted;
   ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace";
   ctx.fillText(`${Math.round(maxV)} ms`, x0, yTop + 10);
   ctx.fillText(`${Math.round(minV)} ms`, x0, yLineBottom - 2);
   ctx.fillText("Δerrors", x0, yLineBottom + 16);
+  if (hasP95) ctx.fillText("p95 (dashed)", x1 - 88, yTop + 10);
+  ctx.restore();
 
   const last = hist[hist.length - 1] || {};
   const lastDelta = deltas[deltas.length - 1] || 0;
   if (legend) {
     const bits = [
       `window=${hist.length}`,
-      `avg_latency_ms=${typeof last.avg_latency_ms === "number" ? opsNum(last.avg_latency_ms, { digits: 0 }) : "—"}`,
+      `avg_ms=${typeof last.avg_latency_ms === "number" ? opsNum(last.avg_latency_ms, { digits: 0 }) : "—"}`,
+      `p95_ms=${typeof last.p95_latency_ms === "number" ? opsNum(last.p95_latency_ms, { digits: 0 }) : "—"}`,
       `range=${Math.round(minV)}–${Math.round(maxV)}ms`,
+      `err_rate=${typeof last.recent_error_rate === "number" ? `${(last.recent_error_rate * 100).toFixed(1)}%` : "—"}`,
       `Δerrors(last)=${lastDelta}`,
     ];
     legend.textContent = bits.join(" • ");
@@ -2114,10 +2299,17 @@ function renderOpsDashboard() {
 
   const uptime = formatUptime(opsMetric(m, "uptime_s", null));
   const version = String(opsMetric(m, "version", "—") || "—");
+  const windowMax = Number(opsMetric(m, "metrics_window_max_n", 0)) || 0;
   const triageReq = Number(opsMetric(m, "triage_requests_total", 0)) || 0;
   const triageOk = Number(opsMetric(m, "triage_success_total", 0)) || 0;
   const triageErr = Number(opsMetric(m, "triage_errors_total", 0)) || 0;
-  const avgLatency = Number(opsMetric(m, "triage_latency_ms_avg", null));
+  const avgAll = Number(opsMetric(m, "triage_latency_ms_avg", null));
+  const avgWindow = Number(opsMetric(m, "triage_latency_ms_avg_window", null));
+  const p50Latency = Number(opsMetric(m, "triage_latency_ms_p50", null));
+  const p95Latency = Number(opsMetric(m, "triage_latency_ms_p95", null));
+  const latWindowN = Number(opsMetric(m, "triage_latency_ms_window_n", 0)) || 0;
+  const recentErrRate = Number(opsMetric(m, "triage_recent_error_rate", null));
+  const recentErrWindowN = Number(opsMetric(m, "triage_recent_window_n", 0)) || 0;
 
   const rb = (d || {}).reasoning_backend || {};
   const backend = String(rb.backend || "deterministic");
@@ -2140,7 +2332,27 @@ function renderOpsDashboard() {
 
   addCard("Uptime", uptime, `version=${version}`);
   addCard("Triage requests", `${triageReq}`, `success=${triageOk} • errors=${triageErr}`);
-  addCard("Avg triage latency", Number.isFinite(avgLatency) ? `${opsNum(avgLatency, { digits: 2 })} ms` : "—", "from pipeline total_latency_ms");
+
+  const latBits = [];
+  if (Number.isFinite(p50Latency)) latBits.push(`p50=${opsNum(p50Latency, { digits: 0 })}ms`);
+  if (Number.isFinite(p95Latency)) latBits.push(`p95=${opsNum(p95Latency, { digits: 0 })}ms`);
+  const latVal = latBits.length
+    ? latBits.join(" • ")
+    : Number.isFinite(avgWindow)
+      ? `${opsNum(avgWindow, { digits: 0 })} ms`
+      : Number.isFinite(avgAll)
+        ? `${opsNum(avgAll, { digits: 0 })} ms`
+        : "—";
+  const latSubBits = [];
+  if (Number.isFinite(avgWindow)) latSubBits.push(`avg_window=${opsNum(avgWindow, { digits: 0 })}ms`);
+  if (Number.isFinite(avgAll)) latSubBits.push(`avg_all=${opsNum(avgAll, { digits: 0 })}ms`);
+  if (latWindowN) latSubBits.push(`window_n=${latWindowN}${windowMax ? `/${windowMax}` : ""}`);
+  addCard("Triage latency (rolling)", latVal, latSubBits.join(" • ") || "from pipeline total_latency_ms");
+
+  const errVal = Number.isFinite(recentErrRate) ? `${(recentErrRate * 100).toFixed(1)}%` : "—";
+  const errSub = `window_n=${recentErrWindowN}${windowMax ? `/${windowMax}` : ""}`;
+  addCard("Recent error rate", errVal, errSub);
+
   addCard("Reasoning backend", backendLine, `connectivity=${backendHealth}`);
   if (circOpen || commCircOpen || (circFails != null && circFails > 0) || (commCircFails != null && commCircFails > 0)) {
     const bits = [];
@@ -2167,12 +2379,26 @@ function renderOpsDashboard() {
     .join(" • ");
   addCard("Risk tier distribution", riskLine || "—", "since server start");
 
-  const backendTotals = m.triage_reasoning_backend_total || {};
-  const backendDist = Object.keys(backendTotals)
+  const reasoningTotals = m.triage_reasoning_backend_total || {};
+  const reasoningDist = Object.keys(reasoningTotals)
     .sort()
-    .map((k) => `${k}=${backendTotals[k]}`)
+    .map((k) => `${k}=${reasoningTotals[k]}`)
     .join(" • ");
-  addCard("Backend distribution", backendDist || "—", "deterministic vs external");
+  addCard("Reasoning distribution", reasoningDist || "—", "deterministic vs external");
+
+  const commTotals = m.triage_communication_backend_total || {};
+  const commDist = Object.keys(commTotals)
+    .sort()
+    .map((k) => `${k}=${commTotals[k]}`)
+    .join(" • ");
+  addCard("Comm distribution", commDist || "—", "deterministic vs external");
+
+  const evidenceTotals = m.triage_evidence_backend_total || {};
+  const evidenceDist = Object.keys(evidenceTotals)
+    .sort()
+    .map((k) => `${k}=${evidenceTotals[k]}`)
+    .join(" • ");
+  addCard("Evidence distribution", evidenceDist || "—", "policy pack vs free APIs");
 
   // Alerts
   const issues = [];
@@ -2189,7 +2415,12 @@ function renderOpsDashboard() {
     });
   if (authRequired && !authHasKey) issues.push({ level: "warn", text: "Server requires API key but none is set (POST actions will 401)." });
   if (triageErr > 0) issues.push({ level: "bad", text: `Triage errors observed: ${triageErr}` });
-  if (Number.isFinite(avgLatency) && avgLatency > 1800) issues.push({ level: "warn", text: `High average latency: ${opsNum(avgLatency, { digits: 0 })} ms` });
+  if (Number.isFinite(p95Latency) && p95Latency > 3500)
+    issues.push({ level: "warn", text: `High p95 latency: ${opsNum(p95Latency, { digits: 0 })} ms` });
+  if (Number.isFinite(avgWindow) && avgWindow > 1800)
+    issues.push({ level: "warn", text: `High rolling avg latency: ${opsNum(avgWindow, { digits: 0 })} ms` });
+  if (Number.isFinite(recentErrRate) && recentErrRate > 0.05)
+    issues.push({ level: "warn", text: `Elevated recent error rate: ${(recentErrRate * 100).toFixed(1)}%` });
 
   const agentErrs = m.triage_agent_errors_total || {};
   Object.keys(agentErrs || {}).forEach((a) => {
@@ -2227,10 +2458,18 @@ function renderOpsDashboard() {
 
   // Per-agent table
   if (agentBody) {
-    const sums = m.triage_agent_latency_ms_sum || {};
     const counts = m.triage_agent_latency_ms_count || {};
     const errs = m.triage_agent_errors_total || {};
-    const allAgents = new Set([...Object.keys(sums), ...Object.keys(counts), ...Object.keys(errs)]);
+    const avgWin = m.triage_agent_latency_ms_avg_window || {};
+    const p50Win = m.triage_agent_latency_ms_p50 || {};
+    const p95Win = m.triage_agent_latency_ms_p95 || {};
+    const allAgents = new Set([
+      ...Object.keys(counts || {}),
+      ...Object.keys(errs || {}),
+      ...Object.keys(avgWin || {}),
+      ...Object.keys(p50Win || {}),
+      ...Object.keys(p95Win || {}),
+    ]);
     const order = [
       "intake_structuring",
       "multimodal_reasoning",
@@ -2245,18 +2484,25 @@ function renderOpsDashboard() {
     const agents = [...allAgents].sort((a, b) => idx(a) - idx(b) || String(a).localeCompare(String(b)));
 
     agents.forEach((a) => {
-      const sum = Number(sums[a]);
       const cnt = Number(counts[a]) || 0;
       const err = Number(errs[a]) || 0;
-      const avg = cnt > 0 && Number.isFinite(sum) ? sum / cnt : null;
+      const avg = Number(avgWin?.[a]);
+      const p50 = Number(p50Win?.[a]);
+      const p95 = Number(p95Win?.[a]);
+      const avgOk = Number.isFinite(avg);
+      const p50Ok = Number.isFinite(p50);
+      const p95Ok = Number.isFinite(p95);
 
       const tr = document.createElement("tr");
       if (err > 0) tr.className = "row-bad";
-      else if (avg != null && avg > 900) tr.className = "row-warn";
+      else if (p95Ok && p95 > 900) tr.className = "row-warn";
+      else if (avgOk && avg > 700) tr.className = "row-warn";
 
       tr.innerHTML = `
         <td class="mono">${escapeHtml(a)}</td>
-        <td class="mono">${avg == null ? "—" : escapeHtml(opsNum(avg, { digits: 2 }))}</td>
+        <td class="mono">${avgOk ? escapeHtml(opsNum(avg, { digits: 2 })) : "—"}</td>
+        <td class="mono">${p50Ok ? escapeHtml(opsNum(p50, { digits: 2 })) : "—"}</td>
+        <td class="mono">${p95Ok ? escapeHtml(opsNum(p95, { digits: 2 })) : "—"}</td>
         <td class="mono">${escapeHtml(String(cnt))}</td>
         <td class="mono">${escapeHtml(String(err))}</td>
       `;
@@ -2267,7 +2513,9 @@ function renderOpsDashboard() {
   if (dist) {
     const bits = [];
     if (riskLine) bits.push(`risk_tier_total: ${riskLine}`);
-    if (backendDist) bits.push(`reasoning_backend_total: ${backendDist}`);
+    if (reasoningDist) bits.push(`reasoning_backend_total: ${reasoningDist}`);
+    if (commDist) bits.push(`communication_backend_total: ${commDist}`);
+    if (evidenceDist) bits.push(`evidence_backend_total: ${evidenceDist}`);
     dist.textContent = bits.length ? bits.join(" • ") : "—";
   }
 
@@ -2358,11 +2606,82 @@ async function runOpsSmokeCheck() {
   setText("statusLine", ok ? "Ops smoke check: PASS" : "Ops smoke check: FAIL");
 }
 
+function renderOpsPingPlaceholder(text) {
+  const out = $("opsPingOut");
+  if (!out) return;
+  out.innerHTML = `<div class="k">Inference ping</div><div class="small muted">${escapeHtml(text || "Not run.")}</div>`;
+}
+
+function _fmtPingLine(label, res) {
+  if (!res || typeof res !== "object") return `${label}: (no data)`;
+  const backend = String(res.backend || "").trim() || "unknown";
+  const preview = String(res.response_preview || "").trim();
+  const error = String(res.error || "").trim();
+  const ms = typeof res.latency_ms === "number" ? `${res.latency_ms} ms` : "";
+  const parts = [backend, ms].filter((x) => x);
+  if (preview) parts.push(`preview=${preview.slice(0, 60)}`);
+  if (error) parts.push(`error=${error.slice(0, 80)}`);
+  return `${label}: ${parts.join(" • ") || backend}`;
+}
+
+async function runOpsInferencePing() {
+  const out = $("opsPingOut");
+  if (!out) return;
+  out.innerHTML = `<div class="k">Inference ping</div><div class="small muted">Running…</div>`;
+
+  try {
+    const payload = await fetchJson("/ping?which=all");
+    const ok = Boolean(payload.ok);
+    const reasoning = payload.reasoning || null;
+    const comm = payload.communication || null;
+
+    out.innerHTML = "";
+    const k = document.createElement("div");
+    k.className = "k";
+    k.textContent = `Inference ping: ${ok ? "PASS" : "FAIL"}`;
+    out.appendChild(k);
+
+    const ul = document.createElement("ul");
+    ul.className = "list";
+
+    function addRow(label, res) {
+      const li = document.createElement("li");
+      const chip = document.createElement("span");
+      const rok = Boolean(res && typeof res === "object" && res.ok === true);
+      chip.className = `chip ${rok ? "ok" : "bad"}`;
+      chip.textContent = rok ? "OK" : "FAIL";
+      li.appendChild(chip);
+      const text = document.createElement("span");
+      text.textContent = ` ${_fmtPingLine(label, res)}`;
+      li.appendChild(text);
+      ul.appendChild(li);
+    }
+
+    addRow("reasoning", reasoning);
+    addRow("communication", comm);
+
+    out.appendChild(ul);
+    setText("statusLine", ok ? "Inference ping: PASS" : "Inference ping: FAIL");
+  } catch (e) {
+    out.innerHTML = "";
+    const k = document.createElement("div");
+    k.className = "k";
+    k.textContent = "Inference ping: ERROR";
+    out.appendChild(k);
+    const small = document.createElement("div");
+    small.className = "small muted";
+    small.textContent = String(e || "");
+    out.appendChild(small);
+    setText("statusLine", "Inference ping failed.");
+  }
+}
+
 function buildOpsReportMarkdown() {
   const m = state.metrics || {};
   const d = state.doctor || {};
   const rb = d.reasoning_backend || {};
   const cb = d.communication_backend || {};
+  const eb = d.evidence_backend || {};
   const pp = d.policy_pack || {};
 
   const lines = [];
@@ -2386,6 +2705,8 @@ function buildOpsReportMarkdown() {
   lines.push(`- communication_backend: \`${String(cb.backend || "deterministic")}\``);
   lines.push(`- communication_model: \`${String(cb.model || "")}\``);
   lines.push(`- communication_connectivity_ok: \`${String(cb.connectivity_ok)}\``);
+  lines.push(`- evidence_backend: \`${String(eb.backend || "local")}\``);
+  lines.push(`- evidence_connectivity_ok: \`${String(eb.connectivity_ok)}\``);
   lines.push(`- policy_pack_sha256: \`${String(pp.sha256 || "")}\``);
   lines.push("");
 
@@ -2400,25 +2721,49 @@ function buildOpsReportMarkdown() {
 
   lines.push("## Latency");
   lines.push("");
-  lines.push(`- triage_latency_ms_avg: \`${opsNum(m.triage_latency_ms_avg, { digits: 2 })}\``);
+  const windowMax = Number(m.metrics_window_max_n || 0) || 0;
+  const errRate = Number(m.triage_recent_error_rate);
+  lines.push(`- metrics_window_max_n: \`${windowMax || "—"}\``);
+  lines.push(`- triage_latency_ms_avg_all: \`${opsNum(m.triage_latency_ms_avg, { digits: 2 })}\``);
+  lines.push(`- triage_latency_ms_avg_window: \`${opsNum(m.triage_latency_ms_avg_window, { digits: 2 })}\``);
+  lines.push(`- triage_latency_ms_p50: \`${opsNum(m.triage_latency_ms_p50, { digits: 2 })}\``);
+  lines.push(`- triage_latency_ms_p95: \`${opsNum(m.triage_latency_ms_p95, { digits: 2 })}\``);
+  lines.push(`- triage_latency_ms_window_n: \`${String(m.triage_latency_ms_window_n ?? "")}\``);
+  lines.push(
+    `- triage_recent_error_rate_window: \`${
+      Number.isFinite(errRate) ? `${(errRate * 100).toFixed(2)}%` : "—"
+    }\` (n=${String(m.triage_recent_window_n ?? "") || "—"})`,
+  );
   lines.push("");
 
-  lines.push("## Per-agent averages");
+  lines.push("## Per-agent latency (rolling window)");
   lines.push("");
-  lines.push("| Agent | Avg latency (ms) | Calls | Errors |");
-  lines.push("|---|---:|---:|---:|");
+  lines.push("| Agent | Avg ms | p50 ms | p95 ms | Calls | Errors |");
+  lines.push("|---|---:|---:|---:|---:|---:|");
 
-  const sums = m.triage_agent_latency_ms_sum || {};
+  const avgWin = m.triage_agent_latency_ms_avg_window || {};
+  const p50Win = m.triage_agent_latency_ms_p50 || {};
+  const p95Win = m.triage_agent_latency_ms_p95 || {};
   const counts = m.triage_agent_latency_ms_count || {};
   const errs = m.triage_agent_errors_total || {};
-  const allAgents = new Set([...Object.keys(sums), ...Object.keys(counts), ...Object.keys(errs)]);
+  const allAgents = new Set([
+    ...Object.keys(avgWin || {}),
+    ...Object.keys(p50Win || {}),
+    ...Object.keys(p95Win || {}),
+    ...Object.keys(counts || {}),
+    ...Object.keys(errs || {}),
+  ]);
   const agents = [...allAgents].sort();
   agents.forEach((a) => {
     const cnt = Number(counts[a]) || 0;
-    const sum = Number(sums[a]);
     const err = Number(errs[a]) || 0;
-    const avg = cnt > 0 && Number.isFinite(sum) ? sum / cnt : null;
-    lines.push(`| \`${a}\` | \`${avg == null ? "—" : opsNum(avg, { digits: 2 })}\` | \`${cnt}\` | \`${err}\` |`);
+    const avg = Number(avgWin[a]);
+    const p50 = Number(p50Win[a]);
+    const p95 = Number(p95Win[a]);
+    const avgStr = Number.isFinite(avg) ? opsNum(avg, { digits: 2 }) : "—";
+    const p50Str = Number.isFinite(p50) ? opsNum(p50, { digits: 2 }) : "—";
+    const p95Str = Number.isFinite(p95) ? opsNum(p95, { digits: 2 }) : "—";
+    lines.push(`| \`${a}\` | \`${avgStr}\` | \`${p50Str}\` | \`${p95Str}\` | \`${cnt}\` | \`${err}\` |`);
   });
   lines.push("");
 
@@ -3940,13 +4285,110 @@ function computeSafetyTriggerIndex(perCase) {
   return arr;
 }
 
+function _sortedFinite(values) {
+  const arr = (values || [])
+    .map((x) => Number(x))
+    .filter((x) => Number.isFinite(x))
+    .sort((a, b) => a - b);
+  return arr;
+}
+
+function _mean(values) {
+  const arr = _sortedFinite(values);
+  if (!arr.length) return null;
+  const sum = arr.reduce((a, b) => a + b, 0);
+  return sum / arr.length;
+}
+
+function _median(values) {
+  const arr = _sortedFinite(values);
+  if (!arr.length) return null;
+  const mid = Math.floor(arr.length / 2);
+  if (arr.length % 2 === 1) return arr[mid];
+  return (arr[mid - 1] + arr[mid]) / 2;
+}
+
+function _pNearestRank(values, p) {
+  const arr = _sortedFinite(values);
+  if (!arr.length) return null;
+  const pp = Math.max(0, Math.min(1, Number(p)));
+  if (pp <= 0) return arr[0];
+  if (pp >= 1) return arr[arr.length - 1];
+  const idx = Math.max(0, Math.min(arr.length - 1, Math.ceil(pp * arr.length) - 1));
+  return arr[idx];
+}
+
+function computeBenchOpsSlo(perCase) {
+  const agents = {};
+  const totals = [];
+  let casesWithWorkflow = 0;
+  let casesWithErrors = 0;
+
+  (perCase || []).forEach((row) => {
+    const wf = row?.clinicaflow?.workflow || [];
+    if (!Array.isArray(wf) || !wf.length) return;
+    casesWithWorkflow += 1;
+
+    let total = 0;
+    let anyErr = false;
+
+    wf.forEach((step) => {
+      if (!step || typeof step !== "object") return;
+      const agent = String(step.agent || "").trim();
+      if (!agent) return;
+
+      if (!agents[agent]) agents[agent] = { agent, calls: 0, errors: 0, latencies: [] };
+      agents[agent].calls += 1;
+
+      const ms = Number(step.latency_ms);
+      if (Number.isFinite(ms)) {
+        agents[agent].latencies.push(ms);
+        total += ms;
+      }
+
+      const err = String(step.error || "").trim();
+      if (err) {
+        agents[agent].errors += 1;
+        anyErr = true;
+      }
+    });
+
+    totals.push(total);
+    if (anyErr) casesWithErrors += 1;
+  });
+
+  const agentArr = Object.values(agents)
+    .map((a) => ({
+      agent: a.agent,
+      calls: Number(a.calls || 0) || 0,
+      errors: Number(a.errors || 0) || 0,
+      avg_ms: _mean(a.latencies),
+      p50_ms: _median(a.latencies),
+      p95_ms: _pNearestRank(a.latencies, 0.95),
+    }))
+    .sort((a, b) => String(a.agent).localeCompare(String(b.agent)));
+
+  return {
+    n_cases: (perCase || []).length,
+    casesWithWorkflow,
+    casesWithErrors,
+    total_avg_ms: _mean(totals),
+    total_p50_ms: _median(totals),
+    total_p95_ms: _pNearestRank(totals, 0.95),
+    agents: agentArr,
+  };
+}
+
 function renderGovernance(summary, perCase) {
   const gate = $("govGate");
   const cards = $("govCards");
   const prov = $("govProvenance");
+  const ops = $("govOps");
   const triggers = $("govTriggers");
   const under = $("govUnder");
-  if (!gate && !cards && !prov && !triggers && !under) return;
+  const mismatch = $("govMismatch");
+  const over = $("govOver");
+  if (!gate && !cards && !prov && !ops && !triggers && !under && !mismatch && !over) return;
 
   function fmtPct(v) {
     const n = Number(v);
@@ -3967,8 +4409,11 @@ function renderGovernance(summary, perCase) {
     }
     if (cards) cards.innerHTML = "";
     if (prov) prov.innerHTML = "";
+    if (ops) ops.innerHTML = "";
     if (triggers) triggers.innerHTML = "";
     if (under) under.innerHTML = "";
+    if (mismatch) mismatch.innerHTML = "";
+    if (over) over.innerHTML = "";
     return;
   }
 
@@ -4081,6 +4526,71 @@ function renderGovernance(summary, perCase) {
 
       barRow("SAFETY", stats.safety, "safety");
       barRow("POLICY", stats.policy, "policy");
+    }
+  }
+
+  if (ops) {
+    ops.innerHTML = "";
+    const k = document.createElement("div");
+    k.className = "k";
+    k.textContent = "Ops SLO (benchmark run)";
+    ops.appendChild(k);
+
+    const small = document.createElement("div");
+    small.className = "small muted";
+    small.textContent = "Derived from per-case agent traces (latency + error counts).";
+    ops.appendChild(small);
+
+    const stats = computeBenchOpsSlo(perCase);
+    if (!stats.casesWithWorkflow) {
+      const empty = document.createElement("div");
+      empty.className = "small muted";
+      empty.style.marginTop = "8px";
+      empty.textContent = "(no workflow traces available)";
+      ops.appendChild(empty);
+    } else {
+      const meta = document.createElement("div");
+      meta.className = "small muted";
+      meta.style.marginTop = "8px";
+      const p95 = stats.total_p95_ms != null ? `${stats.total_p95_ms.toFixed(1)}ms` : "—";
+      const p50 = stats.total_p50_ms != null ? `${stats.total_p50_ms.toFixed(1)}ms` : "—";
+      meta.textContent = `cases_with_workflow=${stats.casesWithWorkflow}/${stats.n_cases} • cases_with_errors=${stats.casesWithErrors}/${stats.casesWithWorkflow} • end_to_end_p50=${p50} • end_to_end_p95=${p95}`;
+      ops.appendChild(meta);
+
+      const tw = document.createElement("div");
+      tw.className = "tablewrap";
+      const table = document.createElement("table");
+      table.innerHTML = `
+        <thead>
+          <tr>
+            <th>Agent</th>
+            <th>Calls</th>
+            <th>Errors</th>
+            <th>Avg ms</th>
+            <th>p50 ms</th>
+            <th>p95 ms</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      `;
+      const tbody = table.querySelector("tbody");
+      (stats.agents || []).forEach((a) => {
+        const tr = document.createElement("tr");
+        const avg = a.avg_ms != null ? a.avg_ms.toFixed(1) : "—";
+        const p50a = a.p50_ms != null ? a.p50_ms.toFixed(1) : "—";
+        const p95a = a.p95_ms != null ? a.p95_ms.toFixed(1) : "—";
+        tr.innerHTML = `
+          <td class="mono">${escapeHtml(String(a.agent || ""))}</td>
+          <td class="mono">${escapeHtml(String(a.calls || 0))}</td>
+          <td class="mono">${escapeHtml(String(a.errors || 0))}</td>
+          <td class="mono">${escapeHtml(avg)}</td>
+          <td class="mono">${escapeHtml(p50a)}</td>
+          <td class="mono"><b>${escapeHtml(p95a)}</b></td>
+        `;
+        tbody.appendChild(tr);
+      });
+      tw.appendChild(table);
+      ops.appendChild(tw);
     }
   }
 
@@ -4198,6 +4708,113 @@ function renderGovernance(summary, perCase) {
       });
       tw.appendChild(table);
       under.appendChild(tw);
+    }
+  }
+
+  if (mismatch) {
+    mismatch.innerHTML = "";
+    const k = document.createElement("div");
+    k.className = "k";
+    k.textContent = "Tier mismatches (excluding under/over)";
+    mismatch.appendChild(k);
+
+    const mismatchRows = (perCase || []).filter((r) => {
+      const f = benchRowFlags(r);
+      return f.mismatch && !f.under && !f.over;
+    });
+
+    const small = document.createElement("div");
+    small.className = "small muted";
+    small.textContent = mismatchRows.length
+      ? `Found ${mismatchRows.length} mismatches. Click a row to load the vignette.`
+      : "PASS — no non-trivial tier mismatches detected.";
+    mismatch.appendChild(small);
+
+    if (mismatchRows.length) {
+      const tw = document.createElement("div");
+      tw.className = "tablewrap";
+      const table = document.createElement("table");
+      table.innerHTML = `
+        <thead>
+          <tr>
+            <th>Case</th>
+            <th>Gold tier</th>
+            <th>Pred tier</th>
+            <th>Gold categories</th>
+            <th>Pred categories</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      `;
+      const tbody = table.querySelector("tbody");
+      mismatchRows.slice(0, 25).forEach((row) => {
+        const tr = document.createElement("tr");
+        tr.className = "row-warn";
+        tr.style.cursor = "pointer";
+        tr.innerHTML = `
+          <td class="mono">${escapeHtml(String(row.id || ""))}</td>
+          <td>${escapeHtml(String(row?.gold?.risk_tier || ""))}</td>
+          <td><b>${escapeHtml(String(row?.clinicaflow?.risk_tier || ""))}</b></td>
+          <td class="mono">${escapeHtml((row?.gold?.categories || []).join(", "))}</td>
+          <td class="mono">${escapeHtml((row?.clinicaflow?.categories || []).join(", "))}</td>
+        `;
+        tr.addEventListener("click", () => loadVignetteById(row.id, { set: setName }));
+        tbody.appendChild(tr);
+      });
+      tw.appendChild(table);
+      mismatch.appendChild(tw);
+    }
+  }
+
+  if (over) {
+    over.innerHTML = "";
+    const k = document.createElement("div");
+    k.className = "k";
+    k.textContent = "Over-triage drill-down (ops load)";
+    over.appendChild(k);
+
+    const overRows = (perCase || []).filter((r) => benchRowFlags(r).over);
+
+    const small = document.createElement("div");
+    small.className = "small muted";
+    small.textContent = overRows.length
+      ? `Found ${overRows.length} over-triage cases. Click a row to load the vignette.`
+      : "PASS — no over-triage cases detected.";
+    over.appendChild(small);
+
+    if (overRows.length) {
+      const tw = document.createElement("div");
+      tw.className = "tablewrap";
+      const table = document.createElement("table");
+      table.innerHTML = `
+        <thead>
+          <tr>
+            <th>Case</th>
+            <th>Gold tier</th>
+            <th>Pred tier</th>
+            <th>Gold categories</th>
+            <th>Pred categories</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      `;
+      const tbody = table.querySelector("tbody");
+      overRows.slice(0, 25).forEach((row) => {
+        const tr = document.createElement("tr");
+        tr.className = "row-warn";
+        tr.style.cursor = "pointer";
+        tr.innerHTML = `
+          <td class="mono">${escapeHtml(String(row.id || ""))}</td>
+          <td>${escapeHtml(String(row?.gold?.risk_tier || ""))}</td>
+          <td><b>${escapeHtml(String(row?.clinicaflow?.risk_tier || ""))}</b></td>
+          <td class="mono">${escapeHtml((row?.gold?.categories || []).join(", "))}</td>
+          <td class="mono">${escapeHtml((row?.clinicaflow?.categories || []).join(", "))}</td>
+        `;
+        tr.addEventListener("click", () => loadVignetteById(row.id, { set: setName }));
+        tbody.appendChild(tr);
+      });
+      tw.appendChild(table);
+      over.appendChild(tw);
     }
   }
 }
@@ -6316,6 +6933,7 @@ function wireEvents() {
     await clearLocalDemoData();
     window.location.reload();
   });
+  $("themeToggle")?.addEventListener("click", () => toggleTheme());
 
   // Home tab quick actions
   $("homeStartDemo")?.addEventListener("click", () => setTab("demo"));
@@ -6494,6 +7112,7 @@ function wireEvents() {
   // Ops tab
   $("opsRefresh")?.addEventListener("click", () => refreshOps());
   $("opsSmoke")?.addEventListener("click", () => runOpsSmokeCheck());
+  $("opsPing")?.addEventListener("click", () => runOpsInferencePing());
   $("opsDownloadMd")?.addEventListener("click", () => downloadOpsReportMd());
   const opsAuto = $("opsAuto");
   if (opsAuto) {
@@ -6910,6 +7529,8 @@ async function init() {
   const wantReset = ["1", "true", "yes"].includes(String(params.get("reset") || "").trim().toLowerCase());
   const wantDirector = ["1", "true", "yes"].includes(String(params.get("director") || "").trim().toLowerCase());
   const wantWelcome = ["1", "true", "yes"].includes(String(params.get("welcome") || "").trim().toLowerCase());
+  const autorunRaw = String(params.get("autorun") || "").trim();
+  const autorunSet = String(params.get("set") || "").trim();
 
   if (wantReset) {
     await clearLocalDemoData();
@@ -6922,6 +7543,9 @@ async function init() {
       // ignore
     }
   }
+
+  // Apply theme early (before rendering cards/tables).
+  applyTheme(loadThemePreference());
 
   wireEvents();
   window.addEventListener("hashchange", () => handleHashChange());
@@ -6936,6 +7560,7 @@ async function init() {
   renderGovernance(null, null);
   renderRulesTab();
   renderOpsSmokePlaceholder("Not run.");
+  renderOpsPingPlaceholder("Not run.");
   await refreshOps();
   await loadPresets();
   await loadPreset();
@@ -6947,6 +7572,40 @@ async function init() {
   renderWorkspaceTable();
   renderHome();
   renderTraceMini([]);
+
+  // Optional: auto-run a demo vignette (no PHI). Disabled when Director mode is on,
+  // since Director already includes a guided "Load + run" step.
+  if (autorunRaw && !wantDirector) {
+    let caseId = autorunRaw;
+    const opts = {};
+    if (autorunRaw.toLowerCase() === "critical") caseId = "v01_chest_pain_hypotension";
+    else if (autorunRaw.toLowerCase() === "neuro") caseId = "v05_slurred_speech_weakness";
+    else if (autorunRaw.toLowerCase() === "routine") caseId = "v21_sore_throat_routine";
+    else if (autorunRaw.toLowerCase() === "adversarial") {
+      caseId = "a01_cp_abbrev_hypotension";
+      opts.set = "adversarial";
+    } else if (autorunSet) {
+      opts.set = autorunSet;
+    }
+
+    try {
+      params.delete("autorun");
+      const next = params.toString();
+      const url = `${window.location.pathname}${next ? `?${next}` : ""}${window.location.hash || ""}`;
+      history.replaceState(null, "", url);
+    } catch (e) {
+      // ignore
+    }
+
+    try {
+      setTab("triage");
+      await demoLoadAndRun(caseId, opts);
+      const traceDetails = $("trace")?.closest("details");
+      if (traceDetails) traceDetails.open = true;
+    } catch (e) {
+      setError("runError", e);
+    }
+  }
 
   if (wantDirector) {
     directorStart();

@@ -21,7 +21,8 @@ Show the demo UI (local):
 - Recommended: click **Director: off** (top-right) to enable the built-in Director mode overlay (teleprompter + step highlights).
 - Optional: open the **Demo** tab for the click-through runbook.
 - Optional: mention `GET /openapi.json`, `GET /metrics`, `GET /doctor`, and `X-Request-ID` for audit/ops readiness.
-- Optional: open the **Ops** tab to show live `/metrics` and per-agent latency/errors.
+- Optional: run `GET /ping` (or Ops → Ping inference) to show a no-PHI deep inference check.
+- Optional: open the **Ops** tab to show live `/metrics` (rolling p50/p95 + recent error rate) and per-agent latency/errors.
 - Load a sample case and highlight:
   - risk tier,
   - red flags,
@@ -41,7 +42,7 @@ Explain the 5-agent pipeline:
 
 1. Structuring → checks missing critical fields
 2. Reasoning → differential + rationale (MedGemma integration point)
-3. Evidence/Policy → attaches protocol-style citations
+3. Evidence/Policy → attaches protocol-style citations (optional: PubMed/MedlinePlus links)
 4. Safety/Escalation → deterministic red-flag rules + conservative thresholds
 5. Communication → clinician + patient outputs
 
@@ -85,7 +86,7 @@ Or run it in the UI:
 
 - Go to the **Regression** tab → **Run benchmark** → show summary + per-case table.
 - Optional: **Copy markdown** and paste into the writeup (reproducibility).
-- Go to the **Governance** tab → **Run governance benchmark (mega)** → show the hard safety gate and download the governance report.
+- Go to the **Governance** tab → **Run governance benchmark (mega)** → show the hard safety gate + **Ops SLO** table and download the governance report.
 
 Optional: show production-ish sanity check output:
 

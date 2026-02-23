@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from clinicaflow.models import PatientIntake, TriageResult, Vitals
+from clinicaflow.privacy import scrub_phi
 
 
 def build_fhir_bundle(
@@ -35,7 +36,7 @@ def build_fhir_bundle(
     observations = _vitals_observations(intake.vitals, patient_ref="Patient/patient", request_id=result.request_id)
     actions = _normalize_checklist(checklist, fallback=result.recommended_next_actions)
     triage = _clinical_impression(result=result, patient_ref="Patient/patient", actions=actions)
-    comms = _patient_communication(result=result, patient_ref="Patient/patient")
+    comms = _patient_communication(result=result, patient_ref="Patient/patient", redact=redact)
     tasks = _action_tasks(actions, patient_ref="Patient/patient", request_id=result.request_id)
 
     entries = [
@@ -140,13 +141,18 @@ def _clinical_impression(*, result: TriageResult, patient_ref: str, actions: lis
     }
 
 
-def _patient_communication(*, result: TriageResult, patient_ref: str) -> dict[str, Any]:
+def _patient_communication(*, result: TriageResult, patient_ref: str, redact: bool) -> dict[str, Any]:
+    text = result.patient_summary
+    if redact:
+        text = "Redacted (no PHI). Decision support only."
+    else:
+        text = scrub_phi(text)
     return {
         "resourceType": "Communication",
         "id": "patient-precautions",
         "status": "completed",
         "subject": {"reference": patient_ref},
-        "payload": [{"contentString": result.patient_summary}],
+        "payload": [{"contentString": text}],
     }
 
 

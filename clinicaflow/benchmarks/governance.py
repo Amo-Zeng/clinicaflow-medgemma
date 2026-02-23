@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
+import statistics
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -47,6 +49,135 @@ class TriggerCoverage:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class OpsAgentStats:
+    agent: str
+    calls: int
+    errors: int
+    avg_latency_ms: float | None
+    p50_latency_ms: float | None
+    p95_latency_ms: float | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class OpsSloSummary:
+    n_cases: int
+    n_cases_with_workflow: int
+    cases_with_errors: int
+    total_avg_latency_ms: float | None
+    total_p50_latency_ms: float | None
+    total_p95_latency_ms: float | None
+    agents: list[OpsAgentStats]
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["agents"] = [agent.to_dict() for agent in self.agents]
+        return payload
+
+
+def _percentile_nearest_rank(values: list[float], p: float) -> float | None:
+    vals = [float(x) for x in (values or []) if isinstance(x, (int, float)) and math.isfinite(float(x))]
+    if not vals:
+        return None
+    if p <= 0.0:
+        return min(vals)
+    if p >= 1.0:
+        return max(vals)
+    vals.sort()
+    # Nearest-rank definition: ceil(p * N)th value (1-indexed).
+    idx = max(0, min(len(vals) - 1, int(math.ceil(p * len(vals))) - 1))
+    return float(vals[idx])
+
+
+def _safe_mean(values: list[float]) -> float | None:
+    vals = [float(x) for x in (values or []) if isinstance(x, (int, float)) and math.isfinite(float(x))]
+    if not vals:
+        return None
+    return float(statistics.mean(vals))
+
+
+def _safe_median(values: list[float]) -> float | None:
+    vals = [float(x) for x in (values or []) if isinstance(x, (int, float)) and math.isfinite(float(x))]
+    if not vals:
+        return None
+    return float(statistics.median(vals))
+
+
+def compute_ops_slo(per_case: list[dict[str, Any]]) -> OpsSloSummary:
+    """Compute latency + error stats from per-case workflow traces.
+
+    This is a lightweight, deployment-aligned signal: per-agent latency and
+    error counts matter for incident response and SLOs.
+    """
+
+    agent_calls: dict[str, int] = {}
+    agent_errors: dict[str, int] = {}
+    agent_latencies: dict[str, list[float]] = {}
+
+    total_latencies: list[float] = []
+    n_cases_with_workflow = 0
+    cases_with_errors = 0
+
+    for row in per_case or []:
+        cf = dict(row.get("clinicaflow") or {})
+        workflow = cf.get("workflow") or []
+        if not isinstance(workflow, list) or not workflow:
+            continue
+
+        n_cases_with_workflow += 1
+        total_ms = 0.0
+        any_error = False
+
+        for step in workflow:
+            if not isinstance(step, dict):
+                continue
+            agent = str(step.get("agent") or "").strip()
+            if not agent:
+                continue
+            agent_calls[agent] = agent_calls.get(agent, 0) + 1
+
+            latency = step.get("latency_ms")
+            if isinstance(latency, (int, float)) and math.isfinite(float(latency)):
+                agent_latencies.setdefault(agent, []).append(float(latency))
+                total_ms += float(latency)
+
+            err = str(step.get("error") or "").strip()
+            if err:
+                any_error = True
+                agent_errors[agent] = agent_errors.get(agent, 0) + 1
+
+        total_latencies.append(total_ms)
+        if any_error:
+            cases_with_errors += 1
+
+    agents: list[OpsAgentStats] = []
+    for agent in sorted(agent_calls):
+        lat = agent_latencies.get(agent, [])
+        agents.append(
+            OpsAgentStats(
+                agent=agent,
+                calls=int(agent_calls.get(agent, 0)),
+                errors=int(agent_errors.get(agent, 0)),
+                avg_latency_ms=_safe_mean(lat),
+                p50_latency_ms=_safe_median(lat),
+                p95_latency_ms=_percentile_nearest_rank(lat, 0.95),
+            )
+        )
+
+    return OpsSloSummary(
+        n_cases=len(per_case or []),
+        n_cases_with_workflow=int(n_cases_with_workflow),
+        cases_with_errors=int(cases_with_errors),
+        total_avg_latency_ms=_safe_mean(total_latencies),
+        total_p50_latency_ms=_safe_median(total_latencies),
+        total_p95_latency_ms=_percentile_nearest_rank(total_latencies, 0.95),
+        agents=agents,
+    )
 
 
 def compute_gate(summary: VignetteBenchmarkSummary, *, min_red_flag_recall: float) -> GovernanceGate:
@@ -164,6 +295,7 @@ def to_governance_markdown(
     gate: GovernanceGate,
     provenance: GovernanceProvenance,
     triggers: list[TriggerCoverage],
+    ops: OpsSloSummary | None = None,
 ) -> str:
     generated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
@@ -202,6 +334,29 @@ def to_governance_markdown(
     lines.append(f"- safety_actions: `{provenance.safety_actions}` ({pct2(provenance.safety_actions, provenance.total_actions)})")
     lines.append(f"- policy_actions: `{provenance.policy_actions}` ({pct2(provenance.policy_actions, provenance.total_actions)})")
     lines.append("")
+
+    lines.append("## Ops SLO (benchmark run)")
+    lines.append("")
+    if not ops or ops.n_cases_with_workflow <= 0:
+        lines.append("- (no per-case workflow traces available)")
+        lines.append("")
+    else:
+        lines.append(f"- cases_with_workflow: `{ops.n_cases_with_workflow}/{ops.n_cases}`")
+        lines.append(f"- cases_with_agent_errors: `{ops.cases_with_errors}/{ops.n_cases_with_workflow}`")
+        if ops.total_p95_latency_ms is not None:
+            lines.append(f"- end_to_end_latency_p95_ms: `{ops.total_p95_latency_ms:.1f}`")
+        if ops.total_p50_latency_ms is not None:
+            lines.append(f"- end_to_end_latency_p50_ms: `{ops.total_p50_latency_ms:.1f}`")
+        lines.append("")
+
+        lines.append("| Agent | Calls | Errors | Avg ms | p50 ms | p95 ms |")
+        lines.append("|---|---:|---:|---:|---:|---:|")
+        for agent in ops.agents:
+            avg = f"{agent.avg_latency_ms:.1f}" if agent.avg_latency_ms is not None else "—"
+            p50 = f"{agent.p50_latency_ms:.1f}" if agent.p50_latency_ms is not None else "—"
+            p95 = f"{agent.p95_latency_ms:.1f}" if agent.p95_latency_ms is not None else "—"
+            lines.append(f"| `{agent.agent}` | `{agent.calls}` | `{agent.errors}` | `{avg}` | `{p50}` | `{p95}` |")
+        lines.append("")
 
     lines.append("## Top safety triggers (case coverage)")
     lines.append("")
@@ -475,6 +630,7 @@ def main() -> None:
     gate = compute_gate(summary, min_red_flag_recall=float(args.min_recall))
     provenance = compute_action_provenance(per_case)
     triggers = compute_trigger_coverage(per_case, top_k=20)
+    ops = compute_ops_slo(per_case)
 
     report_md = to_governance_markdown(
         set_name=set_name,
@@ -482,6 +638,7 @@ def main() -> None:
         gate=gate,
         provenance=provenance,
         triggers=triggers,
+        ops=ops,
     )
 
     if args.out:
@@ -492,7 +649,7 @@ def main() -> None:
         args.bench_out.parent.mkdir(parents=True, exist_ok=True)
         args.bench_out.write_text(
             json.dumps(
-                {"set": set_name, "summary": summary.to_dict(), "gate": gate.to_dict(), "per_case": per_case},
+                {"set": set_name, "summary": summary.to_dict(), "gate": gate.to_dict(), "ops": ops.to_dict(), "per_case": per_case},
                 indent=2,
                 ensure_ascii=False,
             ),
@@ -520,4 +677,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

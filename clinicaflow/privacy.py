@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Lightweight PHI/PII detection + external-call guard (demo-safe defaults)
@@ -69,3 +70,36 @@ def external_calls_allowed(*, phi_hits: list[str]) -> bool:
     if not phi_hits:
         return True
     return not phi_guard_enabled()
+
+
+def scrub_phi(text: str) -> str:
+    """Replace detected PHI patterns with redaction tokens.
+
+    This is a best-effort heuristic to reduce obvious identifiers in exported
+    artifacts (e.g., redacted audit bundles). It is not a full de-identification
+    pipeline and may have false negatives/positives.
+    """
+
+    raw = str(text or "")
+    if not raw:
+        return raw
+
+    out = raw
+    for name, pat in PHI_PATTERNS:
+        token = f"[REDACTED_{name.upper()}]"
+        out = pat.sub(token, out)
+    return out
+
+
+def scrub_phi_in_obj(obj: Any) -> Any:
+    """Recursively scrub PHI patterns from strings in a nested structure."""
+
+    if obj is None:
+        return None
+    if isinstance(obj, str):
+        return scrub_phi(obj)
+    if isinstance(obj, list):
+        return [scrub_phi_in_obj(x) for x in obj]
+    if isinstance(obj, dict):
+        return {k: scrub_phi_in_obj(v) for k, v in obj.items()}
+    return obj
