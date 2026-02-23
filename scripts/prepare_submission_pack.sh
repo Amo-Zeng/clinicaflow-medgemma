@@ -22,6 +22,13 @@ mkdir -p "$OUT_DIR"
 echo "[pack] Building submission pack at: $OUT_DIR"
 echo ""
 
+PLACEHOLDER_VIDEO_ID="${PLACEHOLDER_VIDEO_ID:-vZgvNssSSGk}"
+if grep -n "${PLACEHOLDER_VIDEO_ID}" README.md KAGGLE_WRITEUP.md champion_writeup_medgemma.md clinicaflow/resources/web/index.html >/dev/null 2>&1; then
+  echo "[pack] WARNING: Placeholder demo video link detected (${PLACEHOLDER_VIDEO_ID})."
+  echo "[pack]          Update the video link in README/writeup before final submission."
+  echo ""
+fi
+
 echo "[pack] Reproducing writeup assets..."
 OUT_DIR="$WRITEUP_ASSETS_DIR" bash scripts/reproduce_writeup.sh >/dev/null
 echo "[pack] Writeup assets: $WRITEUP_ASSETS_DIR"
@@ -107,7 +114,7 @@ manifest = {
     "files_sha256": file_hashes,
     "notes": [
         "Synthetic-only artifacts (no PHI).",
-        "Update the demo video link placeholder before final submission.",
+        "Demo video link is maintained in README.md / KAGGLE_WRITEUP.md.",
         "For the best demo experience: run scripts/demo_one_click.sh and enable Director mode in the UI.",
     ],
 }
@@ -144,4 +151,4 @@ echo "       Zip:    $OUT_DIR/$zip_name"
 echo ""
 echo "       Next:"
 echo "         - Record your 3-minute demo (UI top-right → Director mode)."
-echo "         - Replace the placeholder video link in README/writeup before submitting."
+echo "         - If you re-record, update the video link in README/writeup."
