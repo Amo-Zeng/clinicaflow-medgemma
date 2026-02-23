@@ -511,12 +511,36 @@ def _static_asset_fingerprint(web_assets: dict[str, tuple[bytes, str]]) -> str:
     """
 
     h = hashlib.sha256()
-    for name in ("index.html", "app.css", "app.js"):
+    # Intentionally do NOT include index.html here since we patch it with the
+    # fingerprint (would create a circular dependency).
+    for name in ("app.css", "app.js"):
         item = web_assets.get(name)
         if not item:
             continue
         h.update(item[0])
     return h.hexdigest()[:12]
+
+
+def _patch_index_html(index_html: bytes, *, fingerprint: str) -> bytes:
+    try:
+        text = index_html.decode("utf-8")
+    except UnicodeDecodeError:
+        text = index_html.decode("utf-8", errors="replace")
+
+    fp = str(fingerprint or "").strip()
+    if not fp:
+        return index_html
+
+    # Cache-bust the two hot assets that tend to get stuck in browser HTTP cache.
+    out = text.replace("/static/app.css", f"/static/app.css?v={fp}")
+    out = out.replace("/static/app.js", f"/static/app.js?v={fp}")
+
+    if out == text:
+        return index_html
+
+    if text.endswith("\n") and not out.endswith("\n"):
+        out += "\n"
+    return out.encode("utf-8")
 
 
 def _patch_sw_cache_name(sw_js: bytes, *, fingerprint: str) -> bytes:
@@ -528,11 +552,18 @@ def _patch_sw_cache_name(sw_js: bytes, *, fingerprint: str) -> bytes:
     cache_name = f"clinicaflow-static-{__version__}-{fingerprint}"
     out_lines: list[str] = []
     replaced = False
+    fp = str(fingerprint or "").strip()
 
     for line in text.splitlines():
         if line.strip().startswith("const CACHE_NAME ="):
             out_lines.append(f'const CACHE_NAME = "{cache_name}";')
             replaced = True
+            continue
+        if fp and line.strip() == '"/static/app.css",':
+            out_lines.append(f'  "/static/app.css?v={fp}",')
+            continue
+        if fp and line.strip() == '"/static/app.js",':
+            out_lines.append(f'  "/static/app.js?v={fp}",')
             continue
         out_lines.append(line)
 
@@ -566,6 +597,9 @@ def _load_web_assets() -> dict[str, tuple[bytes, str]]:
         for name, content_type in assets.items():
             out[name] = (root.joinpath(name).read_bytes(), content_type)
         fp = _static_asset_fingerprint(out)
+        if "index.html" in out:
+            data, ct = out["index.html"]
+            out["index.html"] = (_patch_index_html(data, fingerprint=fp), ct)
         if "sw.js" in out:
             data, ct = out["sw.js"]
             out["sw.js"] = (_patch_sw_cache_name(data, fingerprint=fp), ct)
@@ -584,6 +618,9 @@ def _load_web_assets() -> dict[str, tuple[bytes, str]]:
                 out[name] = (bytes(data), content_type)
         if out:
             fp = _static_asset_fingerprint(out)
+            if "index.html" in out:
+                data, ct = out["index.html"]
+                out["index.html"] = (_patch_index_html(data, fingerprint=fp), ct)
             if "sw.js" in out:
                 data, ct = out["sw.js"]
                 out["sw.js"] = (_patch_sw_cache_name(data, fingerprint=fp), ct)
@@ -602,6 +639,9 @@ def _load_web_assets() -> dict[str, tuple[bytes, str]]:
             if p.is_file():
                 out[name] = (p.read_bytes(), content_type)
         fp = _static_asset_fingerprint(out)
+        if "index.html" in out:
+            data, ct = out["index.html"]
+            out["index.html"] = (_patch_index_html(data, fingerprint=fp), ct)
         if "sw.js" in out:
             data, ct = out["sw.js"]
             out["sw.js"] = (_patch_sw_cache_name(data, fingerprint=fp), ct)
