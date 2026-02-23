@@ -102,6 +102,7 @@ Notes:
 
 - Streamlit runs a Streamlit UI (not the stdlib HTTP server), but it calls the same `clinicaflow` pipeline.
 - Because the repo is public, you can deploy via GitHub URL without granting GitHub “webhooks admin” OAuth scopes.
+- Live deployment (current): `https://share.streamlit.io/Amo-Zeng/clinicaflow-medgemma/main/streamlit_app.py`
 
 ## Suggested environment variables
 
