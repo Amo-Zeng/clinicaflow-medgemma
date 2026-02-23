@@ -18,6 +18,15 @@ ClinicaFlow is a **local-first**, **auditable** triage copilot that reframes tri
 
 ---
 
+## Project name
+
+**ClinicaFlow** — an agentic, human-centered triage copilot built for clinics that need safe decision support under constraints
+(limited staff time, intermittent connectivity, and strict privacy requirements).
+
+## Your team
+
+Team name: **shilehaoduomingzile** (solo)
+
 ## Problem domain (15%)
 
 In primary/urgent care triage, the dominant failure modes are:
@@ -66,6 +75,7 @@ bash scripts/demo_one_click.sh
 ```
 
 Then open the printed UI URL (e.g. `http://127.0.0.1:8000/`).  
+In the Console UI, click **Start 3-minute demo** (Home) to launch the Director overlay (teleprompter + highlights).
 Recording mode (auto Director overlay + reset local demo storage):
 
 ```bash
@@ -152,3 +162,11 @@ clinicaflow benchmark governance --set mega --gate
 ```
 
 Labeling rubric + red-flag categories: `docs/VIGNETTE_REGRESSION.md`.
+
+---
+
+## Clinician review (optional)
+
+I include tooling + UI to collect **qualitative clinician review** notes (no PHI), but **no external clinician review was performed** for this submission.
+
+- Review packet generator + template: `reviews/README.md`

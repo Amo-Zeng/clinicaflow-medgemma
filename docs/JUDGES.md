@@ -24,7 +24,8 @@ If the UI looks “too simple” (stale cached assets), click **Clear demo data*
 
 In the UI, start from **Home** (or the welcome modal), then:
 
-- Recommended: click **Director: off** (top-right) to enable the recording overlay (teleprompter + UI highlights).
+- Recommended: click **Start 3-minute demo** (Home) to launch the Director overlay (teleprompter + UI highlights).
+  - You can also toggle it via **Director: off** (top-right).
   - Hotkeys: `N`/`P` next/prev, `D` do-step, `Esc` end.
 - Or open the **Demo** tab and click through manually:
 

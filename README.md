@@ -92,8 +92,8 @@ FREE_MEDGEMMA_SPACE_URLS='https://senthil3226w-medgemma-4b-it.hf.space,https://e
 bash scripts/demo_one_click.sh
 ```
 
-Then open `http://127.0.0.1:8000/` and click `Director: off` (top right) for a step-by-step 3-minute demo overlay
-(teleprompter + UI highlights; hotkeys: `N`/`P`/`D`/`Esc`).
+Then open `http://127.0.0.1:8000/` and click **Start 3-minute demo** (Home tab) to launch the Director overlay
+(teleprompter + UI highlights; hotkeys: `N`/`P`/`D`/`Esc`). You can also toggle it via `Director: off` (top right).
 
 Recording-friendly mode (auto-starts Director mode + clears local-only demo storage for a clean recording):
 

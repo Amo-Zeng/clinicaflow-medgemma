@@ -6936,7 +6936,13 @@ function wireEvents() {
   $("themeToggle")?.addEventListener("click", () => toggleTheme());
 
   // Home tab quick actions
-  $("homeStartDemo")?.addEventListener("click", () => setTab("demo"));
+  $("homeStartDemo")?.addEventListener("click", () => {
+    try {
+      directorStart();
+    } catch (e) {
+      setTab("demo");
+    }
+  });
   $("homeGoTriage")?.addEventListener("click", () => setTab("triage"));
   $("homeGoWorkspace")?.addEventListener("click", () => setTab("workspace"));
   $("homeGoGovernance")?.addEventListener("click", () => setTab("governance"));

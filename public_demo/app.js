@@ -50,6 +50,32 @@ function uuid() {
   return `run_${Math.random().toString(16).slice(2)}_${Date.now()}`;
 }
 
+function promiseAny(promises) {
+  if (typeof Promise.any === "function") return Promise.any(promises);
+  const items = Array.isArray(promises) ? promises : [];
+  return new Promise((resolve, reject) => {
+    if (!items.length) {
+      const err = new Error("All promises were rejected");
+      err.errors = [];
+      reject(err);
+      return;
+    }
+    let pending = items.length;
+    const errors = new Array(items.length);
+    items.forEach((p, idx) => {
+      Promise.resolve(p).then(resolve, (e) => {
+        errors[idx] = e;
+        pending -= 1;
+        if (pending <= 0) {
+          const err = new Error("All promises were rejected");
+          err.errors = errors;
+          reject(err);
+        }
+      });
+    });
+  });
+}
+
 function setStatus(text, kind = "info") {
   const el = $("status");
   if (!el) return;
@@ -319,6 +345,8 @@ function computeRiskScores(structured, vitals) {
 
 const _endpointCache = new Map(); // key = `${baseUrl}|${apiName}`
 
+const LAST_WORKING_SPACE_KEY = "cf_last_working_space";
+
 function randSessionHash() {
   const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
   let out = "";
@@ -378,7 +406,7 @@ async function discoverEndpoint(baseUrl, apiName) {
   const key = `${String(baseUrl || "").replace(/\/+$/, "")}|${String(apiName || "").trim() || "chat"}`;
   if (_endpointCache.has(key)) return _endpointCache.get(key);
 
-  const cfg = await fetchJson(`${baseUrl.replace(/\/+$/, "")}/config`, { timeoutMs: 8000 });
+  const cfg = await fetchJson(`${baseUrl.replace(/\/+$/, "")}/config`, { timeoutMs: 20000 });
   if (!cfg || typeof cfg !== "object") throw new Error("Invalid Gradio /config payload");
 
   const apiPrefix = String(cfg.api_prefix || "/gradio_api").trim() || "/gradio_api";
@@ -692,7 +720,7 @@ async function gradioChatCompletion({
   user,
   maxTokens,
   imageFiles,
-  timeoutMs = 45000,
+  timeoutMs = 60000,
 }) {
   const endpoint = await discoverEndpoint(baseUrl, apiName);
   const sessionHash = randSessionHash();
@@ -869,7 +897,7 @@ function buildPatientMessage({ riskTier, redFlags }) {
 // -----------------------------
 
 const DEFAULT_SPACE_POOL =
-  "https://senthil3226w-medgemma-4b-it.hf.space,https://majweldon-medgemma-4b-it.hf.space,https://echo3700-google-medgemma-4b-it.hf.space,https://noumanjavaid-google-medgemma-4b-it.hf.space,https://eminkarka1-cortix-medgemma.hf.space|predict";
+  "https://senthil3226w-medgemma-4b-it.hf.space,https://majweldon-medgemma-4b-it.hf.space,https://echo3700-google-medgemma-4b-it.hf.space,https://noumanjavaid-google-medgemma-4b-it.hf.space,https://shiveshk1-google-medgemma-4b-it.hf.space,https://myopicoracle-google-medgemma-4b-it-chatbot.hf.space,https://qazi-musa-med-gemma-3.hf.space,https://warshanks-medgemma-4b-it.hf.space,https://warshanks-medgemma-1-5-4b-it.hf.space,https://warshanks-medgemma-27b-it.hf.space,https://eminkarka1-cortix-medgemma.hf.space|predict";
 
 const CASES = [
   {
@@ -1007,6 +1035,7 @@ async function runTriage() {
     clearList("diffs");
     clearList("evidenceLinks");
     setText("reasoning", "");
+    setText("reasoningMeta", "");
     setText("handoff", "");
     setText("patientMsg", "");
     setText("rawJson", "");
@@ -1045,40 +1074,93 @@ async function runTriage() {
 
     let reasoning = null;
     let reasoningMeta = { ok: false, backend: "blocked", base_url: "", api_name: "" };
+    let reasoningErrors = [];
+    let reasoningAttempted = 0;
 
     if (phiHits.length) {
       setStatus(`PHI guard: blocked external model call (hits: ${phiHits.join(", ")}).`, "warn");
     } else {
       const poolRaw = String($("spacePool")?.value || DEFAULT_SPACE_POOL);
-      const pool = parseSpacePool(poolRaw, "chat");
+      let pool = parseSpacePool(poolRaw, "chat");
       if (!pool.length) throw new Error("Empty MedGemma Space pool.");
+
+      // Prefer the last-known working Space (best-effort).
+      try {
+        const last = String(localStorage.getItem(LAST_WORKING_SPACE_KEY) || "").trim();
+        if (last) {
+          const idx = pool.findIndex((x) => `${x.base_url}|${x.api_name}` === last);
+          if (idx > 0) pool = [pool[idx], ...pool.slice(0, idx), ...pool.slice(idx + 1)];
+        }
+      } catch (e) {
+        // ignore
+      }
 
       const { system, user } = buildReasoningPrompt(structured, intake.vitals || {}, imageFiles.length);
       const errors = [];
-      for (const cfg of pool) {
+
+      const spaceTimeoutMs = 60000;
+      const batchSize = 2;
+      const maxAttempts = Math.min(pool.length, 8);
+      const candidates = pool.slice(0, maxAttempts);
+      reasoningAttempted = candidates.length;
+
+      for (let i = 0; i < candidates.length; i += batchSize) {
+        const batch = candidates.slice(i, i + batchSize);
+        const batchN = Math.ceil(candidates.length / batchSize);
+        const batchIdx = Math.floor(i / batchSize) + 1;
+        const plural = batch.length === 1 ? "" : "s";
+        setStatus(`Calling MedGemma (batch ${batchIdx}/${batchN}, ${batch.length} Space${plural} in parallel)…`, "info");
+
         try {
-          setStatus(`Calling MedGemma Space: ${cfg.base_url} (${cfg.api_name})…`, "info");
-          const text = await gradioChatCompletion({
-            baseUrl: cfg.base_url,
-            apiName: cfg.api_name,
-            system,
-            user,
-            maxTokens,
-            imageFiles,
-          });
-          reasoning = extractFirstJsonObject(text);
-          reasoningMeta = { ok: true, backend: "gradio_space", base_url: cfg.base_url, api_name: cfg.api_name };
+          const winner = await promiseAny(
+            batch.map(async (cfg) => {
+              const text = await gradioChatCompletion({
+                baseUrl: cfg.base_url,
+                apiName: cfg.api_name,
+                system,
+                user,
+                maxTokens,
+                imageFiles,
+                timeoutMs: spaceTimeoutMs,
+              });
+              return { cfg, text };
+            }),
+          );
+
+          reasoning = extractFirstJsonObject(winner.text);
+          reasoningMeta = { ok: true, backend: "gradio_space", base_url: winner.cfg.base_url, api_name: winner.cfg.api_name };
+          try {
+            localStorage.setItem(LAST_WORKING_SPACE_KEY, `${winner.cfg.base_url}|${winner.cfg.api_name}`);
+          } catch (e) {
+            // ignore
+          }
           break;
         } catch (e) {
-          errors.push(`${cfg.base_url} (${cfg.api_name}): ${String(e?.message || e)}`);
-          continue;
+          const agg = e && typeof e === "object" ? e : null;
+          const reasons = Array.isArray(agg?.errors) ? agg.errors : [];
+          for (let j = 0; j < batch.length; j += 1) {
+            const cfg = batch[j];
+            const r = reasons[j];
+            errors.push(`${cfg.base_url} (${cfg.api_name}): ${String(r?.message || r || "Error")}`);
+          }
         }
       }
+
       if (!reasoning) {
-        setStatus(`All Spaces failed (showing deterministic-only output).`, "warn");
+        setStatus(`MedGemma call failed (showing deterministic-only output).`, "warn");
         reasoningMeta = { ok: false, backend: "gradio_space_failed", base_url: "", api_name: "" };
+        reasoningErrors = errors.slice();
         console.warn("Space errors:", errors.slice(0, 5));
       }
+    }
+
+    if (reasoningMeta.ok) {
+      setText("reasoningMeta", `Backend: ${reasoningMeta.base_url} (${reasoningMeta.api_name})`);
+    } else if (phiHits.length) {
+      setText("reasoningMeta", `Backend: blocked by PHI guard (hits: ${phiHits.join(", ")})`);
+    } else {
+      const tried = reasoningAttempted ? ` (tried ${reasoningAttempted} Space${reasoningAttempted === 1 ? "" : "s"})` : "";
+      setText("reasoningMeta", `Backend: unavailable${tried} — open Advanced → update the Space pool.`);
     }
 
     const differential = Array.isArray(reasoning?.differential_considerations)
@@ -1125,7 +1207,11 @@ async function runTriage() {
       },
       meta: {
         demo: "static_github_pages",
-        reasoning_backend: reasoningMeta,
+        reasoning_backend: {
+          ...reasoningMeta,
+          attempted: reasoningAttempted,
+          errors_preview: reasoningMeta.ok ? [] : reasoningErrors.slice(0, 3),
+        },
         latency_ms: Math.round(nowMs() - started),
       },
     };
@@ -1156,6 +1242,25 @@ function initDefaults() {
   const savedCase = localStorage.getItem("cf_case_id");
   if (savedCase && CASES.some((c) => c.id === savedCase)) $("caseSelect").value = savedCase;
   loadCase();
+
+  // Best-effort warm-up: fetching `/config` can wake up sleeping Spaces and
+  // populates the endpoint cache (no PHI; does not run inference).
+  setTimeout(() => {
+    try {
+      const poolRaw = String($("spacePool")?.value || DEFAULT_SPACE_POOL);
+      let pool = parseSpacePool(poolRaw, "chat");
+      const last = String(localStorage.getItem(LAST_WORKING_SPACE_KEY) || "").trim();
+      if (last) {
+        const idx = pool.findIndex((x) => `${x.base_url}|${x.api_name}` === last);
+        if (idx > 0) pool = [pool[idx], ...pool.slice(0, idx), ...pool.slice(idx + 1)];
+      }
+      pool.slice(0, 2).forEach((cfg) => {
+        discoverEndpoint(cfg.base_url, cfg.api_name).catch(() => null);
+      });
+    } catch (e) {
+      // ignore
+    }
+  }, 600);
 }
 
 function wireEvents() {
