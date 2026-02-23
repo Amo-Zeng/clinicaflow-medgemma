@@ -127,6 +127,6 @@ Labeling rubric + red-flag categories: `docs/VIGNETTE_REGRESSION.md`.
 
 ## Links (required/bonus)
 
-- **Video (≤3 min):** https://www.youtube.com/watch?v=vZgvNssSSGk *(placeholder; replace before final submission)*  
+- **Video (≤3 min):** https://youtu.be/dDdy8LIowQI  
 - **Public code repository:** https://github.com/Amo-Zeng/clinicaflow-medgemma  
 - **Bonus: public interactive demo:** run locally via `bash scripts/demo_one_click.sh` (local-first)  

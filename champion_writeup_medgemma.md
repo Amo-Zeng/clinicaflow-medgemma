@@ -223,7 +223,7 @@ Below is a **copy-paste template** for the final submission writeup. It is desig
 
 ### Required links
 
-- **Video (≤3 min):** https://www.youtube.com/watch?v=vZgvNssSSGk *(placeholder; replace before final submission)*
+- **Video (≤3 min):** https://youtu.be/dDdy8LIowQI
 - **Public code repository:** https://github.com/Amo-Zeng/clinicaflow-medgemma
 - **Public interactive demo (bonus):** https://github.com/Amo-Zeng/clinicaflow-medgemma (run `bash scripts/demo_one_click.sh`)
 - **Open-weight HF model tracing to HAI-DEF (bonus):** Not released in this round (code-only submission).
