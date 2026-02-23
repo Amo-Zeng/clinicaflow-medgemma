@@ -349,28 +349,36 @@ function parseSpacePool(raw, defaultApiName = "chat") {
 }
 
 async function fetchJson(url, opts = {}) {
-  const resp = await fetch(url, {
-    method: opts.method || "GET",
-    headers: {
-      Accept: "application/json",
-      ...(opts.headers || {}),
-    },
-    body: opts.body,
-    credentials: "omit",
-    signal: opts.signal,
-  });
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => "");
-    throw new Error(`HTTP ${resp.status} ${resp.statusText}: ${text.slice(0, 160)}`);
+  const timeoutMsRaw = opts.timeout_ms ?? opts.timeoutMs ?? 8000;
+  const timeoutMs = Math.max(1000, Number(timeoutMsRaw) || 8000);
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const resp = await fetch(url, {
+      method: opts.method || "GET",
+      headers: {
+        Accept: "application/json",
+        ...(opts.headers || {}),
+      },
+      body: opts.body,
+      credentials: "omit",
+      signal: ctrl.signal,
+    });
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => "");
+      throw new Error(`HTTP ${resp.status} ${resp.statusText}: ${text.slice(0, 160)}`);
+    }
+    return await resp.json();
+  } finally {
+    clearTimeout(t);
   }
-  return await resp.json();
 }
 
 async function discoverEndpoint(baseUrl, apiName) {
   const key = `${String(baseUrl || "").replace(/\/+$/, "")}|${String(apiName || "").trim() || "chat"}`;
   if (_endpointCache.has(key)) return _endpointCache.get(key);
 
-  const cfg = await fetchJson(`${baseUrl.replace(/\/+$/, "")}/config`);
+  const cfg = await fetchJson(`${baseUrl.replace(/\/+$/, "")}/config`, { timeoutMs: 8000 });
   if (!cfg || typeof cfg !== "object") throw new Error("Invalid Gradio /config payload");
 
   const apiPrefix = String(cfg.api_prefix || "/gradio_api").trim() || "/gradio_api";
@@ -553,27 +561,33 @@ async function uploadFilesToGradio(baseUrl, apiPrefix, uploadId, files, signal) 
   const form = new FormData();
   for (const f of files || []) form.append("files", f, f.name || "upload.bin");
 
-  const resp = await fetch(uploadUrl, {
-    method: "POST",
-    body: form,
-    credentials: "omit",
-    signal,
-  });
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => "");
-    throw new Error(`Gradio upload failed: HTTP ${resp.status} ${text.slice(0, 160)}`);
-  }
-  const payload = await resp.json();
-  if (Array.isArray(payload) && payload.every((x) => typeof x === "string")) {
-    return payload.map((x) => String(x || "").trim()).filter((x) => x);
-  }
-  if (payload && typeof payload === "object") {
-    const items = payload.files || payload.data || payload.paths;
-    if (Array.isArray(items) && items.every((x) => typeof x === "string")) {
-      return items.map((x) => String(x || "").trim()).filter((x) => x);
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 20000);
+  try {
+    const resp = await fetch(uploadUrl, {
+      method: "POST",
+      body: form,
+      credentials: "omit",
+      signal: signal || ctrl.signal,
+    });
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => "");
+      throw new Error(`Gradio upload failed: HTTP ${resp.status} ${text.slice(0, 160)}`);
     }
+    const payload = await resp.json();
+    if (Array.isArray(payload) && payload.every((x) => typeof x === "string")) {
+      return payload.map((x) => String(x || "").trim()).filter((x) => x);
+    }
+    if (payload && typeof payload === "object") {
+      const items = payload.files || payload.data || payload.paths;
+      if (Array.isArray(items) && items.every((x) => typeof x === "string")) {
+        return items.map((x) => String(x || "").trim()).filter((x) => x);
+      }
+    }
+    throw new Error(`Unexpected Gradio upload response: ${JSON.stringify(payload).slice(0, 200)}`);
+  } finally {
+    clearTimeout(t);
   }
-  throw new Error(`Unexpected Gradio upload response: ${JSON.stringify(payload).slice(0, 200)}`);
 }
 
 async function queueJoin(joinUrl, body, signal) {
@@ -1169,4 +1183,3 @@ window.addEventListener("DOMContentLoaded", () => {
   wireEvents();
   setStatus("Ready. Tip: start with a case from the library → Run triage.", "ok");
 });
-
