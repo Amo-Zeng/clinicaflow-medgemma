@@ -80,6 +80,29 @@ class DemoServerTests(unittest.TestCase):
         finally:
             _stop_server(server, thread)
 
+    def test_reset_page_has_inline_script_csp(self) -> None:
+        settings = Settings(
+            debug=False,
+            log_level="INFO",
+            json_logs=False,
+            max_request_bytes=262144,
+            policy_top_k=2,
+            policy_pack_path="",
+            cors_allow_origin="*",
+            api_key="",
+        )
+        server, thread, base_url = _start_server(settings=settings)
+        try:
+            status, headers, raw = _http("HEAD", base_url + "/?reset=1", headers={"X-Request-ID": "reset1"})
+            self.assertEqual(status, 200)
+            self.assertEqual(headers.get("X-Request-ID"), "reset1")
+            self.assertEqual(headers.get("X-ClinicaFlow-UI"), "reset")
+            csp = headers.get("Content-Security-Policy") or ""
+            self.assertIn("script-src 'self' 'unsafe-inline'", csp)
+            self.assertEqual(raw, b"")
+        finally:
+            _stop_server(server, thread)
+
     def test_health_and_request_id_echo(self) -> None:
         settings = Settings(
             debug=False,

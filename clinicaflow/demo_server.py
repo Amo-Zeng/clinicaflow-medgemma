@@ -362,6 +362,146 @@ DEMO_HTML = """<!doctype html>
 </html>
 """
 
+RESET_HTML = """<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>ClinicaFlow Console Reset</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #0b1020;
+        --panel: rgba(255, 255, 255, 0.06);
+        --text: #e5e7eb;
+        --muted: rgba(229, 231, 235, 0.72);
+        --border: rgba(229, 231, 235, 0.18);
+        --shadow: 0 1px 2px rgba(0,0,0,0.25), 0 18px 40px rgba(0,0,0,0.35);
+        --radius: 14px;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: radial-gradient(1200px 600px at 20% 10%, rgba(79,70,229,0.16), transparent 60%), var(--bg);
+        color: var(--text);
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      }
+      main { max-width: 880px; margin: 0 auto; padding: 22px; }
+      .card {
+        border: 1px solid var(--border);
+        background: var(--panel);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        padding: 18px 16px;
+      }
+      h1 { margin: 0; font-size: 18px; font-weight: 950; }
+      p { margin: 10px 0 0; color: var(--muted); line-height: 1.45; }
+      .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 14px; }
+      .btn {
+        border: 1px solid var(--border);
+        background: rgba(255,255,255,0.06);
+        color: var(--text);
+        padding: 9px 12px;
+        border-radius: 12px;
+        cursor: pointer;
+        font-weight: 900;
+        text-decoration: none;
+      }
+      .btn.primary { background: rgba(79,70,229,0.35); border-color: rgba(79,70,229,0.55); }
+      pre {
+        margin: 14px 0 0;
+        padding: 12px;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        background: rgba(0,0,0,0.35);
+        color: #d1d5db;
+        overflow: auto;
+        max-height: 340px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        font-size: 12px;
+        white-space: pre-wrap;
+      }
+      code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="card">
+        <h1>Resetting ClinicaFlow Console cache…</h1>
+        <p>
+          This page clears <b>service workers</b>, <b>cache storage</b>, and local-only demo data to fix a common issue:
+          the browser can get stuck on an old cached UI where buttons (like <code>Start 3-minute demo</code>) don't respond.
+        </p>
+        <div class="row">
+          <button id="go" class="btn primary" type="button">Go to Console</button>
+          <a class="btn" href="/" rel="noreferrer">Open /</a>
+        </div>
+        <pre id="log">Starting reset…</pre>
+      </div>
+    </main>
+    <script>
+      const log = (msg) => {
+        const el = document.getElementById("log");
+        if (!el) return;
+        el.textContent = String(el.textContent || "").trim() + "\\n" + String(msg);
+      };
+
+      async function clear() {
+        try {
+          const keys = [];
+          const n = Number(localStorage?.length || 0);
+          for (let i = 0; i < n; i += 1) {
+            const k = localStorage.key(i);
+            if (k) keys.push(k);
+          }
+          keys.forEach((k) => {
+            if (String(k || "").startsWith("clinicaflow.")) localStorage.removeItem(k);
+          });
+          log("localStorage: cleared clinicaflow.* keys");
+        } catch (e) {
+          log("localStorage: skip (" + e + ")");
+        }
+
+        try {
+          if (window.caches && typeof window.caches.keys === "function") {
+            const keys = await window.caches.keys();
+            await Promise.all(keys.map((k) => window.caches.delete(k)));
+            log("CacheStorage: deleted " + keys.length + " cache(s)");
+          } else {
+            log("CacheStorage: not available");
+          }
+        } catch (e) {
+          log("CacheStorage: skip (" + e + ")");
+        }
+
+        try {
+          if ("serviceWorker" in navigator && typeof navigator.serviceWorker.getRegistrations === "function") {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(regs.map((r) => r.unregister()));
+            log("ServiceWorker: unregistered " + regs.length + " registration(s)");
+          } else {
+            log("ServiceWorker: not available");
+          }
+        } catch (e) {
+          log("ServiceWorker: skip (" + e + ")");
+        }
+
+        log("Done. Redirecting…");
+        setTimeout(() => {
+          try { window.location.replace("/?welcome=1"); } catch (e) { window.location.href = "/?welcome=1"; }
+        }, 450);
+      }
+
+      document.getElementById("go")?.addEventListener("click", () => {
+        try { window.location.replace("/?welcome=1"); } catch (e) { window.location.href = "/?welcome=1"; }
+      });
+
+      clear();
+    </script>
+  </body>
+</html>
+"""
+
 
 def _static_asset_fingerprint(web_assets: dict[str, tuple[bytes, str]]) -> str:
     """Return a short fingerprint of the bundled UI assets.
@@ -846,7 +986,11 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
             query = parse_qs(parsed.query)
 
             if path in {"/", "/demo"}:
-                if HAS_CONSOLE_UI:
+                reset_raw = str(query.get("reset", [""])[0]).strip().lower()
+                if reset_raw in {"1", "true", "yes", "y", "on"}:
+                    data, content_type = (RESET_HTML.encode("utf-8"), "text/html; charset=utf-8")
+                    ui = "reset"
+                elif HAS_CONSOLE_UI:
                     data, content_type = WEB_ASSETS["index.html"]
                     ui = "console"
                 else:
