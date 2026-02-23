@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
+import hashlib
 import io
 import json
 import logging
@@ -362,6 +363,48 @@ DEMO_HTML = """<!doctype html>
 """
 
 
+def _static_asset_fingerprint(web_assets: dict[str, tuple[bytes, str]]) -> str:
+    """Return a short fingerprint of the bundled UI assets.
+
+    Used to avoid "stuck on stale UI" bugs when a browser keeps an old cached
+    `app.js`/`app.css` while the server has been updated.
+    """
+
+    h = hashlib.sha256()
+    for name in ("index.html", "app.css", "app.js"):
+        item = web_assets.get(name)
+        if not item:
+            continue
+        h.update(item[0])
+    return h.hexdigest()[:12]
+
+
+def _patch_sw_cache_name(sw_js: bytes, *, fingerprint: str) -> bytes:
+    try:
+        text = sw_js.decode("utf-8")
+    except UnicodeDecodeError:
+        text = sw_js.decode("utf-8", errors="replace")
+
+    cache_name = f"clinicaflow-static-{__version__}-{fingerprint}"
+    out_lines: list[str] = []
+    replaced = False
+
+    for line in text.splitlines():
+        if line.strip().startswith("const CACHE_NAME ="):
+            out_lines.append(f'const CACHE_NAME = "{cache_name}";')
+            replaced = True
+            continue
+        out_lines.append(line)
+
+    if not replaced:
+        return sw_js
+
+    out = "\n".join(out_lines)
+    if text.endswith("\n"):
+        out += "\n"
+    return out.encode("utf-8")
+
+
 def _load_web_assets() -> dict[str, tuple[bytes, str]]:
     """Load bundled web assets (UI) from package resources."""
 
@@ -382,6 +425,10 @@ def _load_web_assets() -> dict[str, tuple[bytes, str]]:
         out: dict[str, tuple[bytes, str]] = {}
         for name, content_type in assets.items():
             out[name] = (root.joinpath(name).read_bytes(), content_type)
+        fp = _static_asset_fingerprint(out)
+        if "sw.js" in out:
+            data, ct = out["sw.js"]
+            out["sw.js"] = (_patch_sw_cache_name(data, fingerprint=fp), ct)
         return out
     except Exception:  # noqa: BLE001
         pass
@@ -396,6 +443,10 @@ def _load_web_assets() -> dict[str, tuple[bytes, str]]:
             if isinstance(data, (bytes, bytearray)):
                 out[name] = (bytes(data), content_type)
         if out:
+            fp = _static_asset_fingerprint(out)
+            if "sw.js" in out:
+                data, ct = out["sw.js"]
+                out["sw.js"] = (_patch_sw_cache_name(data, fingerprint=fp), ct)
             return out
     except Exception:  # noqa: BLE001
         pass
@@ -410,12 +461,17 @@ def _load_web_assets() -> dict[str, tuple[bytes, str]]:
             p = root / name
             if p.is_file():
                 out[name] = (p.read_bytes(), content_type)
+        fp = _static_asset_fingerprint(out)
+        if "sw.js" in out:
+            data, ct = out["sw.js"]
+            out["sw.js"] = (_patch_sw_cache_name(data, fingerprint=fp), ct)
         return out
     except Exception:  # noqa: BLE001
         return {}
 
 
 WEB_ASSETS = _load_web_assets()
+WEB_ASSETS_FINGERPRINT = _static_asset_fingerprint(WEB_ASSETS) if WEB_ASSETS else ""
 REQUIRED_WEB_ASSETS = {"index.html", "app.css", "app.js"}
 HAS_CONSOLE_UI = all(name in WEB_ASSETS for name in REQUIRED_WEB_ASSETS)
 
@@ -813,11 +869,15 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                     status_code = HTTPStatus.NOT_FOUND
                     return
                 data, content_type = asset
+                cache_control = "public, max-age=3600"
+                if name in {"sw.js", "manifest.webmanifest"}:
+                    # Browsers aggressively cache service-workers; keep it fresh.
+                    cache_control = "no-store"
                 self._write_bytes(
                     data,
                     content_type=content_type,
                     request_id=request_id,
-                    extra_headers={"Cache-Control": "public, max-age=3600"},
+                    extra_headers={"Cache-Control": cache_control, "X-ClinicaFlow-Static-Version": WEB_ASSETS_FINGERPRINT},
                 )
                 status_code = HTTPStatus.OK
                 return
