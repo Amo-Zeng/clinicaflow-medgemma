@@ -74,6 +74,11 @@ Koyeb commonly offers a free tier for small web services.
 4. Configure environment variables similarly to the Hugging Face list above.
 5. Ensure the service listens on the platform-provided port (`PORT`), or set `PORT=8000` if required.
 
+Notes:
+
+- On some Koyeb accounts/plans, running a persistent Web Service may require upgrading (credit card / paid plan).
+  If you hit plan limits, use Hugging Face Spaces (Docker) or Streamlit Community Cloud.
+
 ### Option C — GitHub Pages (static; no server)
 
 This repo includes a GitHub Pages-ready **static live demo** under `public_demo/` that runs in the browser and calls
@@ -83,6 +88,20 @@ public MedGemma Gradio Spaces (best-effort).
   `https://amo-zeng.github.io/clinicaflow-medgemma/`
 - If a custom domain is configured, use that instead (this repo currently serves at `https://2agi.me/clinicaflow-medgemma/`).
 - The deploy workflow is `.github/workflows/pages.yml`.
+
+### Option D — Streamlit Community Cloud (free UI wrapper)
+
+This repo includes a judge-friendly Streamlit app entrypoint: `streamlit_app.py`.
+
+1. Open Streamlit Community Cloud → Deploy.
+2. Use the GitHub URL mode and paste:
+   `https://github.com/Amo-Zeng/clinicaflow-medgemma/blob/main/streamlit_app.py`
+3. (Optional) set an App URL slug like `clinicaflow-medgemma`.
+
+Notes:
+
+- Streamlit runs a Streamlit UI (not the stdlib HTTP server), but it calls the same `clinicaflow` pipeline.
+- Because the repo is public, you can deploy via GitHub URL without granting GitHub “webhooks admin” OAuth scopes.
 
 ## Suggested environment variables
 
