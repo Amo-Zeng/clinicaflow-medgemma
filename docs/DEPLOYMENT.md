@@ -81,6 +81,7 @@ public MedGemma Gradio Spaces (best-effort).
 
 - After enabling GitHub Pages for the repo (Settings → Pages → Source: “GitHub Actions”), the URL is typically:
   `https://amo-zeng.github.io/clinicaflow-medgemma/`
+- If a custom domain is configured, use that instead (this repo currently serves at `https://2agi.me/clinicaflow-medgemma/`).
 - The deploy workflow is `.github/workflows/pages.yml`.
 
 ## Suggested environment variables

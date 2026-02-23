@@ -2,7 +2,7 @@
 
 This repo is designed so a judge can evaluate the agentic workflow in **~3 minutes**.
 
-Public interactive live demo (static; no server): https://amo-zeng.github.io/clinicaflow-medgemma/
+Public interactive live demo (static; no server): https://2agi.me/clinicaflow-medgemma/
 
 ## 1) Run the demo (CPU-only, deterministic)
 

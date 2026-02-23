@@ -18,7 +18,7 @@ Show the demo UI (local):
   - recording mode (auto Director + clean slate): `DEMO_RECORD=1 bash scripts/demo_one_click.sh`
   - with real MedGemma via vLLM (GPU machine): `REQUIRE_MEDGEMMA=1 MEDGEMMA_MODEL='<HF_ID_OR_LOCAL_PATH>' bash scripts/demo_one_click.sh`
 - Open `http://127.0.0.1:8000/`
-- Optional (bonus): show the public live demo (static) `https://amo-zeng.github.io/clinicaflow-medgemma/`
+- Optional (bonus): show the public live demo (static) `https://2agi.me/clinicaflow-medgemma/`
 - Recommended: click **Director: off** (top-right) to enable the built-in Director mode overlay (teleprompter + step highlights).
 - Optional: open the **Demo** tab for the click-through runbook.
 - Optional: mention `GET /openapi.json`, `GET /metrics`, `GET /doctor`, and `X-Request-ID` for audit/ops readiness.
