@@ -3088,11 +3088,11 @@ async function runTriageStream(intake, opts) {
     throw err;
   }
 
-  let meta = { request_id: requestId || "" };
+  let streamMeta = { request_id: requestId || "" };
   let runningIndex = 0;
   const trace = [];
 
-  renderResult(buildPartialResultFromTrace(trace, requestId, meta), requestId, { runningIndex });
+  renderResult(buildPartialResultFromTrace(trace, requestId, streamMeta), requestId, { runningIndex });
 
   const decoder = new TextDecoder();
   let buf = "";
@@ -3108,7 +3108,7 @@ async function runTriageStream(intake, opts) {
     const t = String(ev.type || "").trim();
 
     if (t === "meta") {
-      meta = ev;
+      streamMeta = ev;
       return;
     }
 
@@ -3124,7 +3124,7 @@ async function runTriageStream(intake, opts) {
       const step = ev.trace;
       if (step && typeof step === "object") trace.push(step);
       runningIndex = null;
-      const partial = buildPartialResultFromTrace(trace, requestId, meta);
+      const partial = buildPartialResultFromTrace(trace, requestId, streamMeta);
       renderResult(partial, requestId, { runningIndex });
       return;
     }
@@ -3159,7 +3159,7 @@ async function runTriageStream(intake, opts) {
   if (tail) handleEvent(JSON.parse(tail));
 
   if (!finalResult) throw new Error("Stream ended without final result.");
-  const rid = requestId || String(meta?.request_id || "").trim() || finalResult.request_id || null;
+  const rid = requestId || String(streamMeta?.request_id || "").trim() || finalResult.request_id || null;
   return { result: finalResult, requestId: rid };
 }
 
