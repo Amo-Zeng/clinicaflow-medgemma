@@ -16,11 +16,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--path", type=Path, help="Optional vignettes JSONL path (default: packaged resource)")
     parser.add_argument(
         "--set",
-        choices=["standard", "adversarial", "extended", "all", "mega"],
+        choices=["standard", "adversarial", "extended", "realworld", "all", "mega"],
         default="standard",
         help=(
             "Which packaged vignette set to use when --path is not provided (default: standard). "
-            "`all` = standard + adversarial; `mega` = standard + adversarial + extended."
+            "`all` = standard + adversarial; `mega` = standard + adversarial + extended + realworld."
         ),
     )
     parser.add_argument("--limit", type=int, default=30, help="Limit number of cases (default: 30)")

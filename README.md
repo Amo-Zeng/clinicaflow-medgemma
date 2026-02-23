@@ -16,6 +16,7 @@ It implements a deterministic, auditable 5-agent triage pipeline aligned with th
 
 - Kaggle Writeup: https://www.kaggle.com/competitions/med-gemma-impact-challenge/writeups/new-writeup-1768960611416
 - Demo Video (≤3 min): https://youtu.be/dDdy8LIowQI
+- Public Live Demo (bonus): https://amo-zeng.github.io/clinicaflow-medgemma/
 - Public Repo: https://github.com/Amo-Zeng/clinicaflow-medgemma
 
 ## Repository Layout
@@ -28,6 +29,7 @@ It implements a deterministic, auditable 5-agent triage pipeline aligned with th
 - `docs/EVIDENCE_APIS.md` — optional free evidence citations (PubMed/MedlinePlus)
 - `KAGGLE_WRITEUP.md` — paste-ready Kaggle writeup (≤3 pages)
 - `champion_writeup_medgemma.md` — extended writeup draft (longer form)
+- `public_demo/` — GitHub Pages static live demo (no server)
 
 ## Quick Start
 
@@ -42,6 +44,14 @@ One-click demo (starts the demo server; optionally starts a local MedGemma vLLM 
 ```bash
 bash scripts/demo_one_click.sh
 ```
+
+Static live demo (no backend server; calls public MedGemma Spaces from the browser):
+
+```bash
+python3 -m http.server 5173 --directory public_demo
+```
+
+Then open `http://127.0.0.1:5173/`.
 
 Free hosted MedGemma (no local GPU; best-effort demo-only):
 

@@ -39,6 +39,49 @@ Notes:
 
 - The container runs the server as a non-root user.
 - A Docker `HEALTHCHECK` probes `GET /health`.
+- The demo server respects `PORT` when started via `python -m clinicaflow.demo_server` (useful for free hosting platforms).
+
+## Free public deployment (bonus)
+
+The competition offers bonus credit for a **public interactive live demo app**.
+The repo is designed to deploy cleanly as a small Docker service without third‑party dependencies.
+
+### Option A — Hugging Face Spaces (Docker)
+
+1. Create a new Space → choose **Docker**.
+2. Import from GitHub: `Amo-Zeng/clinicaflow-medgemma` (branch `main`).
+3. In Space **Settings → Variables**, set (recommended):
+   - `PORT=7860` (Hugging Face default)
+   - `CLINICAFLOW_LOG_LEVEL=INFO`
+   - `CLINICAFLOW_PHI_GUARD=true`
+   - `CLINICAFLOW_REASONING_BACKEND=gradio_space`
+   - `CLINICAFLOW_REASONING_BASE_URLS=https://senthil3226w-medgemma-4b-it.hf.space,https://majweldon-medgemma-4b-it.hf.space,https://echo3700-google-medgemma-4b-it.hf.space,https://noumanjavaid-google-medgemma-4b-it.hf.space,https://eminkarka1-cortix-medgemma.hf.space|predict`
+   - `CLINICAFLOW_EVIDENCE_BACKEND=auto` (optional; best-effort citations)
+
+Notes:
+
+- For better stability than random public Spaces, you can instead use the Hugging Face router (token required):
+  `CLINICAFLOW_REASONING_BACKEND=hf_inference` + `CLINICAFLOW_REASONING_API_KEY=<HF_TOKEN>`.
+- Consider setting `CLINICAFLOW_API_KEY` to protect `POST /triage` endpoints if you share the URL widely.
+
+### Option B — Koyeb (Docker)
+
+Koyeb commonly offers a free tier for small web services.
+
+1. Create a new Web Service → “Deploy from GitHub”.
+2. Select `Amo-Zeng/clinicaflow-medgemma`.
+3. Use Docker build (detects `Dockerfile` automatically).
+4. Configure environment variables similarly to the Hugging Face list above.
+5. Ensure the service listens on the platform-provided port (`PORT`), or set `PORT=8000` if required.
+
+### Option C — GitHub Pages (static; no server)
+
+This repo includes a GitHub Pages-ready **static live demo** under `public_demo/` that runs in the browser and calls
+public MedGemma Gradio Spaces (best-effort).
+
+- After enabling GitHub Pages for the repo (Settings → Pages → Source: “GitHub Actions”), the URL is typically:
+  `https://amo-zeng.github.io/clinicaflow-medgemma/`
+- The deploy workflow is `.github/workflows/pages.yml`.
 
 ## Suggested environment variables
 

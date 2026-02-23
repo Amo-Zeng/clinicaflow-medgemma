@@ -1911,7 +1911,7 @@ def _unwrap_intake_payload(payload: dict) -> tuple[dict, dict | None, Any]:
 
 def _normalize_vignette_set(value: str) -> str:
     key = str(value or "").strip().lower()
-    if key in {"standard", "adversarial", "extended", "all", "mega"}:
+    if key in {"standard", "adversarial", "extended", "realworld", "all", "mega"}:
         return key
     return "standard"
 
@@ -2286,6 +2286,18 @@ def make_server(
 
 
 def run(host: str = "0.0.0.0", port: int = 8000) -> None:
+    # Deployment-friendly defaults: many free hosting platforms provide the
+    # listening port via the `PORT` env var. We only respect it when `run()` is
+    # invoked with the module defaults (e.g., `python -m clinicaflow.demo_server`),
+    # so CLI users who pass `--port ...` keep explicit control.
+    if port == 8000:
+        raw_port = str(os.environ.get("PORT") or "").strip()
+        if raw_port:
+            try:
+                port = int(raw_port)
+            except ValueError:
+                port = 8000
+
     settings = load_settings_from_env()
     configure_logging(level=settings.log_level, json_logs=settings.json_logs)
     server = make_server(host, port, settings=settings)

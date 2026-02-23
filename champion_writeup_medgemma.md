@@ -148,6 +148,7 @@ To complement the generator-based benchmark, we ship **three synthetic vignette 
 - `standard` (n=30): demo-ready core patterns
 - `adversarial` (n=20): abbrev/negation/injection-like strings + Unicode edge cases
 - `extended` (n=100): broader coverage across cardiopulmonary/neuro/syncope/GI/OB/sepsis patterns
+- `realworld` (n=24): terminology coverage + source-linked public symptom inspirations (still synthetic; no patient data)
 
 Rubric details: `docs/VIGNETTE_REGRESSION.md`
 
@@ -193,7 +194,21 @@ python -m clinicaflow.benchmarks.vignettes --set extended --print-markdown
 | Under-triage rate (gold urgent/critical → predicted routine) | `65.6%` | `0.0%` |
 | Over-triage rate (gold routine → predicted urgent/critical) | `30.0%` | `0.0%` |
 
-#### Combined (mega, n=150)
+#### Realworld (n=24)
+
+Reproduce exactly with:
+
+```bash
+python -m clinicaflow.benchmarks.vignettes --set realworld --print-markdown
+```
+
+| Metric | Baseline | ClinicaFlow |
+|---|---:|---:|
+| Red-flag recall (category-level) | `90.0%` | `100.0%` |
+| Under-triage rate (gold urgent/critical → predicted routine) | `0.0%` | `0.0%` |
+| Over-triage rate (gold routine → predicted urgent/critical) | `75.0%` | `0.0%` |
+
+#### Combined (mega, n=174)
 
 Reproduce exactly with:
 
@@ -203,9 +218,9 @@ python -m clinicaflow.benchmarks.vignettes --set mega --print-markdown
 
 | Metric | Baseline | ClinicaFlow |
 |---|---:|---:|
-| Red-flag recall (category-level) | `47.7%` | `100.0%` |
-| Under-triage rate (gold urgent/critical → predicted routine) | `47.4%` | `0.0%` |
-| Over-triage rate (gold routine → predicted urgent/critical) | `40.0%` | `0.0%` |
+| Red-flag recall (category-level) | `53.3%` | `100.0%` |
+| Under-triage rate (gold urgent/critical → predicted routine) | `41.3%` | `0.0%` |
+| Over-triage rate (gold routine → predicted urgent/critical) | `47.4%` | `0.0%` |
 
 ### Clinician review (qualitative)
 
@@ -225,7 +240,7 @@ Below is a **copy-paste template** for the final submission writeup. It is desig
 
 - **Video (≤3 min):** https://youtu.be/dDdy8LIowQI
 - **Public code repository:** https://github.com/Amo-Zeng/clinicaflow-medgemma
-- **Public interactive demo (bonus):** https://github.com/Amo-Zeng/clinicaflow-medgemma (run `bash scripts/demo_one_click.sh`)
+- **Public interactive live demo (bonus):** https://amo-zeng.github.io/clinicaflow-medgemma/
 - **Open-weight HF model tracing to HAI-DEF (bonus):** Not released in this round (code-only submission).
 
 ### References

@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>ClinicaFlow Live Demo (Static)</title>
+    <meta name="description" content="ClinicaFlow: agentic triage demo using MedGemma via free Gradio Spaces (no server)." />
+    <link rel="stylesheet" href="./app.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <div class="title">ClinicaFlow Live Demo</div>
+        <div class="subtitle">
+          Static GitHub Pages demo • calls public MedGemma Spaces (best-effort) • do not enter PHI
+        </div>
+      </div>
+      <nav class="links">
+        <a class="link" href="https://github.com/Amo-Zeng/clinicaflow-medgemma" target="_blank" rel="noreferrer">Repo</a>
+        <a class="link" href="https://www.kaggle.com/competitions/med-gemma-impact-challenge/writeups/new-writeup-1768960611416" target="_blank" rel="noreferrer">Kaggle writeup</a>
+        <a class="link" href="https://youtu.be/dDdy8LIowQI" target="_blank" rel="noreferrer">3‑min video</a>
+      </nav>
+    </header>
+
+    <main class="container">
+      <section class="notice">
+        <b>Safety:</b> Demo-only clinical decision support. Not a diagnostic device. Use synthetic inputs only.
+        External model calls are blocked if the input looks like PHI.
+      </section>
+
+      <section class="grid">
+        <div class="panel">
+          <div class="panelHead">
+            <h2>Patient intake</h2>
+            <div class="small">Pick a vignette or enter custom synthetic text.</div>
+          </div>
+
+          <div class="row">
+            <label class="field">
+              <span class="label">Case library</span>
+              <select id="caseSelect"></select>
+            </label>
+            <button id="loadCase" class="btn">Load</button>
+            <button id="runTriage" class="btn primary">Run triage</button>
+          </div>
+
+          <div class="formGrid">
+            <label class="field span2">
+              <span class="label">Chief complaint</span>
+              <textarea id="chief" rows="3" placeholder="e.g., Chest pain radiating to left arm for 25 minutes"></textarea>
+            </label>
+
+            <label class="field span2">
+              <span class="label">History (brief)</span>
+              <textarea id="history" rows="3" placeholder="PMH, onset, key negatives, meds..."></textarea>
+            </label>
+
+            <label class="field">
+              <span class="label">Age</span>
+              <input id="age" type="number" min="0" step="1" placeholder="62" />
+            </label>
+
+            <label class="field">
+              <span class="label">Sex</span>
+              <select id="sex">
+                <option value="">-</option>
+                <option value="female">female</option>
+                <option value="male">male</option>
+                <option value="other">other</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span class="label">Heart rate</span>
+              <input id="hr" type="number" min="0" step="1" placeholder="138" />
+            </label>
+            <label class="field">
+              <span class="label">Systolic BP</span>
+              <input id="sbp" type="number" min="0" step="1" placeholder="82" />
+            </label>
+            <label class="field">
+              <span class="label">Temp (°C)</span>
+              <input id="temp" type="number" step="0.1" placeholder="37.1" />
+            </label>
+            <label class="field">
+              <span class="label">SpO₂ (%)</span>
+              <input id="spo2" type="number" min="0" max="100" step="1" placeholder="95" />
+            </label>
+            <label class="field">
+              <span class="label">Resp rate</span>
+              <input id="rr" type="number" min="0" step="1" placeholder="22" />
+            </label>
+          </div>
+
+          <details class="details">
+            <summary>Advanced: Backend + privacy</summary>
+            <div class="small">
+              This static demo runs fully in your browser, except for optional model inference calls to public Gradio Spaces.
+              Inputs that look like PHI are blocked from external calls.
+            </div>
+
+            <div class="formGrid" style="margin-top: 10px;">
+              <label class="field span2">
+                <span class="label">MedGemma Space pool (fallback order)</span>
+                <textarea id="spacePool" rows="4"></textarea>
+                <div class="hint">Format: comma-separated URLs; optional api_name override via <code>|</code> (e.g. <code>...hf.space|predict</code>).</div>
+              </label>
+              <label class="field">
+                <span class="label">Send images</span>
+                <select id="sendImages">
+                  <option value="0">No (default)</option>
+                  <option value="1">Yes (if Space supports)</option>
+                </select>
+                <div class="hint">Most public Spaces are text-only; image upload is best-effort.</div>
+              </label>
+              <label class="field">
+                <span class="label">Max tokens</span>
+                <input id="maxTokens" type="number" min="128" step="32" value="600" />
+              </label>
+              <label class="field span2">
+                <span class="label">Optional image (synthetic)</span>
+                <input id="imageUpload" type="file" accept="image/*" />
+                <div class="hint">Do not upload real patient images.</div>
+              </label>
+              <div class="row span2">
+                <button id="resetLocal" class="btn">Reset local data</button>
+                <span id="status" class="small"></span>
+              </div>
+            </div>
+          </details>
+        </div>
+
+        <div class="panel">
+          <div class="panelHead">
+            <h2>Output</h2>
+            <div class="small">Risk tier + red flags + MedGemma reasoning + evidence links</div>
+          </div>
+
+          <div class="card">
+            <div class="k">Risk tier</div>
+            <div class="row" style="margin-top: 6px;">
+              <span id="riskTier" class="badge">-</span>
+              <span id="riskRationale" class="small"></span>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="k">Red flags + safety triggers</div>
+            <ul id="redFlags" class="list"></ul>
+          </div>
+
+          <div class="card">
+            <div class="k">Differential considerations (MedGemma)</div>
+            <ol id="diffs" class="list"></ol>
+            <div id="reasoning" class="small" style="margin-top: 8px;"></div>
+          </div>
+
+          <div class="card">
+            <div class="k">Clinician handoff</div>
+            <pre id="handoff" class="pre"></pre>
+          </div>
+
+          <div class="card">
+            <div class="k">Patient-facing precautions</div>
+            <pre id="patientMsg" class="pre"></pre>
+          </div>
+
+          <div class="card">
+            <div class="k">Evidence links (no API key)</div>
+            <ul id="evidenceLinks" class="list"></ul>
+          </div>
+
+          <details class="details">
+            <summary>Raw JSON (copy/paste)</summary>
+            <pre id="rawJson" class="pre" style="max-height: 380px;"></pre>
+          </details>
+        </div>
+      </section>
+
+      <footer class="footer">
+        <div class="small">
+          Tip: For the full “production-like” demo server (audit bundles, judge pack.zip, governance dashboards), run
+          <code>bash scripts/demo_one_click.sh</code> from the repo.
+        </div>
+      </footer>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
+

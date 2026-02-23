@@ -600,7 +600,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--path", type=Path, help="Path to vignettes JSONL (default: packaged resource)")
     parser.add_argument(
         "--set",
-        choices=["standard", "adversarial", "extended", "all", "mega"],
+        choices=["standard", "adversarial", "extended", "realworld", "all", "mega"],
         default="mega",
         help="Which packaged vignette set to use when --path is not provided (default: mega).",
     )

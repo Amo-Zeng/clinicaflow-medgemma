@@ -1,4 +1,4 @@
-# Clinical Vignette Regression Sets (standard n=30, adversarial n=20, extended n=100)
+# Clinical Vignette Regression Sets (standard n=30, adversarial n=20, extended n=100, realworld n=24)
 
 This repository includes a small **synthetic clinical vignette** regression set intended to:
 
@@ -13,7 +13,12 @@ Important: These are **not real patient records** and are not meant to represent
 - Standard vignettes: `clinicaflow/resources/vignettes.jsonl` (n=30)
 - Adversarial vignettes: `clinicaflow/resources/vignettes_adversarial.jsonl` (n=20)
 - Extended vignettes: `clinicaflow/resources/vignettes_extended.jsonl` (n=100)
+- Realworld-inspired vignettes: `clinicaflow/resources/vignettes_realworld.jsonl` (n=24)
 - Benchmark runner: `clinicaflow/benchmarks/vignettes.py`
+
+The **realworld** set is still synthetic (no patient records). Each vignette includes a `source` field linking to a
+public symptom/red-flag description (e.g., MedlinePlus/CDC/NHS) that inspired the scenario. The intent is to improve
+*terminology coverage* (synonyms like “melena”, “thunderclap”) without claiming clinical validation.
 
 The **adversarial** set is intentionally crafted to stress:
 
@@ -95,10 +100,16 @@ Run on both combined:
 python -m clinicaflow.benchmarks.vignettes --set all --print-markdown
 ```
 
-Run on all three sets combined:
+Run on all packaged sets combined:
 
 ```bash
 python -m clinicaflow.benchmarks.vignettes --set mega --print-markdown
+```
+
+Run on the realworld-inspired set:
+
+```bash
+python -m clinicaflow.benchmarks.vignettes --set realworld --print-markdown
 ```
 
 Write JSON outputs:

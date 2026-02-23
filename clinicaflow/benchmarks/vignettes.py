@@ -43,11 +43,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--path", type=Path, help="Path to vignettes JSONL (default: packaged resource)")
     parser.add_argument(
         "--set",
-        choices=["standard", "adversarial", "extended", "all", "mega"],
+        choices=["standard", "adversarial", "extended", "realworld", "all", "mega"],
         default="standard",
         help=(
             "Which packaged vignette set to use when --path is not provided (default: standard). "
-            "`all` = standard + adversarial; `mega` = standard + adversarial + extended."
+            "`all` = standard + adversarial; `mega` = standard + adversarial + extended + realworld."
         ),
     )
     parser.add_argument("--out", type=Path, help="Optional JSON output path for the summary")
@@ -73,6 +73,8 @@ def load_default_vignette_paths(set_name: str) -> list[Path]:
         return [Path(root.joinpath("vignettes_adversarial.jsonl"))]
     if name == "extended":
         return [Path(root.joinpath("vignettes_extended.jsonl"))]
+    if name == "realworld":
+        return [Path(root.joinpath("vignettes_realworld.jsonl"))]
     if name == "all":
         return [Path(root.joinpath("vignettes.jsonl")), Path(root.joinpath("vignettes_adversarial.jsonl"))]
     if name == "mega":
@@ -80,6 +82,7 @@ def load_default_vignette_paths(set_name: str) -> list[Path]:
             Path(root.joinpath("vignettes.jsonl")),
             Path(root.joinpath("vignettes_adversarial.jsonl")),
             Path(root.joinpath("vignettes_extended.jsonl")),
+            Path(root.joinpath("vignettes_realworld.jsonl")),
         ]
     raise ValueError(f"Unknown vignette set: {set_name}")
 

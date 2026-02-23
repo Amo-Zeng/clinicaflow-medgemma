@@ -15,11 +15,17 @@ RED_FLAG_KEYWORDS = {
     "fainting": "Syncope requiring urgent evaluation",
     "near-syncope": "Syncope requiring urgent evaluation",
     "severe headache": "Possible intracranial pathology",
+    "worst headache": "Possible intracranial pathology",
+    "thunderclap": "Possible intracranial pathology",
     "weakness one side": "Possible stroke",
     "slurred speech": "Possible stroke",
     "word-finding difficulty": "Possible stroke",
     "bloody stool": "Possible gastrointestinal bleed",
+    "black tarry": "Possible gastrointestinal bleed",
+    "tarry stool": "Possible gastrointestinal bleed",
+    "melena": "Possible gastrointestinal bleed",
     "vomiting blood": "Possible upper GI bleed",
+    "hematemesis": "Possible upper GI bleed",
     "pregnancy bleeding": "Possible obstetric emergency",
 }
 

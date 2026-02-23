@@ -4,13 +4,21 @@
 
 **Team:** `shilehaoduomingzile` (solo)
 
-ClinicaFlow is a **local-first**, **auditable** triage copilot that reframes triage as a **5-agent workflow** with a deterministic safety gate. It uses **MedGemma (HAI‑DEF)** via an **OpenAI-compatible** endpoint for clinical reasoning and (optionally) communication polishing, while keeping safety-critical escalation deterministic.
+ClinicaFlow is a **local-first**, **auditable** triage copilot that reframes triage as a **5-agent workflow** with a deterministic safety gate. It uses **MedGemma (HAI‑DEF)** for clinical reasoning (and optionally communication polish), while keeping safety‑critical escalation deterministic to reduce under‑triage risk.
 
 > DISCLAIMER: Decision support only. Not a diagnosis. Use synthetic data only (no PHI). Clinician confirmation required.
 
 ---
 
-## Problem statement (Problem domain + Impact potential)
+## Required links (for judges)
+
+- **Video (≤3 min):** https://youtu.be/dDdy8LIowQI  
+- **Public code repository:** https://github.com/Amo-Zeng/clinicaflow-medgemma  
+- **Public interactive live demo (bonus):** https://amo-zeng.github.io/clinicaflow-medgemma/  
+
+---
+
+## Problem domain (15%)
 
 In primary/urgent care triage, the dominant failure modes are:
 
@@ -18,11 +26,22 @@ In primary/urgent care triage, the dominant failure modes are:
 2) **Inconsistent triage quality** across staff/shifts  
 3) **Documentation overhead** (handoff + patient instructions degrade under time pressure)
 
-**Impact potential (transparent estimate; not clinical validation):** Using our reproducible synthetic proxy benchmark as a time proxy, median triage write-up time improves from **5.03 → 4.26 min** (−15.3%). For a clinic doing ~60 triage encounters/day, that suggests ~46 minutes/day saved (0.77 min × 60), while enforcing a deterministic under-triage safety gate for common red-flag patterns. This estimate is illustrative only and must be validated on site workflows and distributions.
+**User journey (target):** A clinician (or nurse/MA) enters a short intake + vitals (optionally image context). ClinicaFlow returns:
+- risk tier + red-flag triggers,
+- a short non-diagnostic differential/rationale (MedGemma),
+- “what to do next” actions,
+- clinician SBAR handoff + patient safety‑netting,
+- and an audit trail for QA.
 
 ---
 
-## Overall solution (Effective use of HAI‑DEF models)
+## Impact potential (15%)
+
+**Transparent estimate (proxy; not clinical validation):** Using our reproducible synthetic proxy benchmark as a time proxy, median triage write-up time improves from **5.03 → 4.26 min** (−15.3%). For a clinic doing ~60 triage encounters/day, that suggests ~46 minutes/day saved (0.77 min × 60), while enforcing a deterministic under‑triage safety gate for common red‑flag patterns. This estimate is illustrative only and must be validated on site workflows and distributions.
+
+---
+
+## Effective use of HAI‑DEF models (20%)
 
 ClinicaFlow runs a 5-agent workflow with a full trace:
 
@@ -38,7 +57,7 @@ ClinicaFlow runs a 5-agent workflow with a full trace:
 
 ---
 
-## Technical details (Product feasibility)
+## Product feasibility (20%)
 
 **One-click demo UI + API (CPU-only by default):**
 
@@ -96,7 +115,16 @@ Outputs deterministic benchmark tables + governance gate artifacts in `tmp/write
 
 ---
 
-## Results (reproducible, synthetic-only)
+## Execution & communication (30%)
+
+- Clear “judge path”: `docs/JUDGES.md` + Director-mode 3‑minute guided demo.
+- Code quality: stdlib server, typed models, unit tests, reproducible benchmark scripts, and CI.
+- Public demo: GitHub Pages static app (`public_demo/`) + full local server demo (`scripts/demo_one_click.sh`).
+- Auditability: per-run `audit bundle` + `judge pack.zip` export with trace + policy pack hashes.
+
+---
+
+## Results (reproducible, synthetic-only proxies)
 
 We avoid clinical claims and report only reproducible synthetic proxies.
 
@@ -111,22 +139,16 @@ Reproduce:
 python -m clinicaflow.benchmarks.synthetic --seed 17 --n 220 --print-markdown
 ```
 
-**Vignette regression sets (standard n=30, adversarial n=20, extended n=100):**
-- Combined mega (n=150): red-flag recall **47.7% → 100.0%**, under-triage **47.4% → 0.0%**
+**Vignette regression sets (standard n=30, adversarial n=20, extended n=100, realworld n=24):**
+- Combined mega (n=174): red-flag recall **53.3% → 100.0%**, under-triage **41.3% → 0.0%**
+- Realworld-inspired (n=24): red-flag recall **90.0% → 100.0%**, under-triage **0.0% → 0.0%**
 
 Reproduce:
 
 ```bash
 python -m clinicaflow.benchmarks.vignettes --set mega --print-markdown
+python -m clinicaflow.benchmarks.vignettes --set realworld --print-markdown
 clinicaflow benchmark governance --set mega --gate
 ```
 
 Labeling rubric + red-flag categories: `docs/VIGNETTE_REGRESSION.md`.
-
----
-
-## Links (required/bonus)
-
-- **Video (≤3 min):** https://youtu.be/dDdy8LIowQI  
-- **Public code repository:** https://github.com/Amo-Zeng/clinicaflow-medgemma  
-- **Bonus: public interactive demo:** run locally via `bash scripts/demo_one_click.sh` (local-first)  

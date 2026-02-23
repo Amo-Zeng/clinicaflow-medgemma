@@ -45,6 +45,10 @@ echo "[writeup] Vignette stress test (adversarial)"
 python -m clinicaflow.benchmarks.vignettes --set adversarial --print-markdown | tee "$OUT_DIR/vignettes_adversarial.md"
 echo ""
 
+echo "[writeup] Vignette regression (realworld-inspired)"
+python -m clinicaflow.benchmarks.vignettes --set realworld --print-markdown | tee "$OUT_DIR/vignettes_realworld.md"
+echo ""
+
 echo "[writeup] Vignettes combined (all)"
 python -m clinicaflow.benchmarks.vignettes --set all --print-markdown | tee "$OUT_DIR/vignettes_all.md"
 echo ""
