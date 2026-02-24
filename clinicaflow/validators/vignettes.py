@@ -27,6 +27,9 @@ def validate_vignettes_jsonl(path: str | Path | object) -> list[str]:
     except Exception as exc:  # noqa: BLE001
         return [f"vignettes: failed_to_read: {exc}"]
 
+    label = _label(path)
+    requires_source = "vignettes_case_reports" in label
+
     seen_ids: set[str] = set()
     for lineno, line in enumerate(text.splitlines(), start=1):
         raw = line.strip()
@@ -95,6 +98,23 @@ def validate_vignettes_jsonl(path: str | Path | object) -> list[str]:
         if not rationale:
             errors.append(f"{prefix}.rationale: required")
 
+        if requires_source:
+            source = row.get("source")
+            if not isinstance(source, dict):
+                errors.append(f"{prefix}.source: required object (case_reports)")
+            else:
+                stype = str(source.get("type") or "").strip()
+                if not stype:
+                    errors.append(f"{prefix}.source.type: required (case_reports)")
+                title = str(source.get("title") or "").strip()
+                if not title:
+                    errors.append(f"{prefix}.source.title: required (case_reports)")
+                url = str(source.get("url") or "").strip()
+                if not url:
+                    errors.append(f"{prefix}.source.url: required (case_reports)")
+                elif not url.startswith(("http://", "https://")):
+                    errors.append(f"{prefix}.source.url: must start with http(s):// (case_reports)")
+
     return errors
 
 
@@ -145,4 +165,3 @@ def _label(path: str | Path | object) -> str:
     except TypeError:
         # importlib.resources Traversable may not be Path-able.
         return str(path)
-

@@ -46,6 +46,7 @@ def build_audit_bundle_files(
     result: TriageResult,
     redact: bool = False,
     checklist: list[dict[str, Any]] | list[str] | None = None,
+    case_meta: dict[str, Any] | None = None,
 ) -> dict[str, bytes]:
     """Build an audit bundle as in-memory files.
 
@@ -75,8 +76,23 @@ def build_audit_bundle_files(
 
     checklist_payload = _normalize_checklist(checklist, fallback=result.recommended_next_actions)
     checklist_bytes = _json_bytes(checklist_payload)
-    note_bytes = _note_markdown_bytes(intake_payload=intake_payload, result_payload=result_payload, checklist=checklist_payload)
-    report_bytes = _report_html_bytes(intake_payload=intake_payload, result_payload=result_payload, checklist=checklist_payload)
+    case_meta_payload = dict(case_meta or {})
+    if redact and case_meta_payload:
+        case_meta_payload = scrub_phi_in_obj(case_meta_payload)
+    case_meta_bytes = _json_bytes(case_meta_payload) if case_meta_payload else b""
+
+    note_bytes = _note_markdown_bytes(
+        intake_payload=intake_payload,
+        result_payload=result_payload,
+        checklist=checklist_payload,
+        case_meta=case_meta_payload or None,
+    )
+    report_bytes = _report_html_bytes(
+        intake_payload=intake_payload,
+        result_payload=result_payload,
+        checklist=checklist_payload,
+        case_meta=case_meta_payload or None,
+    )
     try:
         from clinicaflow.fhir_export import build_fhir_bundle
 
@@ -93,6 +109,7 @@ def build_audit_bundle_files(
         "actions_checklist.json": checklist_bytes,
         "note.md": note_bytes,
         "report.html": report_bytes,
+        **({"case_meta.json": case_meta_bytes} if case_meta_bytes else {}),
         **({"fhir_bundle.json": fhir_bytes} if fhir_bytes else {}),
         **image_files,
     }
@@ -312,6 +329,7 @@ def _note_markdown_bytes(
     intake_payload: dict[str, Any],
     result_payload: dict[str, Any],
     checklist: list[dict[str, Any]],
+    case_meta: dict[str, Any] | None = None,
 ) -> bytes:
     request_id = str(result_payload.get("request_id") or "").strip()
     run_id = str(result_payload.get("run_id") or "").strip()
@@ -383,6 +401,36 @@ def _note_markdown_bytes(
     if communication.get("communication_backend_error"):
         lines.append(f"- communication_backend_error: `{str(communication.get('communication_backend_error'))}`")
     lines.append("")
+
+    if case_meta:
+        vignette = case_meta.get("vignette") if isinstance(case_meta.get("vignette"), dict) else {}
+        source = case_meta.get("source") if isinstance(case_meta.get("source"), dict) else {}
+        vid = str(vignette.get("id") or "").strip()
+        vset = str(vignette.get("set") or "").strip()
+        stitle = str(source.get("title") or "").strip()
+        surl = str(source.get("url") or "").strip()
+        snote = str(source.get("note") or "").strip()
+        rationale = str(case_meta.get("rationale") or "").strip()
+        edited = bool(case_meta.get("user_edited"))
+
+        lines.append("## Case provenance (vignette)")
+        if vid or vset:
+            if vset and vid:
+                slug = f"{vset}:{vid}"
+            else:
+                slug = vid or vset
+            lines.append(f"- vignette: `{slug}`")
+        if stitle:
+            lines.append(f"- source_title: {stitle}")
+        if surl:
+            lines.append(f"- source_url: {surl}")
+        if snote:
+            lines.append(f"- source_note: {snote}")
+        if rationale:
+            lines.append(f"- vignette_rationale: {rationale}")
+        if edited:
+            lines.append("- user_edited: true")
+        lines.append("")
 
     lines.append("## Intake (as provided)")
     lines.append(f"- chief_complaint: {str(intake_payload.get('chief_complaint') or '').strip()}")
@@ -555,6 +603,7 @@ def _report_html_bytes(
     intake_payload: dict[str, Any],
     result_payload: dict[str, Any],
     checklist: list[dict[str, Any]],
+    case_meta: dict[str, Any] | None = None,
 ) -> bytes:
     request_id = str(result_payload.get("request_id") or "").strip() or "run"
     created_at = str(result_payload.get("created_at") or "").strip()
@@ -617,6 +666,41 @@ def _report_html_bytes(
     phi_hits = structured.get("phi_hits") or []
     if not isinstance(phi_hits, list):
         phi_hits = []
+
+    case_provenance_html = ""
+    if case_meta:
+        vignette = case_meta.get("vignette") if isinstance(case_meta.get("vignette"), dict) else {}
+        source = case_meta.get("source") if isinstance(case_meta.get("source"), dict) else {}
+        vid = str(vignette.get("id") or "").strip()
+        vset = str(vignette.get("set") or "").strip()
+        stitle = str(source.get("title") or "").strip()
+        surl = str(source.get("url") or "").strip()
+        snote = str(source.get("note") or "").strip()
+        rationale = str(case_meta.get("rationale") or "").strip()
+        edited = bool(case_meta.get("user_edited"))
+
+        if vset and vid:
+            slug = f"{vset}:{vid}"
+        else:
+            slug = vid or vset
+
+        parts: list[str] = []
+        if slug:
+            parts.append(f"<li>vignette: <span class=\"mono\">{html.escape(slug)}</span></li>")
+        if surl.startswith(("http://", "https://")):
+            title_cell = html.escape(stitle or surl)
+            parts.append(
+                "<li>source: "
+                f"<a href=\"{html.escape(surl)}\" target=\"_blank\" rel=\"noreferrer\">{title_cell}</a>"
+                f"{f' <span class=\"small\">({html.escape(snote)})</span>' if snote else ''}"
+                "</li>"
+            )
+        if rationale:
+            parts.append(f"<li>labeling rationale: <span class=\"small\">{html.escape(rationale)}</span></li>")
+        if edited:
+            parts.append("<li><span class=\"pill risk-urgent\">edited</span> intake modified after loading vignette.</li>")
+        if parts:
+            case_provenance_html = "".join(parts)
 
     def li(items: list[str]) -> str:
         if not items:
@@ -876,6 +960,7 @@ def _report_html_bytes(
             <li>chief_complaint: {html.escape(str(intake_payload.get('chief_complaint') or ''))}</li>
             <li>history: {html.escape(str(intake_payload.get('history') or ''))}</li>
             <li>vitals: <span class="mono">{html.escape(', '.join(vitals_bits))}</span></li>
+            {case_provenance_html}
             {f"<li>images: <span class='mono'>{html.escape(str(len(intake_payload.get('images') or [])))}</span></li>" if intake_payload.get("images") else ""}
           </ul>
         </div>

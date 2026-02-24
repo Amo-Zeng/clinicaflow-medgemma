@@ -1198,7 +1198,12 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                 payload = {
                     "set": set_name,
                     "vignettes": [
-                        {"id": str(row.get("id", "")), "chief_complaint": str((row.get("input") or {}).get("chief_complaint", ""))}
+                        {
+                            "id": str(row.get("id", "")),
+                            "chief_complaint": str((row.get("input") or {}).get("chief_complaint", "")),
+                            "source_type": str((row.get("source") or {}).get("type") or "") if isinstance(row.get("source"), dict) else "",
+                            "source_url": str((row.get("source") or {}).get("url") or "") if isinstance(row.get("source"), dict) else "",
+                        }
                         for row in rows
                     ]
                 }
@@ -1222,7 +1227,13 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                     return
 
                 include_labels = str(query.get("include_labels", ["0"])[0]).strip().lower() in {"1", "true", "yes"}
-                out = {"id": vid, "set": set_name, "input": dict(row.get("input") or {})}
+                out = {
+                    "id": vid,
+                    "set": set_name,
+                    "input": dict(row.get("input") or {}),
+                    "source": dict(row.get("source") or {}) if isinstance(row.get("source"), dict) else None,
+                    "rationale": str(row.get("rationale") or "").strip(),
+                }
                 if include_labels:
                     out["labels"] = dict(row.get("labels") or {})
                 self._write_json(out, request_id=request_id)
@@ -1410,7 +1421,7 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                 return
 
             try:
-                intake_payload, result_payload, checklist = _unwrap_intake_payload(payload)
+                intake_payload, result_payload, checklist, case_meta = _unwrap_intake_payload(payload)
             except ValueError as exc:
                 if path in {"/triage", "/triage_stream"}:
                     self.server.stats["triage_errors_total"] += 1
@@ -1660,7 +1671,13 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
 
                 result_obj = existing_result or self.server.pipeline.run(intake, request_id=request_id)
                 bundle_request_id = result_obj.request_id or request_id
-                files = build_audit_bundle_files(intake=intake, result=result_obj, redact=redact, checklist=checklist)
+                files = build_audit_bundle_files(
+                    intake=intake,
+                    result=result_obj,
+                    redact=redact,
+                    checklist=checklist,
+                    case_meta=case_meta,
+                )
 
                 buf = io.BytesIO()
                 with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -1736,7 +1753,13 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                 except Exception:  # noqa: BLE001
                     pass
 
-                audit_files = build_audit_bundle_files(intake=intake, result=result_obj, redact=redact, checklist=checklist)
+                audit_files = build_audit_bundle_files(
+                    intake=intake,
+                    result=result_obj,
+                    redact=redact,
+                    checklist=checklist,
+                    case_meta=case_meta,
+                )
                 for name, data in audit_files.items():
                     files[f"triage/{name}"] = data
 
@@ -1826,6 +1849,7 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
                         "redacted": redact,
                         "vignette_set": set_name,
                         "include_synthetic_proxy": include_synthetic,
+                        **({"case_meta": case_meta} if isinstance(case_meta, dict) and case_meta else {}),
                     },
                     indent=2,
                     ensure_ascii=False,
@@ -1890,7 +1914,7 @@ class ClinicaFlowHandler(BaseHTTPRequestHandler):
             )
 
 
-def _unwrap_intake_payload(payload: dict) -> tuple[dict, dict | None, Any]:
+def _unwrap_intake_payload(payload: dict) -> tuple[dict, dict | None, Any, dict | None]:
     """Support both legacy and UI-export payload formats.
 
     - Legacy: {chief_complaint: ..., vitals: ...}
@@ -1898,7 +1922,9 @@ def _unwrap_intake_payload(payload: dict) -> tuple[dict, dict | None, Any]:
     """
 
     if "intake" not in payload:
-        return payload, None, None
+        intake_payload = dict(payload)
+        case_meta = intake_payload.pop("case_meta", None)
+        return intake_payload, None, None, (case_meta if isinstance(case_meta, dict) else None)
 
     intake = payload.get("intake")
     if not isinstance(intake, dict):
@@ -1906,12 +1932,13 @@ def _unwrap_intake_payload(payload: dict) -> tuple[dict, dict | None, Any]:
 
     result = payload.get("result")
     result_payload = result if isinstance(result, dict) else None
-    return dict(intake), result_payload, payload.get("checklist")
+    case_meta = payload.get("case_meta")
+    return dict(intake), result_payload, payload.get("checklist"), (case_meta if isinstance(case_meta, dict) else None)
 
 
 def _normalize_vignette_set(value: str) -> str:
     key = str(value or "").strip().lower()
-    if key in {"standard", "adversarial", "extended", "realworld", "all", "mega"}:
+    if key in {"standard", "adversarial", "extended", "realworld", "case_reports", "all", "mega", "ultra"}:
         return key
     return "standard"
 

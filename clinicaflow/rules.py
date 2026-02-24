@@ -4,7 +4,71 @@ from typing import Any
 
 from clinicaflow.models import StructuredIntake, Vitals
 
-SAFETY_RULES_VERSION = "2026-02-19.v2"
+SAFETY_RULES_VERSION = "2026-02-24.v3"
+
+EVIDENCE_LINKS: dict[str, list[dict[str, str]]] = {
+    # Vitals triggers
+    "spo2_lt_92": [
+        {
+            "title": "MedlinePlus — Pulse oximetry (SpO₂ ≤92%: contact provider; ≤88%: seek immediate care)",
+            "url": "https://medlineplus.gov/lab-tests/pulse-oximetry/",
+        }
+    ],
+    "sbp_lt_90": [
+        {
+            "title": "NICE — Suspected sepsis (age ≥16): SBP ≤90 mmHg is high risk",
+            "url": "https://www.nice.org.uk/guidance/ng253/chapter/Evaluating-risk",
+        },
+        {"title": "MedlinePlus — Low blood pressure: severe hypotension from shock is an emergency", "url": "https://medlineplus.gov/ency/article/007278.htm"},
+    ],
+    "hr_gt_130": [
+        {
+            "title": "NICE — Suspected sepsis (age ≥16): HR >130 bpm is high risk",
+            "url": "https://www.nice.org.uk/guidance/ng253/chapter/Evaluating-risk",
+        },
+        {"title": "American Heart Association — Tachycardia (fast heart rate) overview", "url": "https://www.heart.org/en/health-topics/arrhythmia/about-arrhythmia/tachycardia--fast-heart-rate"},
+    ],
+    "temp_gte_39_5": [
+        {
+            "title": "MedlinePlus — Fever: adult fever staying at/above 103°F (39.4°C) warrants contacting a provider",
+            "url": "https://medlineplus.gov/ency/article/003090.htm",
+        },
+        {"title": "CDC — Sepsis: fever and high heart rate are warning signs", "url": "https://www.cdc.gov/sepsis/about/index.html"},
+    ],
+    # Safety trigger catalog
+    "hemodynamic_instability": [
+        {
+            "title": "NICE — Suspected sepsis (age ≥16): SBP ≤90 mmHg or HR >130 bpm are high-risk criteria",
+            "url": "https://www.nice.org.uk/guidance/ng253/chapter/Evaluating-risk",
+        }
+    ],
+    "hypoxemia_with_cardiopulmonary": [
+        {
+            "title": "MedlinePlus — Pulse oximetry (SpO₂ ≤92%: contact provider; ≤88%: seek immediate care)",
+            "url": "https://medlineplus.gov/lab-tests/pulse-oximetry/",
+        },
+        {"title": "CDC — Heart attack symptoms: chest discomfort and shortness of breath; call 9-1-1", "url": "https://www.cdc.gov/heart-disease/about/heart-attack.html"},
+    ],
+    "multiple_red_flags": [
+        {"title": "CDC — Sepsis is a medical emergency: may include confusion, shortness of breath, high heart rate", "url": "https://www.cdc.gov/sepsis/about/index.html"},
+        {"title": "MedlinePlus — Stroke symptoms can be sudden; call 911 right away", "url": "https://medlineplus.gov/stroke.html"},
+    ],
+    "red_flags_present": [
+        {"title": "CDC — Heart attack symptoms: call 9-1-1", "url": "https://www.cdc.gov/heart-disease/about/heart-attack.html"},
+        {"title": "MedlinePlus — Stroke symptoms: call 911 right away", "url": "https://medlineplus.gov/stroke.html"},
+        {"title": "MedlinePlus — GI bleeding: black tarry stool / vomiting blood → emergency care", "url": "https://medlineplus.gov/ency/article/003133.htm"},
+    ],
+    "vital_concern": [
+        {"title": "CDC — Sepsis warning signs include fever, high heart rate, and shortness of breath", "url": "https://www.cdc.gov/sepsis/about/index.html"},
+        {"title": "MedlinePlus — Pulse oximetry guidance for low SpO₂ values", "url": "https://medlineplus.gov/lab-tests/pulse-oximetry/"},
+    ],
+    "insufficient_intake_fields": [
+        {
+            "title": "NICE — Suspected sepsis: risk evaluation relies on physiologic/vital-sign assessment",
+            "url": "https://www.nice.org.uk/guidance/ng253/chapter/Evaluating-risk",
+        }
+    ],
+}
 
 RED_FLAG_KEYWORDS = {
     "chest pain": "Potential acute coronary syndrome",
@@ -106,7 +170,15 @@ def compute_safety_triggers(red_flags: list[str], missing_fields: list[str], vit
     triggers: list[dict[str, Any]] = []
 
     def add(id_: str, severity: str, label: str, detail: str) -> None:
-        triggers.append({"id": id_, "severity": severity, "label": label, "detail": detail})
+        triggers.append(
+            {
+                "id": id_,
+                "severity": severity,
+                "label": label,
+                "detail": detail,
+                "evidence": EVIDENCE_LINKS.get(id_, []),
+            }
+        )
 
     # Critical triggers (highest priority).
     if any("Hypotension" in rf or "Severe tachycardia" in rf for rf in red_flags):
@@ -231,10 +303,30 @@ def safety_rules_catalog() -> dict[str, Any]:
     """
 
     vitals_red_flags = [
-        {"id": "spo2_lt_92", "label": "Low oxygen saturation (<92%)", "condition": "spo2 < 92"},
-        {"id": "sbp_lt_90", "label": "Hypotension (SBP < 90)", "condition": "systolic_bp < 90"},
-        {"id": "hr_gt_130", "label": "Severe tachycardia (HR > 130)", "condition": "heart_rate > 130"},
-        {"id": "temp_gte_39_5", "label": "High fever (>= 39.5°C)", "condition": "temperature_c >= 39.5"},
+        {
+            "id": "spo2_lt_92",
+            "label": "Low oxygen saturation (<92%)",
+            "condition": "spo2 < 92",
+            "evidence": EVIDENCE_LINKS.get("spo2_lt_92", []),
+        },
+        {
+            "id": "sbp_lt_90",
+            "label": "Hypotension (SBP < 90)",
+            "condition": "systolic_bp < 90",
+            "evidence": EVIDENCE_LINKS.get("sbp_lt_90", []),
+        },
+        {
+            "id": "hr_gt_130",
+            "label": "Severe tachycardia (HR > 130)",
+            "condition": "heart_rate > 130",
+            "evidence": EVIDENCE_LINKS.get("hr_gt_130", []),
+        },
+        {
+            "id": "temp_gte_39_5",
+            "label": "High fever (>= 39.5°C)",
+            "condition": "temperature_c >= 39.5",
+            "evidence": EVIDENCE_LINKS.get("temp_gte_39_5", []),
+        },
     ]
 
     trigger_catalog = [
@@ -243,36 +335,42 @@ def safety_rules_catalog() -> dict[str, Any]:
             "severity": "critical",
             "label": "Hemodynamic instability",
             "detail": "Hypotension (SBP < 90) or severe tachycardia (HR > 130).",
+            "evidence": EVIDENCE_LINKS.get("hemodynamic_instability", []),
         },
         {
             "id": "hypoxemia_with_cardiopulmonary",
             "severity": "critical",
             "label": "Hypoxemia + cardiopulmonary complaint",
             "detail": "SpO₂ < 92% with a cardiopulmonary red-flag pattern.",
+            "evidence": EVIDENCE_LINKS.get("hypoxemia_with_cardiopulmonary", []),
         },
         {
             "id": "multiple_red_flags",
             "severity": "critical",
             "label": "Multiple red flags",
             "detail": "2+ red flags detected in the same intake.",
+            "evidence": EVIDENCE_LINKS.get("multiple_red_flags", []),
         },
         {
             "id": "red_flags_present",
             "severity": "urgent",
             "label": "Red flags present",
             "detail": "1+ red flags detected in the intake.",
+            "evidence": EVIDENCE_LINKS.get("red_flags_present", []),
         },
         {
             "id": "vital_concern",
             "severity": "urgent",
             "label": "Vital-sign concern",
             "detail": "HR ≥110, Temp ≥38.5°C, or SpO₂ <95%.",
+            "evidence": EVIDENCE_LINKS.get("vital_concern", []),
         },
         {
             "id": "insufficient_intake_fields",
             "severity": "urgent",
             "label": "Insufficient intake fields",
             "detail": "3+ critical fields missing.",
+            "evidence": EVIDENCE_LINKS.get("insufficient_intake_fields", []),
         },
     ]
 

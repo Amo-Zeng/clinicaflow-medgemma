@@ -49,12 +49,24 @@ echo "[writeup] Vignette regression (realworld-inspired)"
 python -m clinicaflow.benchmarks.vignettes --set realworld --print-markdown | tee "$OUT_DIR/vignettes_realworld.md"
 echo ""
 
+echo "[writeup] Vignette regression (case reports)"
+python -m clinicaflow.benchmarks.vignettes --set case_reports --print-markdown | tee "$OUT_DIR/vignettes_case_reports.md"
+echo ""
+
 echo "[writeup] Vignettes combined (all)"
 python -m clinicaflow.benchmarks.vignettes --set all --print-markdown | tee "$OUT_DIR/vignettes_all.md"
 echo ""
 
 echo "[writeup] Vignettes combined (mega)"
 python -m clinicaflow.benchmarks.vignettes --set mega --print-markdown | tee "$OUT_DIR/vignettes_mega.md"
+echo ""
+
+echo "[writeup] Vignettes combined (ultra)"
+python -m clinicaflow.benchmarks.vignettes --set ultra --print-markdown | tee "$OUT_DIR/vignettes_ultra.md"
+echo ""
+
+echo "[writeup] Ablation (ultra)"
+python -m clinicaflow.benchmarks.ablation --set ultra --print-markdown | tee "$OUT_DIR/ablation_ultra.md"
 echo ""
 
 echo "[writeup] Safety governance report + failure packet (mega)"

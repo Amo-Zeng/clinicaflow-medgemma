@@ -73,6 +73,34 @@ class VignetteBenchmarkTests(unittest.TestCase):
         self.assertEqual(summary.over_triage_rate_baseline, 75.0)
         self.assertEqual(summary.over_triage_rate_clinicaflow, 0.0)
 
+    def test_vignette_case_reports_metrics_match_writeup(self) -> None:
+        rows = []
+        for p in load_default_vignette_paths("case_reports"):
+            rows.extend(load_vignettes(p))
+        summary, _ = run_benchmark_rows(rows)
+
+        self.assertEqual(summary.n_cases, 50)
+        self.assertEqual(summary.red_flag_recall_baseline, 44.0)
+        self.assertEqual(summary.red_flag_recall_clinicaflow, 100.0)
+        self.assertEqual(summary.under_triage_rate_baseline, 48.0)
+        self.assertEqual(summary.under_triage_rate_clinicaflow, 0.0)
+        self.assertEqual(summary.over_triage_rate_baseline, 0.0)
+        self.assertEqual(summary.over_triage_rate_clinicaflow, 0.0)
+
+    def test_vignette_ultra_metrics_match_writeup(self) -> None:
+        rows = []
+        for p in load_default_vignette_paths("ultra"):
+            rows.extend(load_vignettes(p))
+        summary, _ = run_benchmark_rows(rows)
+
+        self.assertEqual(summary.n_cases, 224)
+        self.assertEqual(summary.red_flag_recall_baseline, 51.0)
+        self.assertEqual(summary.red_flag_recall_clinicaflow, 100.0)
+        self.assertEqual(summary.under_triage_rate_baseline, 42.9)
+        self.assertEqual(summary.under_triage_rate_clinicaflow, 0.0)
+        self.assertEqual(summary.over_triage_rate_baseline, 47.4)
+        self.assertEqual(summary.over_triage_rate_clinicaflow, 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

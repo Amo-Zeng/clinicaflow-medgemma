@@ -7,7 +7,7 @@ To keep results **reproducible** and avoid inflated claims, this repo includes a
 - under-triage avoidance,
 - handoff completeness / documentation burden.
 
-In addition, we include a small **clinical vignette regression set** (standard n=30, adversarial n=20, extended n=100, realworld n=24) with a transparent labeling rubric to catch under-triage regressions:
+In addition, we include a small **clinical vignette regression set** (standard n=30, adversarial n=20, extended n=100, realworld n=24, case_reports n=50) with a transparent labeling rubric to catch under-triage regressions:
 
 - `docs/VIGNETTE_REGRESSION.md`
 - `python -m clinicaflow.benchmarks.vignettes --set standard --print-markdown`
@@ -39,6 +39,21 @@ python -m clinicaflow.benchmarks.synthetic --seed 17 --n 220 --out results/synth
 - Synthetic cases cannot substitute for real clinical validation.
 - Metrics are proxies and should be interpreted as *workflow reliability signals*, not medical performance claims.
 - Before any real deployment, evaluate on site-specific data distributions with clinical oversight.
+
+## Ablation (why multi-agent ≠ “just an LLM”)
+
+We also ship an **ablation benchmark** that compares:
+
+- a naive vitals/keyword **baseline**,
+- a toy **reasoning-only** variant (differential-driven tier; intentionally unsafe),
+- **safety-only** (deterministic safety gate; no evidence/citations/communication),
+- **full** pipeline (adds policy/evidence + communication + audit trace).
+
+Reproduce:
+
+```bash
+python -m clinicaflow.benchmarks.ablation --set ultra --print-markdown
+```
 
 ## One-command writeup reproduction
 

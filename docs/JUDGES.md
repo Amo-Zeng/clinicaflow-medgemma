@@ -19,7 +19,10 @@ DEMO_RECORD=1 bash scripts/demo_one_click.sh
 
 Open the printed UI URL (it may auto-select a free port).
 
-If the UI looks “too simple” (stale cached assets), click **Clear demo data** (top-right) or open `/?reset=1`.
+If port `8000` is already in use, the script will pick a free port (use the printed URL).
+If you want it to stop an existing local ClinicaFlow server on `8000`, run: `DEMO_KILL_EXISTING=1 bash scripts/demo_one_click.sh`.
+
+If the UI looks “too simple” or buttons don’t respond (stale cached assets), click **Clear demo data** (top-right) or open `/?reset=1`.
 
 ## 2) Follow the built-in runbook
 
@@ -36,7 +39,7 @@ In the UI, start from **Home** (or the welcome modal), then:
    - In redacted exports, open `manifest.json` to see SHA256 hashes and `phi_scrubbed_patterns` (category labels only).
 3. Neuro red-flag case (urgent)
 4. Routine case
-5. Benchmarks (synthetic proxy + vignette regression; try `standard` or `mega`)
+5. Benchmarks (synthetic proxy + vignette regression; try `standard`, `mega`, or `case_reports`)
 6. Governance tab (safety gate + trigger coverage + **Ops SLO** + export report)
 7. Rules tab (deterministic safety rulebook)
 8. Ops tab (live metrics + rolling p50/p95 + per-agent latency/errors)

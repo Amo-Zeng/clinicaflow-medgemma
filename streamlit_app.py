@@ -45,6 +45,7 @@ DEMO_VIGNETTES: dict[str, tuple[str, str]] = {
     "Urgent — slurred speech + weakness (stroke pathway)": ("standard", "v05_slurred_speech_weakness"),
     "Routine — sore throat + runny nose (low acuity)": ("standard", "v21_sore_throat_routine"),
     "Adversarial — CP abbrev + prompt injection": ("adversarial", "a01_cp_abbrev_hypotension"),
+    "Case report — thunderclap headache (SAH red flag)": ("case_reports", "cr06_thunderclap_sah_negative_angio"),
 }
 
 
@@ -122,6 +123,25 @@ def _trace_step_output(result: Any, agent: str) -> dict[str, Any]:
 def _render_case_result(intake: PatientIntake, result: Any) -> None:
     _badge("Risk tier", getattr(result, "risk_tier", ""))
     st.caption(f"pipeline={__version__} · safety_rules={SAFETY_RULES_VERSION} · run_id={getattr(result, 'run_id', '')}")
+
+    case_meta = st.session_state.get("last_case_meta") or {}
+    if isinstance(case_meta, dict) and case_meta:
+        vignette = case_meta.get("vignette") if isinstance(case_meta.get("vignette"), dict) else {}
+        source = case_meta.get("source") if isinstance(case_meta.get("source"), dict) else {}
+        slug = ":".join([str(vignette.get("set") or "").strip(), str(vignette.get("id") or "").strip()]).strip(":")
+        title = str(source.get("title") or "").strip()
+        url = str(source.get("url") or "").strip()
+        note = str(source.get("note") or "").strip()
+        if slug or title or url:
+            with st.expander("Case provenance (vignette source)", expanded=False):
+                if slug:
+                    st.caption(f"vignette={slug}")
+                if title and url:
+                    st.markdown(f"- [{title}]({url})")
+                elif url:
+                    st.markdown(f"- {url}")
+                if note:
+                    st.caption(note)
 
     phi = detect_phi_hits(intake.combined_text())
     if phi:
@@ -229,7 +249,12 @@ def _render_audit_downloads(intake: PatientIntake, result: Any) -> None:
     st.subheader("Audit downloads")
     cols = st.columns(2)
     with cols[0]:
-        files = build_audit_bundle_files(intake=intake, result=result, redact=True)
+        files = build_audit_bundle_files(
+            intake=intake,
+            result=result,
+            redact=True,
+            case_meta=(st.session_state.get("last_case_meta") if isinstance(st.session_state.get("last_case_meta"), dict) else None),
+        )
         st.download_button(
             "Download redacted audit bundle (zip)",
             data=_zip_bytes(files),
@@ -238,7 +263,12 @@ def _render_audit_downloads(intake: PatientIntake, result: Any) -> None:
             use_container_width=True,
         )
     with cols[1]:
-        files = build_audit_bundle_files(intake=intake, result=result, redact=False)
+        files = build_audit_bundle_files(
+            intake=intake,
+            result=result,
+            redact=False,
+            case_meta=(st.session_state.get("last_case_meta") if isinstance(st.session_state.get("last_case_meta"), dict) else None),
+        )
         st.download_button(
             "Download full audit bundle (zip)",
             data=_zip_bytes(files),
@@ -269,6 +299,11 @@ def _demo_runbook() -> None:
 
         if st.button("Run this demo vignette", type="primary", use_container_width=True):
             intake = PatientIntake.from_mapping(dict(row.get("input") or {}))
+            st.session_state["last_case_meta"] = {
+                "vignette": {"set": set_name, "id": case_id},
+                "source": dict(row.get("source") or {}) if isinstance(row.get("source"), dict) else {},
+                "rationale": str(row.get("rationale") or "").strip(),
+            }
             placeholders = {
                 "progress": st.progress(0.0),
                 "status": st.empty(),
@@ -312,7 +347,12 @@ def _case_console() -> None:
 
     with col_left:
         st.subheader("Case library")
-        set_name = st.selectbox("Vignette set", ["standard", "adversarial", "realworld"], index=0, key="console_set")
+        set_name = st.selectbox(
+            "Vignette set",
+            ["standard", "adversarial", "realworld", "case_reports"],
+            index=0,
+            key="console_set",
+        )
         rows = _load_vignette_rows(set_name)
         ids = [str(r.get("id") or "").strip() for r in rows]
         selected = st.selectbox("Case id", ids, index=0, key="console_case_id")
@@ -324,9 +364,15 @@ def _case_console() -> None:
         with actions[0]:
             if st.button("Load into editor", use_container_width=True):
                 st.session_state["intake_payload"] = json.dumps(case_input, indent=2, ensure_ascii=False)
+                st.session_state["last_case_meta"] = {
+                    "vignette": {"set": set_name, "id": selected},
+                    "source": dict(row.get("source") or {}) if isinstance(row.get("source"), dict) else {},
+                    "rationale": str(row.get("rationale") or "").strip(),
+                }
         with actions[1]:
             if st.button("Load 3-minute demo sample", use_container_width=True):
                 st.session_state["intake_payload"] = json.dumps(SAMPLE_INTAKE, indent=2, ensure_ascii=False)
+                st.session_state["last_case_meta"] = {}
 
         with st.expander("Gold labels (for regression)", expanded=False):
             st.json(labels)
@@ -372,6 +418,7 @@ def _case_console() -> None:
                     },
                 }
                 st.session_state["intake_payload"] = json.dumps(payload, indent=2, ensure_ascii=False)
+                st.session_state["last_case_meta"] = {}
 
         st.subheader("JSON editor")
 
@@ -438,7 +485,7 @@ def _vignette_regression() -> None:
         unsafe_allow_html=True,
     )
 
-    set_name = st.selectbox("Vignette set", ["standard", "adversarial", "realworld"], index=0)
+    set_name = st.selectbox("Vignette set", ["standard", "adversarial", "realworld", "case_reports"], index=0)
     rows = _load_vignette_rows(set_name)
     st.caption(f"Loaded {len(rows)} cases.")
 
@@ -461,6 +508,11 @@ def _vignette_regression() -> None:
 
     if st.button("Run ClinicaFlow on this case", type="primary", use_container_width=True):
         intake = PatientIntake.from_mapping(case_input)
+        st.session_state["last_case_meta"] = {
+            "vignette": {"set": set_name, "id": selected},
+            "source": dict(row.get("source") or {}) if isinstance(row.get("source"), dict) else {},
+            "rationale": str(row.get("rationale") or "").strip(),
+        }
         result = _pipeline().run(intake)
         _render_case_result(intake, result)
 

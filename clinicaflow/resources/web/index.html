@@ -274,6 +274,13 @@
               </div>
               <div id="phiWarnDetail" class="small muted mono" style="margin-top: 8px;"></div>
             </div>
+            <div id="caseSource" class="callout hidden">
+              <div class="row" style="margin-top: 0;">
+                <span class="chip">Case source</span>
+                <div class="small muted">Open-access reference for this vignette (non-PHI).</div>
+              </div>
+              <div id="caseSourceBody" class="small muted" style="margin-top: 8px;"></div>
+            </div>
             <div class="hint">
               Tip: For a “judge-friendly” demo, load a vignette, run triage, then expand <b>Agent trace</b> and download
               an <b>audit bundle</b>.
@@ -666,8 +673,9 @@
           <div class="panel-head">
             <h2>Vignette regression</h2>
             <div class="small">
-              Built-in synthetic vignette regression sets:
-              standard (n=30), adversarial (n=20), extended (n=100), realworld (n=24). See <code>docs/VIGNETTE_REGRESSION.md</code>.
+              Built-in vignette regression sets:
+              standard (n=30), adversarial (n=20), extended (n=100), realworld (n=24), case_reports (n=20).
+              See <code>docs/VIGNETTE_REGRESSION.md</code>.
             </div>
           </div>
 
@@ -689,8 +697,10 @@
               <option value="adversarial">adversarial</option>
               <option value="extended">extended</option>
               <option value="realworld">realworld</option>
+              <option value="case_reports">case_reports</option>
               <option value="all">all</option>
               <option value="mega">mega</option>
+              <option value="ultra">ultra</option>
             </select>
             <button id="runBench" class="btn primary" type="button">Run benchmark</button>
             <button id="downloadBench" class="btn subtle" type="button">Download JSON</button>
@@ -740,8 +750,10 @@
                 <option value="adversarial">adversarial</option>
                 <option value="extended">extended</option>
                 <option value="realworld">realworld</option>
+                <option value="case_reports">case_reports</option>
                 <option value="all">all</option>
                 <option value="mega">mega</option>
+                <option value="ultra">ultra</option>
               </select>
               <button id="govRunBench" class="btn primary" type="button">Run governance benchmark</button>
               <button id="govDownloadMd" class="btn subtle" type="button">Download governance report</button>
@@ -807,9 +819,25 @@
                     <th>Trigger</th>
                     <th>Severity</th>
                     <th>Detail</th>
+                    <th>Evidence</th>
                   </tr>
                 </thead>
                 <tbody id="rulesTriggerBody"></tbody>
+              </table>
+            </div>
+
+            <div class="k" style="margin-top: 14px;">Vitals red flags</div>
+            <div class="small muted">Vital-sign thresholds used by deterministic escalation logic.</div>
+            <div class="tablewrap" style="margin-top: 10px;">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Signal</th>
+                    <th>Condition</th>
+                    <th>Evidence</th>
+                  </tr>
+                </thead>
+                <tbody id="rulesVitalsBody"></tbody>
               </table>
             </div>
 
@@ -937,7 +965,7 @@
           <section class="panel">
             <div class="panel-head">
               <h2>Clinician review (qualitative)</h2>
-              <div class="small">Collect real feedback on synthetic vignettes. No PHI.</div>
+              <div class="small">Collect qualitative feedback on vignettes (synthetic and/or de-identified case-report-derived). No PHI.</div>
             </div>
 
             <div class="row">
@@ -946,7 +974,9 @@
                 <option value="adversarial">adversarial</option>
                 <option value="extended">extended</option>
                 <option value="realworld">realworld</option>
+                <option value="case_reports">case_reports</option>
                 <option value="mega">mega</option>
+                <option value="ultra">ultra</option>
               </select>
               <select id="reviewCaseSelect" class="select"></select>
               <button id="reviewLoadCase" class="btn subtle" type="button">Load case</button>
@@ -956,7 +986,7 @@
 
             <div class="callout">
               <div class="k">Offline review packet</div>
-              <div class="small muted">Download a clinician-friendly markdown packet (synthetic only; no PHI).</div>
+              <div class="small muted">Download a clinician-friendly markdown packet (no PHI).</div>
               <div class="row" style="margin-top: 10px;">
                 <input id="reviewPacketLimit" type="number" min="1" step="1" value="20" title="Number of cases to include" style="width: 100px;" />
                 <button id="reviewDownloadPacket" class="btn subtle" type="button">Download packet.md</button>
@@ -967,7 +997,7 @@
 
             <div class="review-split">
               <div>
-                <div class="k">Intake (synthetic)</div>
+                <div class="k">Intake (vignette)</div>
                 <pre id="reviewIntake" class="pre mono">{}</pre>
               </div>
               <div>

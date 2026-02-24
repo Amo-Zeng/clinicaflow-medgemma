@@ -29,6 +29,7 @@ DEMO_RECORD="${DEMO_RECORD:-0}"
 DEMO_RESET="${DEMO_RESET:-0}"
 DEMO_AUTORUN="${DEMO_AUTORUN:-}"
 DEMO_AUTORUN_SET="${DEMO_AUTORUN_SET:-}"
+DEMO_KILL_EXISTING="${DEMO_KILL_EXISTING:-0}"
 ALLOW_LEGACY_UI="${ALLOW_LEGACY_UI:-0}"
 PING_INFERENCE="${PING_INFERENCE:-0}"
 
@@ -107,6 +108,70 @@ finally:
     s.close()
 sys.exit(0)
 PY
+}
+
+list_listening_pids() {
+  local port="$1"
+
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -t -iTCP:"$port" -sTCP:LISTEN -n -P 2>/dev/null | sort -u || true
+    return 0
+  fi
+
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltnp 2>/dev/null \
+      | awk -v p=":${port}" '$4 ~ p {print $0}' \
+      | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' \
+      | sort -u || true
+    return 0
+  fi
+
+  return 1
+}
+
+describe_listening_processes() {
+  local port="$1"
+  local pids=""
+  pids="$(list_listening_pids "$port" | tr '\n' ' ' | xargs || true)"
+  if [[ -z "${pids:-}" ]]; then
+    echo "[demo] Unable to identify the process using port ${port}."
+    return 0
+  fi
+
+  echo "[demo] Process(es) listening on port ${port}:"
+  for pid in $pids; do
+    cmd="$(ps -p "$pid" -o cmd= 2>/dev/null || true)"
+    if [[ -n "${cmd:-}" ]]; then
+      echo "       - pid ${pid}: ${cmd}"
+    else
+      echo "       - pid ${pid}"
+    fi
+  done
+}
+
+maybe_kill_existing_clinicaflow() {
+  local port="$1"
+
+  if [[ "${DEMO_KILL_EXISTING:-0}" != "1" ]]; then
+    return 0
+  fi
+
+  local pids=""
+  pids="$(list_listening_pids "$port" | tr '\n' ' ' | xargs || true)"
+  if [[ -z "${pids:-}" ]]; then
+    return 0
+  fi
+
+  for pid in $pids; do
+    cmd="$(ps -p "$pid" -o cmd= 2>/dev/null || true)"
+    if [[ "${cmd:-}" == *"clinicaflow.cli serve"* || "${cmd:-}" == *"clinicaflow.demo_server"* ]]; then
+      echo "[demo] DEMO_KILL_EXISTING=1: Stopping existing ClinicaFlow server (pid=${pid}) on port ${port}."
+      kill "${pid}" >/dev/null 2>&1 || true
+      sleep 1
+    else
+      echo "[demo] DEMO_KILL_EXISTING=1: Refusing to kill non-ClinicaFlow process (pid=${pid})."
+    fi
+  done
 }
 
 find_free_port() {
@@ -265,6 +330,11 @@ REQUESTED_PORT="$CLINICAFLOW_PORT"
 
 if ! is_port_free "$CLINICAFLOW_PORT" >/dev/null 2>&1; then
   echo "[demo] Port ${CLINICAFLOW_PORT} is already in use."
+  describe_listening_processes "$CLINICAFLOW_PORT"
+  maybe_kill_existing_clinicaflow "$CLINICAFLOW_PORT" || true
+  if is_port_free "$CLINICAFLOW_PORT" >/dev/null 2>&1; then
+    echo "[demo] Port ${CLINICAFLOW_PORT} is now free; continuing."
+  else
   if free_port="$(find_free_port "$CLINICAFLOW_PORT" 30)"; then
     echo "[demo] Using free port: ${free_port}"
     CLINICAFLOW_PORT="$free_port"
@@ -273,12 +343,14 @@ if ! is_port_free "$CLINICAFLOW_PORT" >/dev/null 2>&1; then
     echo "       Stop the existing server, or set CLINICAFLOW_PORT=... and re-run."
     exit 1
   fi
+  fi
 fi
 
 if [[ "$CLINICAFLOW_PORT" != "$REQUESTED_PORT" ]]; then
   echo ""
   echo "[demo] IMPORTANT: Requested port ${REQUESTED_PORT} was busy."
   echo "       Open the UI on: http://127.0.0.1:${CLINICAFLOW_PORT}/"
+  echo "       If buttons (like 'Start 3-minute demo') don't respond, open: http://127.0.0.1:${CLINICAFLOW_PORT}/?reset=1"
   echo ""
 fi
 

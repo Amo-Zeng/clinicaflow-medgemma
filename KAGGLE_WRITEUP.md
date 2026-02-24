@@ -83,6 +83,15 @@ Recording mode (auto Director overlay + reset local demo storage):
 DEMO_RECORD=1 bash scripts/demo_one_click.sh
 ```
 
+If port `8000` is already in use, the script auto-selects a free port and prints the correct URL.  
+If you want it to stop an existing local ClinicaFlow server on `8000`, run:
+
+```bash
+DEMO_KILL_EXISTING=1 bash scripts/demo_one_click.sh
+```
+
+If UI buttons don’t respond (stale cached assets), open `/?reset=1` or click **Clear demo data** in the top bar.
+
 **Real MedGemma (OpenAI-compatible endpoint, e.g. vLLM server mode):**
 
 ```bash
@@ -137,7 +146,7 @@ Outputs deterministic benchmark tables + governance gate artifacts in `tmp/write
 
 ## Results (reproducible, synthetic-only proxies)
 
-We avoid clinical claims and report only reproducible synthetic proxies.
+We avoid clinical claims and report only reproducible proxy benchmarks.
 
 **Synthetic proxy benchmark (seed=17, n=220):**
 - Red-flag recall: **55.6% → 100.0%**
@@ -150,19 +159,42 @@ Reproduce:
 python -m clinicaflow.benchmarks.synthetic --seed 17 --n 220 --print-markdown
 ```
 
-**Vignette regression sets (standard n=30, adversarial n=20, extended n=100, realworld n=24):**
+**Vignette regression sets (standard n=30, adversarial n=20, extended n=100, realworld n=24, case_reports n=50):**
 - Combined mega (n=174): red-flag recall **53.3% → 100.0%**, under-triage **41.3% → 0.0%**
 - Realworld-inspired (n=24): red-flag recall **90.0% → 100.0%**, under-triage **0.0% → 0.0%**
+- Case-report-derived (n=50, open-access sources; de-identified paraphrases): red-flag recall **44.0% → 100.0%**, under-triage **48.0% → 0.0%**
 
 Reproduce:
 
 ```bash
 python -m clinicaflow.benchmarks.vignettes --set mega --print-markdown
 python -m clinicaflow.benchmarks.vignettes --set realworld --print-markdown
+python -m clinicaflow.benchmarks.vignettes --set case_reports --print-markdown
 clinicaflow benchmark governance --set mega --gate
 ```
 
+**Ablation (ultra = mega + case_reports, n=224):**
+
+Reproduce:
+
+```bash
+python -m clinicaflow.benchmarks.ablation --set ultra --print-markdown
+```
+
+| Variant | Red-flag recall | Under-triage | Over-triage | Avg actions | Avg citations | Completeness (0–5) |
+|---|---:|---:|---:|---:|---:|---:|
+| `baseline` | `51.0%` | `42.9%` | `47.4%` | `0.00` | `0.00` | `1.54` |
+| `reasoning_only` | `43.6%` | `57.1%` | `0.0%` | `0.00` | `0.00` | `2.39` |
+| `safety_only` | `100.0%` | `0.0%` | `0.0%` | `3.28` | `0.00` | `2.82` |
+| `full` | `100.0%` | `0.0%` | `0.0%` | `7.90` | `0.87` | `4.90` |
+
 Labeling rubric + red-flag categories: `docs/VIGNETTE_REGRESSION.md`.
+
+**Real-world case highlights (from open-access case reports; paraphrased + de-identified):**
+
+- Thunderclap headache / suspected SAH: https://pmc.ncbi.nlm.nih.gov/articles/PMC3317281/ (vignette `cr06_thunderclap_sah_negative_angio`)
+- Melena + fatigue (GI bleed red flag): https://pmc.ncbi.nlm.nih.gov/articles/PMC3719128/ (vignette `cr09_melena_anemia`)
+- Pregnancy spotting + near-syncope (high-risk OB pattern): https://pmc.ncbi.nlm.nih.gov/articles/PMC5410482/ (vignette `cr11_pregnancy_spotting_near_syncope`)
 
 ---
 

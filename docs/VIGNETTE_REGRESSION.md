@@ -1,4 +1,4 @@
-# Clinical Vignette Regression Sets (standard n=30, adversarial n=20, extended n=100, realworld n=24)
+# Clinical Vignette Regression Sets (standard n=30, adversarial n=20, extended n=100, realworld n=24, case_reports n=50)
 
 This repository includes a small **synthetic clinical vignette** regression set intended to:
 
@@ -6,7 +6,11 @@ This repository includes a small **synthetic clinical vignette** regression set 
 - verify **red-flag detection** on common high-acuity patterns,
 - and provide a repeatable “demo-ready” evaluation beyond the fully synthetic generator.
 
-Important: These are **not real patient records** and are not meant to represent real clinical distributions.
+Important:
+
+- **standard / adversarial / extended / realworld** are **synthetic** (no patient records).
+- **case_reports** are **de-identified, paraphrased vignettes** derived from **open-access case reports** (linked in each row).
+- None of these sets represent real clinical distributions; they exist to catch **safety regressions** (especially under-triage).
 
 ## Files
 
@@ -14,11 +18,16 @@ Important: These are **not real patient records** and are not meant to represent
 - Adversarial vignettes: `clinicaflow/resources/vignettes_adversarial.jsonl` (n=20)
 - Extended vignettes: `clinicaflow/resources/vignettes_extended.jsonl` (n=100)
 - Realworld-inspired vignettes: `clinicaflow/resources/vignettes_realworld.jsonl` (n=24)
+- Case-report-derived vignettes: `clinicaflow/resources/vignettes_case_reports.jsonl` (n=50)
 - Benchmark runner: `clinicaflow/benchmarks/vignettes.py`
 
 The **realworld** set is still synthetic (no patient records). Each vignette includes a `source` field linking to a
 public symptom/red-flag description (e.g., MedlinePlus/CDC/NHS) that inspired the scenario. The intent is to improve
 *terminology coverage* (synonyms like “melena”, “thunderclap”) without claiming clinical validation.
+
+The **case_reports** set is intentionally **compact** and high-acuity. Each row links to an open-access case report (PMC) and
+paraphrases the presentation into a structured triage intake. This is **not** used for clinical claims; it is a
+**regression test** to ensure the workflow does not under-triage common red-flag patterns when terminology varies.
 
 The **adversarial** set is intentionally crafted to stress:
 
@@ -106,10 +115,22 @@ Run on all packaged sets combined:
 python -m clinicaflow.benchmarks.vignettes --set mega --print-markdown
 ```
 
+Run on all packaged sets + case reports:
+
+```bash
+python -m clinicaflow.benchmarks.vignettes --set ultra --print-markdown
+```
+
 Run on the realworld-inspired set:
 
 ```bash
 python -m clinicaflow.benchmarks.vignettes --set realworld --print-markdown
+```
+
+Run on the case-report-derived set:
+
+```bash
+python -m clinicaflow.benchmarks.vignettes --set case_reports --print-markdown
 ```
 
 Write JSON outputs:

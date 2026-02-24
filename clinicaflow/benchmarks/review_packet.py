@@ -16,11 +16,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--path", type=Path, help="Optional vignettes JSONL path (default: packaged resource)")
     parser.add_argument(
         "--set",
-        choices=["standard", "adversarial", "extended", "realworld", "all", "mega"],
+        choices=["standard", "adversarial", "extended", "realworld", "case_reports", "all", "mega", "ultra"],
         default="standard",
         help=(
             "Which packaged vignette set to use when --path is not provided (default: standard). "
-            "`all` = standard + adversarial; `mega` = standard + adversarial + extended + realworld."
+            "`all` = standard + adversarial; `mega` = standard + adversarial + extended + realworld; "
+            "`ultra` = mega + case_reports."
         ),
     )
     parser.add_argument("--limit", type=int, default=30, help="Limit number of cases (default: 30)")
@@ -40,7 +41,7 @@ def build_review_packet_markdown(
     lines.append("# ClinicaFlow — Clinician Review Packet (No PHI)")
     lines.append("")
     lines.append(
-        "This packet is generated from a **synthetic** vignette regression set (not real patients). "
+        "This packet is generated from a vignette regression set (synthetic and/or de-identified case-report-derived). "
         "Please do not add any real patient identifiers when providing feedback."
     )
     lines.append("")
@@ -67,7 +68,7 @@ def build_review_packet_markdown(
 
         lines.append(f"### {case_id}")
         lines.append("")
-        lines.append("**Intake (synthetic):**")
+        lines.append("**Intake (vignette):**")
         lines.append("")
         lines.append("```json")
         lines.append(json.dumps(case_input, indent=2, ensure_ascii=False))

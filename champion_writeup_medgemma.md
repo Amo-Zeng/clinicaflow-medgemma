@@ -117,6 +117,9 @@ Intake → Structuring → Reasoning → Evidence/Policy → Safety/Escalation �
 
 - CLI: `python -m clinicaflow --input examples/sample_case.json --pretty`
 - Local demo (one-click): `bash scripts/demo_one_click.sh`
+  - If port `8000` is busy, the script auto-selects a free port and prints the correct URL. To stop an existing local ClinicaFlow server on `8000`: `DEMO_KILL_EXISTING=1 bash scripts/demo_one_click.sh`.
+  - If UI buttons don’t respond (stale cached assets), open `/?reset=1` or click **Clear demo data** in the top bar.
+  - Recording-friendly: `DEMO_RECORD=1 bash scripts/demo_one_click.sh` (auto-start Director overlay + resets local-only demo storage).
   - UI: ClinicaFlow Console at `/` (triage + checklist with action provenance tags + printable report + workspace + regression + governance + failure packet export + clinician review + audit bundle download)
   - API: `POST /triage` / `POST /triage_stream`, `POST /audit_bundle`, `POST /judge_pack`, `GET /doctor`, `GET /policy_pack`, `GET /bench/vignettes`
   - With real MedGemma via vLLM (GPU machine): `REQUIRE_MEDGEMMA=1 MEDGEMMA_MODEL='<HF_ID_OR_LOCAL_PATH>' bash scripts/demo_one_click.sh`
@@ -143,12 +146,13 @@ python -m clinicaflow.benchmarks.synthetic --seed 17 --n 220 --print-markdown
 
 ### Results (clinical vignette regression sets)
 
-To complement the generator-based benchmark, we ship **three synthetic vignette regression sets** with a transparent labeling rubric to catch under-triage regressions:
+To complement the generator-based benchmark, we ship **vignette regression sets** (synthetic and de-identified case-report-derived) with a transparent labeling rubric to catch under-triage regressions:
 
 - `standard` (n=30): demo-ready core patterns
 - `adversarial` (n=20): abbrev/negation/injection-like strings + Unicode edge cases
 - `extended` (n=100): broader coverage across cardiopulmonary/neuro/syncope/GI/OB/sepsis patterns
 - `realworld` (n=24): terminology coverage + source-linked public symptom inspirations (still synthetic; no patient data)
+- `case_reports` (n=50): de-identified paraphrases from **open-access case reports** (linked per-row; used only for regression, not clinical claims)
 
 Rubric details: `docs/VIGNETTE_REGRESSION.md`
 
@@ -208,6 +212,20 @@ python -m clinicaflow.benchmarks.vignettes --set realworld --print-markdown
 | Under-triage rate (gold urgent/critical → predicted routine) | `0.0%` | `0.0%` |
 | Over-triage rate (gold routine → predicted urgent/critical) | `75.0%` | `0.0%` |
 
+#### Case reports (n=50, de-identified paraphrases)
+
+Reproduce exactly with:
+
+```bash
+python -m clinicaflow.benchmarks.vignettes --set case_reports --print-markdown
+```
+
+| Metric | Baseline | ClinicaFlow |
+|---|---:|---:|
+| Red-flag recall (category-level) | `44.0%` | `100.0%` |
+| Under-triage rate (gold urgent/critical → predicted routine) | `48.0%` | `0.0%` |
+| Over-triage rate (gold routine → predicted urgent/critical) | `0.0%` | `0.0%` |
+
 #### Combined (mega, n=174)
 
 Reproduce exactly with:
@@ -221,6 +239,42 @@ python -m clinicaflow.benchmarks.vignettes --set mega --print-markdown
 | Red-flag recall (category-level) | `53.3%` | `100.0%` |
 | Under-triage rate (gold urgent/critical → predicted routine) | `41.3%` | `0.0%` |
 | Over-triage rate (gold routine → predicted urgent/critical) | `47.4%` | `0.0%` |
+
+#### Combined (ultra = mega + case_reports, n=224)
+
+Reproduce exactly with:
+
+```bash
+python -m clinicaflow.benchmarks.vignettes --set ultra --print-markdown
+```
+
+| Metric | Baseline | ClinicaFlow |
+|---|---:|---:|
+| Red-flag recall (category-level) | `51.0%` | `100.0%` |
+| Under-triage rate (gold urgent/critical → predicted routine) | `42.9%` | `0.0%` |
+| Over-triage rate (gold routine → predicted urgent/critical) | `47.4%` | `0.0%` |
+
+### Ablation (why multi-agent ≠ “just an LLM”)
+
+To make the evaluation story explicit, we include an **ablation benchmark** that compares:
+
+- `baseline`: naive vitals/keyword heuristic
+- `reasoning_only`: toy differential-driven tier (intentionally unsafe; **no deterministic safety gate**)
+- `safety_only`: deterministic safety gate (no evidence/citations/communication)
+- `full`: full pipeline (adds policy/evidence + communication + audit trace)
+
+Reproduce exactly with:
+
+```bash
+python -m clinicaflow.benchmarks.ablation --set ultra --print-markdown
+```
+
+| Variant | Red-flag recall | Under-triage | Over-triage | Avg actions | Avg citations | Completeness (0–5) |
+|---|---:|---:|---:|---:|---:|---:|
+| `baseline` | `51.0%` | `42.9%` | `47.4%` | `0.00` | `0.00` | `1.54` |
+| `reasoning_only` | `43.6%` | `57.1%` | `0.0%` | `0.00` | `0.00` | `2.39` |
+| `safety_only` | `100.0%` | `0.0%` | `0.0%` | `3.28` | `0.00` | `2.82` |
+| `full` | `100.0%` | `0.0%` | `0.0%` | `7.90` | `0.87` | `4.90` |
 
 ### Clinician review (qualitative)
 

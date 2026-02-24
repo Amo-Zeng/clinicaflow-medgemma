@@ -61,6 +61,142 @@ function updatePhiWarning(intake) {
   setText("phiWarnDetail", hits.length ? `Detected: ${hits.join(", ")}` : "");
 }
 
+function intakeSignature(intake) {
+  try {
+    if (!intake || typeof intake !== "object") return "";
+    const vitals = intake.vitals && typeof intake.vitals === "object" ? intake.vitals : {};
+    const payload = {
+      chief_complaint: String(intake.chief_complaint || "").trim(),
+      history: String(intake.history || "").trim(),
+      vitals: {
+        heart_rate: vitals.heart_rate ?? null,
+        systolic_bp: vitals.systolic_bp ?? null,
+        diastolic_bp: vitals.diastolic_bp ?? null,
+        spo2: vitals.spo2 ?? null,
+        temperature_c: vitals.temperature_c ?? null,
+        respiratory_rate: vitals.respiratory_rate ?? null,
+      },
+      image_descriptions: Array.isArray(intake.image_descriptions) ? intake.image_descriptions.map((x) => String(x || "")) : [],
+      prior_notes: Array.isArray(intake.prior_notes) ? intake.prior_notes.map((x) => String(x || "")) : [],
+    };
+    return JSON.stringify(payload);
+  } catch (e) {
+    return "";
+  }
+}
+
+function updateCaseMetaEdited(intake) {
+  if (!state.lastCaseMeta) return;
+  const before = String(state.lastCaseMetaIntakeSig || "");
+  const now = intakeSignature(intake);
+  state.lastCaseMetaEdited = Boolean(before && now && before !== now);
+  renderCaseSource();
+}
+
+function exportCaseMeta() {
+  if (!state.lastCaseMeta || typeof state.lastCaseMeta !== "object") return null;
+  return { ...state.lastCaseMeta, user_edited: Boolean(state.lastCaseMetaEdited) };
+}
+
+function setCaseMeta(meta, intake) {
+  const incoming = meta && typeof meta === "object" ? meta : null;
+  const incomingEdited = Boolean(incoming && incoming.user_edited);
+  state.lastCaseMeta = incoming;
+  state.lastCaseMetaIntakeSig = state.lastCaseMeta ? intakeSignature(intake) : null;
+  state.lastCaseMetaEdited = incomingEdited;
+  renderCaseSource();
+}
+
+function renderCaseSource() {
+  const root = $("caseSource");
+  const body = $("caseSourceBody");
+  if (!root || !body) return;
+
+  const meta = state.lastCaseMeta;
+  body.innerHTML = "";
+
+  if (!meta) {
+    root.classList.add("hidden");
+    return;
+  }
+
+  root.classList.remove("hidden");
+
+  const vignette = meta.vignette && typeof meta.vignette === "object" ? meta.vignette : {};
+  const source = meta.source && typeof meta.source === "object" ? meta.source : {};
+
+  const setName = String(vignette.set || "").trim();
+  const caseId = String(vignette.id || "").trim();
+  const slug = setName && caseId ? `${setName}:${caseId}` : caseId || setName;
+  if (slug) {
+    const line = document.createElement("div");
+    line.className = "row";
+    line.style.marginTop = "0";
+
+    const left = document.createElement("span");
+    left.className = "mono";
+    left.textContent = `vignette: ${slug}`;
+    line.appendChild(left);
+
+    if (state.lastCaseMetaEdited) {
+      const chip = document.createElement("span");
+      chip.className = "chip warn";
+      chip.textContent = "edited";
+      chip.title = "Intake appears modified after loading this vignette.";
+      line.appendChild(chip);
+    }
+
+    body.appendChild(line);
+  }
+
+  const title = String(source.title || "").trim();
+  const url = String(source.url || "").trim();
+  const note = String(source.note || "").trim();
+  const type = String(source.type || "").trim();
+
+  if (title || url) {
+    const line = document.createElement("div");
+    if (type) {
+      const chip = document.createElement("span");
+      chip.className = "chip";
+      chip.textContent = type;
+      line.appendChild(chip);
+      line.appendChild(document.createTextNode(" "));
+    }
+
+    if (url) {
+      const a = document.createElement("a");
+      a.href = url;
+      a.target = "_blank";
+      a.rel = "noreferrer";
+      a.textContent = title || url;
+      line.appendChild(a);
+    } else {
+      const span = document.createElement("span");
+      span.textContent = title;
+      line.appendChild(span);
+    }
+    body.appendChild(line);
+  }
+
+  if (note) {
+    const line = document.createElement("div");
+    line.className = "small muted";
+    line.style.marginTop = "6px";
+    line.textContent = note;
+    body.appendChild(line);
+  }
+
+  const rationale = String(meta.rationale || "").trim();
+  if (rationale) {
+    const line = document.createElement("div");
+    line.className = "small muted";
+    line.style.marginTop = "6px";
+    line.textContent = `Labeling rationale: ${rationale}`;
+    body.appendChild(line);
+  }
+}
+
 function parseLines(value) {
   return String(value || "")
     .split(/\r?\n/g)
@@ -127,6 +263,9 @@ const state = {
   safetyRules: null,
   imageDataUrls: [],
   lastIntake: null,
+  lastCaseMeta: null,
+  lastCaseMetaIntakeSig: null,
+  lastCaseMetaEdited: false,
   lastResult: null,
   lastRequestId: null,
   lastActionChecklist: null,
@@ -1381,7 +1520,8 @@ function updateNotePreview() {
     return;
   }
   try {
-    el.textContent = buildNoteMarkdown(state.lastIntake, state.lastResult, state.lastActionChecklist).trim() + "\n";
+    el.textContent =
+      buildNoteMarkdown(state.lastIntake, state.lastResult, state.lastActionChecklist, state.lastCaseMeta).trim() + "\n";
   } catch (e) {
     el.textContent = `Error building note: ${e}`;
   }
@@ -2831,9 +2971,10 @@ async function loadSafetyRules() {
 function renderRulesTab() {
   const meta = $("rulesMeta");
   const triggerBody = $("rulesTriggerBody");
+  const vitalsBody = $("rulesVitalsBody");
   const keywordBody = $("rulesKeywordBody");
   const pre = $("rulesJson");
-  if (!meta && !triggerBody && !keywordBody && !pre) return;
+  if (!meta && !triggerBody && !vitalsBody && !keywordBody && !pre) return;
 
   const payload = state.safetyRules;
   const filter = String($("rulesFilter")?.value || "")
@@ -2841,6 +2982,25 @@ function renderRulesTab() {
     .toLowerCase();
 
   if (pre) pre.textContent = fmtJson(payload || {});
+
+  function evidenceHtml(value) {
+    const rows = Array.isArray(value) ? value : [];
+    const links = rows
+      .map((ev) => {
+        if (!ev || typeof ev !== "object") return "";
+        const title = String(ev.title || "").trim();
+        const url = String(ev.url || "").trim();
+        const label = escapeHtml(title || url);
+        if (!label) return "";
+        const href = escapeHtml(url);
+        if (url && /^https?:\/\//.test(url)) {
+          return `<a href="${href}" target="_blank" rel="noreferrer">${label}</a>`;
+        }
+        return label;
+      })
+      .filter((x) => x);
+    return links.length ? links.join("<br />") : `<span class="muted">—</span>`;
+  }
 
   if (meta) {
     meta.innerHTML = "";
@@ -2866,12 +3026,13 @@ function renderRulesTab() {
     const triggers = Array.isArray(payload?.safety_trigger_catalog) ? payload.safety_trigger_catalog : [];
     const rows = triggers.filter((t) => {
       if (!filter) return true;
-      const s = `${t?.id || ""} ${t?.label || ""} ${t?.severity || ""} ${t?.detail || ""}`.toLowerCase();
+      const ev = Array.isArray(t?.evidence) ? t.evidence.map((x) => `${x?.title || ""} ${x?.url || ""}`).join(" ") : "";
+      const s = `${t?.id || ""} ${t?.label || ""} ${t?.severity || ""} ${t?.detail || ""} ${ev}`.toLowerCase();
       return s.includes(filter);
     });
     if (!rows.length) {
       const tr = document.createElement("tr");
-      tr.innerHTML = `<td class="muted" colspan="3">${payload ? "(no matching rules)" : "Click Load to fetch rules."}</td>`;
+      tr.innerHTML = `<td class="muted" colspan="4">${payload ? "(no matching rules)" : "Click Load to fetch rules."}</td>`;
       triggerBody.appendChild(tr);
     } else {
       rows.forEach((t) => {
@@ -2879,6 +3040,7 @@ function renderRulesTab() {
         const label = String(t?.label || "").trim();
         const sev = String(t?.severity || "").trim().toLowerCase();
         const detail = String(t?.detail || "").trim();
+        const evHtml = evidenceHtml(t?.evidence);
 
         const tr = document.createElement("tr");
         const sevPill = document.createElement("span");
@@ -2890,9 +3052,40 @@ function renderRulesTab() {
           <td class="mono">${escapeHtml(label || id || "(rule)")}${id && label && id !== label ? ` <span class="muted">(${escapeHtml(id)})</span>` : ""}</td>
           <td class="sev"></td>
           <td class="small">${escapeHtml(detail || "—")}</td>
+          <td class="small">${evHtml}</td>
         `;
         tr.querySelector(".sev")?.appendChild(sevPill);
         triggerBody.appendChild(tr);
+      });
+    }
+  }
+
+  if (vitalsBody) {
+    vitalsBody.innerHTML = "";
+    const vitals = Array.isArray(payload?.vitals_red_flags) ? payload.vitals_red_flags : [];
+    const rows = vitals.filter((t) => {
+      if (!filter) return true;
+      const ev = Array.isArray(t?.evidence) ? t.evidence.map((x) => `${x?.title || ""} ${x?.url || ""}`).join(" ") : "";
+      const s = `${t?.id || ""} ${t?.label || ""} ${t?.condition || ""} ${ev}`.toLowerCase();
+      return s.includes(filter);
+    });
+    if (!rows.length) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td class="muted" colspan="3">${payload ? "(no matching vitals triggers)" : "Click Load to fetch rules."}</td>`;
+      vitalsBody.appendChild(tr);
+    } else {
+      rows.forEach((t) => {
+        const id = String(t?.id || "").trim();
+        const label = String(t?.label || "").trim();
+        const cond = String(t?.condition || "").trim();
+        const evHtml = evidenceHtml(t?.evidence);
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td class="mono">${escapeHtml(label || id || "(vitals)")}${id && label && id !== label ? ` <span class="muted">(${escapeHtml(id)})</span>` : ""}</td>
+          <td class="mono">${escapeHtml(cond || "—")}</td>
+          <td class="small">${evHtml}</td>
+        `;
+        vitalsBody.appendChild(tr);
       });
     }
   }
@@ -2962,26 +3155,41 @@ async function loadPresets() {
   await addGroup("standard", "Vignettes (standard)");
   await addGroup("adversarial", "Vignettes (adversarial)");
   await addGroup("extended", "Vignettes (extended)");
+  await addGroup("realworld", "Vignettes (realworld)");
+  await addGroup("case_reports", "Vignettes (case reports)");
 }
 
 async function loadPreset() {
   setError("intakeError", "");
   const id = $("presetSelect").value;
   let intake = null;
+  let caseMeta = null;
   if (id === "sample") {
     intake = await fetchJson("/example");
+    caseMeta = null;
   } else if (id.startsWith("vignette:")) {
     const parts = id.split(":");
     const setName = parts[1] || "standard";
     const vid = parts.slice(2).join(":");
     const resp = await fetchJson(`/vignettes/${encodeURIComponent(vid)}?set=${encodeURIComponent(setName)}`);
     intake = resp.input || resp;
+    const source = resp && typeof resp.source === "object" ? resp.source : null;
+    const rationale = String(resp?.rationale || "").trim();
+    if ((source && Object.keys(source || {}).length) || rationale) {
+      caseMeta = { vignette: { set: setName, id: vid }, source, rationale };
+    }
   } else {
     const resp = await fetchJson(`/vignettes/${encodeURIComponent(id)}`);
     intake = resp.input || resp;
+    const source = resp && typeof resp.source === "object" ? resp.source : null;
+    const rationale = String(resp?.rationale || "").trim();
+    if ((source && Object.keys(source || {}).length) || rationale) {
+      caseMeta = { vignette: { set: String(resp?.set || "").trim() || "standard", id }, source, rationale };
+    }
   }
 
   state.lastIntake = intake;
+  setCaseMeta(caseMeta, intake);
   fillFormFromIntake(intake);
   $("intakeJson").value = fmtJson(intakeForJsonView(intake));
   updatePhiWarning(intake);
@@ -3263,6 +3471,7 @@ async function runTriage() {
     return;
   }
 
+  updateCaseMetaEdited(intake);
   updatePhiWarning(intake);
   intake = attachImagesToIntake(intake);
   state.lastIntake = intake;
@@ -3406,7 +3615,7 @@ function downloadText(filename, text, mime) {
   URL.revokeObjectURL(url);
 }
 
-function buildNoteMarkdown(intake, result, checklist) {
+function buildNoteMarkdown(intake, result, checklist, caseMeta) {
   const reasoning = traceOutput(result, "multimodal_reasoning");
   const evidence = traceOutput(result, "evidence_policy");
   const safety = traceOutput(result, "safety_escalation");
@@ -3447,6 +3656,29 @@ function buildNoteMarkdown(intake, result, checklist) {
   if (comm.communication_backend_skipped_reason)
     lines.push(`- communication_backend_skipped_reason: ${String(comm.communication_backend_skipped_reason).trim()}`);
   lines.push("");
+
+  const cm = caseMeta && typeof caseMeta === "object" ? caseMeta : null;
+  if (cm) {
+    const vignette = cm.vignette && typeof cm.vignette === "object" ? cm.vignette : {};
+    const source = cm.source && typeof cm.source === "object" ? cm.source : {};
+    const setName = String(vignette.set || "").trim();
+    const caseId = String(vignette.id || "").trim();
+    const slug = setName && caseId ? `${setName}:${caseId}` : caseId || setName;
+    const title = String(source.title || "").trim();
+    const url = String(source.url || "").trim();
+    const note = String(source.note || "").trim();
+    const rationale = String(cm.rationale || "").trim();
+    const edited = Boolean(cm.user_edited);
+
+    lines.push("## Case provenance (vignette)");
+    if (slug) lines.push(`- vignette: ${slug}`);
+    if (title) lines.push(`- source_title: ${title}`);
+    if (url) lines.push(`- source_url: ${url}`);
+    if (note) lines.push(`- source_note: ${note}`);
+    if (rationale) lines.push(`- vignette_rationale: ${rationale}`);
+    if (edited) lines.push("- user_edited: true");
+    lines.push("");
+  }
   lines.push("## Intake (synthetic/demo)");
   lines.push(`- chief_complaint: ${(intake.chief_complaint || "").trim()}`);
   if ((intake.history || "").trim()) lines.push(`- history: ${(intake.history || "").trim()}`);
@@ -3530,7 +3762,7 @@ function buildNoteMarkdown(intake, result, checklist) {
   return lines.join("\n").trim() + "\n";
 }
 
-function buildReportHtml(intake, result, checklist) {
+function buildReportHtml(intake, result, checklist, caseMeta) {
   const reasoning = traceOutput(result, "multimodal_reasoning");
   const evidence = traceOutput(result, "evidence_policy");
   const safety = traceOutput(result, "safety_escalation");
@@ -3592,6 +3824,30 @@ function buildReportHtml(intake, result, checklist) {
   if (vitals.temperature_c != null) vitalsParts.push(`Temp ${vitals.temperature_c}°C`);
   if (vitals.spo2 != null) vitalsParts.push(`SpO₂ ${vitals.spo2}%`);
   if (vitals.respiratory_rate != null) vitalsParts.push(`RR ${vitals.respiratory_rate}`);
+
+  const cm = caseMeta && typeof caseMeta === "object" ? caseMeta : null;
+  let caseMetaLis = "";
+  if (cm) {
+    const vignette = cm.vignette && typeof cm.vignette === "object" ? cm.vignette : {};
+    const source = cm.source && typeof cm.source === "object" ? cm.source : {};
+    const setName = String(vignette.set || "").trim();
+    const caseId = String(vignette.id || "").trim();
+    const slug = setName && caseId ? `${setName}:${caseId}` : caseId || setName;
+    const title = String(source.title || "").trim();
+    const url = String(source.url || "").trim();
+    const note = String(source.note || "").trim();
+    const rationale = String(cm.rationale || "").trim();
+    const edited = Boolean(cm.user_edited);
+    if (slug) caseMetaLis += `<li>vignette: <span class="mono">${escapeHtml(slug)}</span></li>`;
+    if (title || url) {
+      const label = escapeHtml(title || url);
+      const href = escapeHtml(url);
+      caseMetaLis += url ? `<li>source: <a href="${href}" target="_blank" rel="noreferrer">${label}</a></li>` : `<li>source: ${label}</li>`;
+    }
+    if (note) caseMetaLis += `<li class="muted">source_note: ${escapeHtml(note)}</li>`;
+    if (rationale) caseMetaLis += `<li class="muted">labeling_rationale: ${escapeHtml(rationale)}</li>`;
+    if (edited) caseMetaLis += `<li><span class="pill risk-urgent">edited</span> intake modified after loading vignette.</li>`;
+  }
 
   const actions =
     Array.isArray(checklist) && checklist.length
@@ -3742,6 +3998,7 @@ function buildReportHtml(intake, result, checklist) {
               : ""
           }
           ${vitalsParts.length ? `<li>vitals: <span class="mono">${escapeHtml(vitalsParts.join(", "))}</span></li>` : ""}
+          ${caseMetaLis}
         </ul>
       </div>
 
@@ -3839,7 +4096,7 @@ function downloadReportHtml() {
     return;
   }
   const requestId = state.lastRequestId || state.lastResult.request_id || "run";
-  const html = buildReportHtml(state.lastIntake, state.lastResult, state.lastActionChecklist);
+  const html = buildReportHtml(state.lastIntake, state.lastResult, state.lastActionChecklist, exportCaseMeta());
   downloadText(`clinicaflow_report_${requestId}.html`, html, "text/html; charset=utf-8");
   setText("statusLine", "Downloaded report.html");
 }
@@ -3850,7 +4107,7 @@ function printReportHtml() {
     setError("runError", "Run a triage case first (so intake + result are available).");
     return;
   }
-  const html = buildReportHtml(state.lastIntake, state.lastResult, state.lastActionChecklist);
+  const html = buildReportHtml(state.lastIntake, state.lastResult, state.lastActionChecklist, exportCaseMeta());
   const w = window.open("", "_blank");
   if (!w) {
     setError("runError", "Popup blocked. Use Download report.html instead.");
@@ -3885,6 +4142,7 @@ async function downloadAuditBundle(redact) {
     intake: state.lastIntake,
     result: state.lastResult,
     checklist: state.lastActionChecklist || [],
+    case_meta: exportCaseMeta(),
   };
 
   const resp = await fetch(`/audit_bundle${qs}`, {
@@ -3934,6 +4192,7 @@ async function downloadJudgePack() {
     intake: state.lastIntake,
     result: state.lastResult,
     checklist: state.lastActionChecklist || [],
+    case_meta: exportCaseMeta(),
   };
 
   const resp = await fetch(`/judge_pack?set=mega&redact=1&include_synthetic=1`, {
@@ -3984,6 +4243,7 @@ async function downloadFhirBundle() {
       intake: state.lastIntake,
       result: state.lastResult,
       checklist: state.lastActionChecklist || [],
+      case_meta: exportCaseMeta(),
     };
     const { data, headers } = await postJson(
       `/fhir_bundle?redact=1`,
@@ -4879,6 +5139,13 @@ async function loadVignetteById(caseId, opts) {
     const resp = await fetchJson(`/vignettes/${encodeURIComponent(caseId)}?set=${encodeURIComponent(setName)}`);
     const intake = resp.input || resp;
     state.lastIntake = intake;
+    const source = resp && resp.source && typeof resp.source === "object" ? resp.source : null;
+    const rationale = String(resp?.rationale || "").trim();
+    if ((source && Object.keys(source).length) || rationale) {
+      setCaseMeta({ vignette: { set: setName, id: caseId }, source, rationale }, intake);
+    } else {
+      setCaseMeta(null, intake);
+    }
     fillFormFromIntake(intake);
     $("intakeJson").value = fmtJson(intakeForJsonView(intake));
     setTab("triage");
@@ -5465,7 +5732,7 @@ function workspaceItemChecklist(item) {
 function workspaceDownloadReport(item) {
   if (!item?.intake || !item?.result) return;
   const req = item.result.request_id || item.id || "run";
-  const html = buildReportHtml(item.intake, item.result, workspaceItemChecklist(item));
+  const html = buildReportHtml(item.intake, item.result, workspaceItemChecklist(item), item.case_meta || null);
   downloadText(`clinicaflow_report_${req}.html`, html, "text/html; charset=utf-8");
   setText("wsStatus", "Downloaded report.html");
 }
@@ -5473,7 +5740,7 @@ function workspaceDownloadReport(item) {
 function workspaceDownloadNote(item) {
   if (!item?.intake || !item?.result) return;
   const req = item.result.request_id || item.id || "run";
-  const md = buildNoteMarkdown(item.intake, item.result, workspaceItemChecklist(item));
+  const md = buildNoteMarkdown(item.intake, item.result, workspaceItemChecklist(item), item.case_meta || null);
   downloadText(`clinicaflow_note_${req}.md`, md, "text/markdown; charset=utf-8");
   setText("wsStatus", "Downloaded note.md");
 }
@@ -5967,7 +6234,7 @@ function stripImagesForWorkspace(intake) {
   return out;
 }
 
-function workspaceAdd({ intake, result, checklist }) {
+function workspaceAdd({ intake, result, checklist, case_meta }) {
   const items = loadWorkspaceItems();
   const now = new Date().toISOString();
   const id = newLocalId();
@@ -5978,6 +6245,7 @@ function workspaceAdd({ intake, result, checklist }) {
     intake: stripImagesForWorkspace(intake || {}),
     result: result || null,
     checklist: checklist || null,
+    case_meta: case_meta && typeof case_meta === "object" ? case_meta : null,
     status,
   });
   saveWorkspaceItems(items);
@@ -6997,12 +7265,12 @@ function wireEvents() {
   $("copyPatient").addEventListener("click", () => copyText($("patientSummary").textContent || "", "Copied precautions."));
   $("copyNote")?.addEventListener("click", () => {
     if (!state.lastIntake || !state.lastResult) return;
-    const md = buildNoteMarkdown(state.lastIntake, state.lastResult, state.lastActionChecklist);
+    const md = buildNoteMarkdown(state.lastIntake, state.lastResult, state.lastActionChecklist, exportCaseMeta());
     copyText(md, "Copied note.md");
   });
   $("downloadNote").addEventListener("click", () => {
     if (!state.lastIntake || !state.lastResult) return;
-    const md = buildNoteMarkdown(state.lastIntake, state.lastResult, state.lastActionChecklist);
+    const md = buildNoteMarkdown(state.lastIntake, state.lastResult, state.lastActionChecklist, exportCaseMeta());
     const req = state.lastRequestId || state.lastResult.request_id || "run";
     downloadText(`clinicaflow_note_${req}.md`, md, "text/markdown");
     setText("statusLine", "Downloaded note.md");
@@ -7020,6 +7288,8 @@ function wireEvents() {
       const beforeImages = [...(state.imageDataUrls || [])];
       const intake = JSON.parse($("intakeJson").value || "{}");
       fillFormFromIntake(intake);
+      // JSON pastes are treated as user-provided; clear any previous vignette provenance.
+      setCaseMeta(null, intake);
       // If JSON doesn't explicitly include images, preserve current uploads.
       if (!("image_data_urls" in (intake || {})) && !("images" in (intake || {}))) {
         setImages(beforeImages);
@@ -7036,6 +7306,7 @@ function wireEvents() {
     try {
       const intake = buildIntakeFromForm();
       $("intakeJson").value = fmtJson(intakeForJsonView(intake));
+      updateCaseMetaEdited(intake);
       updatePhiWarning(intake);
       setText("statusLine", "Updated JSON from form.");
       setError("intakeError", "");
@@ -7354,7 +7625,8 @@ function wireEvents() {
     try {
       const intake = getIntakeFromUiForWorkspace();
       if (!String(intake.chief_complaint || "").trim()) throw new Error("Chief complaint is required.");
-      workspaceAdd({ intake, result: null });
+      updateCaseMetaEdited(intake);
+      workspaceAdd({ intake, result: null, case_meta: exportCaseMeta() });
     } catch (e) {
       setError("wsError", e);
     }
@@ -7366,7 +7638,12 @@ function wireEvents() {
       setError("wsError", "Run triage first so the output can be saved.");
       return;
     }
-    workspaceAdd({ intake: state.lastIntake, result: state.lastResult, checklist: state.lastActionChecklist });
+    workspaceAdd({
+      intake: state.lastIntake,
+      result: state.lastResult,
+      checklist: state.lastActionChecklist,
+      case_meta: exportCaseMeta(),
+    });
   });
 
   $("wsExport")?.addEventListener("click", () => workspaceExport());
@@ -7431,6 +7708,7 @@ function wireEvents() {
     }
     const intake = item.intake || {};
     state.lastIntake = intake;
+    setCaseMeta(item.case_meta || null, intake);
     fillFormFromIntake(intake);
     $("intakeJson").value = fmtJson(intakeForJsonView(intake));
     setTab("triage");
@@ -7514,7 +7792,12 @@ function wireEvents() {
   $("demoDownloadReport")?.addEventListener("click", () => downloadReportHtml());
   $("demoSaveWorkspace")?.addEventListener("click", () => {
     if (!state.lastIntake || !state.lastResult) return;
-    workspaceAdd({ intake: state.lastIntake, result: state.lastResult, checklist: state.lastActionChecklist });
+    workspaceAdd({
+      intake: state.lastIntake,
+      result: state.lastResult,
+      checklist: state.lastActionChecklist,
+      case_meta: exportCaseMeta(),
+    });
     setTab("workspace");
   });
 

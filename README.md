@@ -46,6 +46,13 @@ One-click demo (starts the demo server; optionally starts a local MedGemma vLLM 
 bash scripts/demo_one_click.sh
 ```
 
+If port `8000` is already in use, the script will pick a free port and print the correct UI URL.
+If you want the script to stop an existing local ClinicaFlow server on `8000`, run:
+
+```bash
+DEMO_KILL_EXISTING=1 bash scripts/demo_one_click.sh
+```
+
 Static live demo (no backend server; calls public MedGemma Spaces from the browser):
 
 ```bash
@@ -239,7 +246,7 @@ OpenAI-compatible MedGemma endpoint during generation, run:
 SUBMISSION_USE_EXTERNAL=1 bash scripts/prepare_submission_pack.sh
 ```
 
-## Clinical Vignette Regression Sets (standard n=30, adversarial n=20, extended n=100)
+## Clinical Vignette Regression Sets (standard n=30, adversarial n=20, extended n=100, realworld n=24, case_reports n=50)
 
 A small **synthetic vignette** regression set is included to catch under-triage regressions and verify red-flag recall.
 
@@ -257,6 +264,24 @@ All sets combined:
 
 ```bash
 python -m clinicaflow.benchmarks.vignettes --set mega --print-markdown
+```
+
+Case-report-derived set (open-access sources; de-identified paraphrases):
+
+```bash
+python -m clinicaflow.benchmarks.vignettes --set case_reports --print-markdown
+```
+
+All packaged sets + case reports:
+
+```bash
+python -m clinicaflow.benchmarks.vignettes --set ultra --print-markdown
+```
+
+Ablation (why multi-agent ≠ “just an LLM”):
+
+```bash
+python -m clinicaflow.benchmarks.ablation --set ultra --print-markdown
 ```
 
 Labeling rubric + definitions: `docs/VIGNETTE_REGRESSION.md`
@@ -298,7 +323,7 @@ Console features:
 - Action checklist (progress stored locally)
 - Workspace tab (case board: statuses + one-click triage/re-run + local import/export)
 - Workspace filters + **shift handoff** export (`shift_handoff.md`)
-- Built-in vignette presets (standard/adversarial/extended)
+- Built-in vignette presets (standard/adversarial/extended/realworld/case_reports)
 - Agent trace viewer (audit-friendly)
 - Downloadable audit bundle zip (redacted/full; redacted bundles scrub obvious PHI patterns and record `phi_scrubbed_patterns` in `manifest.json`)
 - Downloadable **judge pack** zip (audit bundle + benchmarks + governance + ops snapshots)

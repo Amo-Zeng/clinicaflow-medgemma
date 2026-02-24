@@ -39,7 +39,7 @@ def validate_all() -> ValidationReport:
     policy_path_str = str(policy_path)
     errors.extend(validate_policy_pack(policy_path))
 
-    sets = ["standard", "adversarial", "extended", "realworld", "all", "mega"]
+    sets = ["standard", "adversarial", "extended", "realworld", "case_reports", "all", "mega", "ultra"]
     vignette_paths: dict[str, list[str]] = {}
     for set_name in sets:
         paths = [Path(p) for p in load_default_vignette_paths(set_name)]
