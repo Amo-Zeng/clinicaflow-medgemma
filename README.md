@@ -40,6 +40,12 @@ source .venv/bin/activate
 pip install -e .
 ```
 
+Preflight (tests + reproducible tables + submission pack):
+
+```bash
+bash scripts/verify_release.sh
+```
+
 One-click demo (starts the demo server; optionally starts a local MedGemma vLLM server if configured):
 
 ```bash

@@ -133,6 +133,12 @@ bash scripts/reproduce_writeup.sh
 
 Outputs deterministic benchmark tables + governance gate artifacts in `tmp/writeup_assets/`.
 
+**Preflight (tests + vignette validation + submission pack):**
+
+```bash
+bash scripts/verify_release.sh
+```
+
 ---
 
 ## Execution & communication (30%)
