@@ -15,7 +15,7 @@ ClinicaFlow is a **local-first**, **auditable** triage copilot that reframes tri
 - **Video (≤3 min):** https://youtu.be/dDdy8LIowQI  
 - **Public code repository:** https://github.com/Amo-Zeng/clinicaflow-medgemma  
 - **Public interactive live demo (bonus):** https://2agi.me/clinicaflow-medgemma/ (hard refresh if needed; fallback: https://amo-zeng.github.io/clinicaflow-medgemma/)  
-- **Streamlit Console demo (bonus):** https://share.streamlit.io/Amo-Zeng/clinicaflow-medgemma/main/streamlit_app.py  
+- **Streamlit Console demo (bonus):** https://clinicaflow-medgemma-console-2026.streamlit.app/  
 
 ---
 

@@ -3,7 +3,7 @@
 This repo is designed so a judge can evaluate the agentic workflow in **~3 minutes**.
 
 Public interactive live demo (static; no server): https://2agi.me/clinicaflow-medgemma/
-Streamlit Console demo (free UI wrapper): https://share.streamlit.io/Amo-Zeng/clinicaflow-medgemma/main/streamlit_app.py
+Streamlit Console demo (free UI wrapper): https://clinicaflow-medgemma-console-2026.streamlit.app/
 
 ## 1) Run the demo (CPU-only, deterministic)
 

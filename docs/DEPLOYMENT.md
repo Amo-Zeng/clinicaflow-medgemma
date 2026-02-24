@@ -96,13 +96,13 @@ This repo includes a judge-friendly Streamlit app entrypoint: `streamlit_app.py`
 1. Open Streamlit Community Cloud → Deploy.
 2. Use the GitHub URL mode and paste:
    `https://github.com/Amo-Zeng/clinicaflow-medgemma/blob/main/streamlit_app.py`
-3. (Optional) set an App URL slug like `clinicaflow-medgemma`.
+3. (Optional) set an App URL slug like `clinicaflow-medgemma-console-2026` (if available).
 
 Notes:
 
 - Streamlit runs a Streamlit UI (not the stdlib HTTP server), but it calls the same `clinicaflow` pipeline.
 - Because the repo is public, you can deploy via GitHub URL without granting GitHub “webhooks admin” OAuth scopes.
-- Live deployment (current): `https://share.streamlit.io/Amo-Zeng/clinicaflow-medgemma/main/streamlit_app.py`
+- Live deployment (current): `https://clinicaflow-medgemma-console-2026.streamlit.app/`
 
 ## Suggested environment variables
 

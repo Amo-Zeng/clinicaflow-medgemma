@@ -19,7 +19,7 @@ Show the demo UI (local):
   - with real MedGemma via vLLM (GPU machine): `REQUIRE_MEDGEMMA=1 MEDGEMMA_MODEL='<HF_ID_OR_LOCAL_PATH>' bash scripts/demo_one_click.sh`
 - Open `http://127.0.0.1:8000/`
 - Optional (bonus): show the public live demo (static) `https://2agi.me/clinicaflow-medgemma/`
-- Optional (bonus): show the Streamlit Console demo `https://share.streamlit.io/Amo-Zeng/clinicaflow-medgemma/main/streamlit_app.py`
+- Optional (bonus): show the Streamlit Console demo `https://clinicaflow-medgemma-console-2026.streamlit.app/`
 - Recommended: click **Director: off** (top-right) to enable the built-in Director mode overlay (teleprompter + step highlights).
 - Optional: open the **Demo** tab for the click-through runbook.
 - Optional: mention `GET /openapi.json`, `GET /metrics`, `GET /doctor`, and `X-Request-ID` for audit/ops readiness.

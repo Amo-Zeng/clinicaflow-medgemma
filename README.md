@@ -17,7 +17,7 @@ It implements a deterministic, auditable 5-agent triage pipeline aligned with th
 - Kaggle Writeup: https://www.kaggle.com/competitions/med-gemma-impact-challenge/writeups/new-writeup-1768960611416
 - Demo Video (≤3 min): https://youtu.be/dDdy8LIowQI
 - Public Live Demo (bonus): https://2agi.me/clinicaflow-medgemma/ (hard refresh if needed; fallback: https://amo-zeng.github.io/clinicaflow-medgemma/)
-- Streamlit Console Demo (bonus): https://share.streamlit.io/Amo-Zeng/clinicaflow-medgemma/main/streamlit_app.py
+- Streamlit Console Demo (bonus): https://clinicaflow-medgemma-console-2026.streamlit.app/
 - Public Repo: https://github.com/Amo-Zeng/clinicaflow-medgemma
 
 ## Repository Layout
