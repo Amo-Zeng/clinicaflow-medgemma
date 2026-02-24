@@ -10,12 +10,19 @@ ClinicaFlow is a **local-first**, **auditable** triage copilot that reframes tri
 
 ---
 
+## Judge fast path (60 seconds)
+
+1) Open the **Streamlit Console demo** → click **3-minute demo** → run the **critical chest pain** vignette.  
+2) Download **Judge pack.zip** and open:
+   - `case_meta.json` → vignette provenance (including open-access case-report source URLs for `case_reports`)  
+   - `manifest.json` → artifact hashes + redaction metadata  
+
 ## Required links (for judges)
 
 - **Video (≤3 min):** https://youtu.be/dDdy8LIowQI  
+- **Streamlit Console demo (recommended):** https://clinicaflow-medgemma-console-2026.streamlit.app/  
+- **Public interactive live demo (static; bonus):** https://amo-zeng.github.io/clinicaflow-medgemma/ (fallback: https://2agi.me/clinicaflow-medgemma/)  
 - **Public code repository:** https://github.com/Amo-Zeng/clinicaflow-medgemma  
-- **Public interactive live demo (bonus):** https://2agi.me/clinicaflow-medgemma/ (hard refresh if needed; fallback: https://amo-zeng.github.io/clinicaflow-medgemma/)  
-- **Streamlit Console demo (bonus):** https://clinicaflow-medgemma-console-2026.streamlit.app/  
 
 ---
 
@@ -124,6 +131,15 @@ bash scripts/demo_one_click.sh
 - governance report includes benchmark-derived **Ops SLO** stats (end-to-end p95 latency + per-agent errors)
 - **audit bundles** (redacted/full; redacted bundles scrub obvious PHI patterns and record `phi_scrubbed_patterns` in `manifest.json`) and **judge pack.zip** exports from the UI
 - minimal FHIR Bundle export (`/fhir_bundle`) for interoperability demos (also included as `fhir_bundle.json` inside audit bundles + judge packs)
+
+**MedGemma integration evidence pack (synthetic-only; optional):**
+
+```bash
+bash scripts/capture_medgemma_evidence.sh
+```
+
+Writes `tmp/medgemma_evidence/run_<timestamp>/` containing `doctor.json` (connectivity), `ping_reasoning.json`, and a few audit bundles
+generated using your configured MedGemma backend.
 
 **Reproducibility (one command):**
 

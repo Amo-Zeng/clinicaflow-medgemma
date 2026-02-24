@@ -550,7 +550,7 @@ def _about() -> None:
         - Repo: https://github.com/Amo-Zeng/clinicaflow-medgemma
         - Kaggle writeup: https://www.kaggle.com/competitions/med-gemma-impact-challenge/writeups/new-writeup-1768960611416
         - 3-minute demo video: https://youtu.be/dDdy8LIowQI
-        - Static live demo (GitHub Pages): https://2agi.me/clinicaflow-medgemma/
+        - Static live demo (GitHub Pages): https://amo-zeng.github.io/clinicaflow-medgemma/ (fallback: https://2agi.me/clinicaflow-medgemma/)
 
         This Streamlit app is a lightweight judge-friendly UI wrapper around the same `clinicaflow` pipeline.
         """,

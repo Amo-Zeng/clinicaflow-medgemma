@@ -26,6 +26,13 @@ Optional: verify the backend actually serves inference (no PHI):
 clinicaflow ping --which reasoning --pretty
 ```
 
+Optional: generate a small **evidence pack** (synthetic-only) that captures `doctor.json` + `ping` + a few audit bundles
+produced using the configured MedGemma backend:
+
+```bash
+bash scripts/capture_medgemma_evidence.sh
+```
+
 If you are running an already-hosted endpoint, set `CLINICAFLOW_REASONING_BACKEND=openai_compatible` and related env vars directly; the script will not override them.
 
 ## Free hosted MedGemma (demo-only; best-effort)

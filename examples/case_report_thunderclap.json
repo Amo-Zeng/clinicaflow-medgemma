@@ -1,0 +1,16 @@
+{
+  "chief_complaint": "Thunderclap headache: worst headache of life, sudden onset",
+  "history": "No prior migraine history. Vomited once.",
+  "demographics": {
+    "age": 47,
+    "sex": "female"
+  },
+  "vitals": {
+    "heart_rate": 92,
+    "systolic_bp": 154,
+    "diastolic_bp": 90,
+    "temperature_c": 36.8,
+    "spo2": 99,
+    "respiratory_rate": 18
+  }
+}

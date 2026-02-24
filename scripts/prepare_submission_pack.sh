@@ -61,6 +61,23 @@ else
   echo "[pack] No clinician review JSON found at reviews/clinician_reviews.json (skipping)."
 fi
 
+if [[ "${INCLUDE_MEDGEMMA_EVIDENCE:-0}" == "1" ]]; then
+  if [[ -d "tmp/medgemma_evidence" ]]; then
+    latest="$(ls -1dt tmp/medgemma_evidence/run_* 2>/dev/null | head -n 1 || true)"
+    if [[ -n "${latest:-}" && -d "${latest}" ]]; then
+      echo "[pack] Including MedGemma evidence pack: ${latest}"
+      mkdir -p "$OUT_DIR/medgemma_evidence"
+      cp -R "${latest}" "$OUT_DIR/medgemma_evidence/"
+    else
+      echo "[pack] INCLUDE_MEDGEMMA_EVIDENCE=1 but no runs found under tmp/medgemma_evidence/."
+      echo "[pack] Run: bash scripts/capture_medgemma_evidence.sh"
+    fi
+  else
+    echo "[pack] INCLUDE_MEDGEMMA_EVIDENCE=1 but tmp/medgemma_evidence/ not found."
+    echo "[pack] Run: bash scripts/capture_medgemma_evidence.sh"
+  fi
+fi
+
 echo "[pack] Copying key docs..."
 cp -f champion_writeup_medgemma.md "$OUT_DIR/champion_writeup_medgemma.md"
 if [[ -f "KAGGLE_WRITEUP.md" ]]; then cp -f KAGGLE_WRITEUP.md "$OUT_DIR/KAGGLE_WRITEUP.md"; fi

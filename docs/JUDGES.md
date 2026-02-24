@@ -2,8 +2,8 @@
 
 This repo is designed so a judge can evaluate the agentic workflow in **~3 minutes**.
 
-Public interactive live demo (static; no server): https://2agi.me/clinicaflow-medgemma/
-Streamlit Console demo (free UI wrapper): https://clinicaflow-medgemma-console-2026.streamlit.app/
+Streamlit Console demo (recommended): https://clinicaflow-medgemma-console-2026.streamlit.app/
+Public interactive live demo (static; no server): https://amo-zeng.github.io/clinicaflow-medgemma/ (fallback: https://2agi.me/clinicaflow-medgemma/)
 
 ## 1) Run the demo (CPU-only, deterministic)
 
@@ -63,6 +63,12 @@ REQUIRE_MEDGEMMA=1 MEDGEMMA_MODEL='<HF_ID_OR_LOCAL_PATH>' bash scripts/demo_one_
 ```
 
 The top-right backend badge should show `openai_compatible`.
+
+Optional: capture a small **MedGemma evidence pack** (synthetic-only; includes `doctor.json`, `ping`, and audit bundles):
+
+```bash
+bash scripts/capture_medgemma_evidence.sh
+```
 
 If you **don’t** have a GPU machine, you can try a **public Hugging Face Space** (Gradio) as a demo-only backend:
 
